@@ -1,0 +1,83 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
+
+type Config struct {
+	GeminiAPIKey     string
+	AppBaseURL       string
+	Port             string
+	DBPath           string
+	UploadDir        string
+	MaxUploadSize    int64
+	SessionCookieName string
+	SessionSecure    bool
+}
+
+func Load() (*Config, error) {
+	geminiAPIKey := os.Getenv("GOOGLE_API_KEY")
+	if geminiAPIKey == "" {
+		geminiAPIKey = os.Getenv("GEMINI_API_KEY")
+	}
+
+	cfg := &Config{
+		GeminiAPIKey:      geminiAPIKey,
+		AppBaseURL:        getEnvOrDefault("APP_BASE_URL", "http://localhost:8080"),
+		Port:              getEnvOrDefault("PORT", "8080"),
+		DBPath:            getEnvOrDefault("DB_PATH", "data/app.db"),
+		UploadDir:         getEnvOrDefault("UPLOAD_DIR", "data/uploads"),
+		MaxUploadSize:     getEnvAsInt64OrDefault("MAX_UPLOAD_SIZE", 10*1024*1024),
+		SessionCookieName: getEnvOrDefault("SESSION_COOKIE_NAME", "sid"),
+		SessionSecure:     getEnvAsBoolOrDefault("SESSION_SECURE", false),
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+func (c *Config) Validate() error {
+	if c.GeminiAPIKey == "" {
+		return fmt.Errorf("GEMINI_API_KEY or GOOGLE_API_KEY is required")
+	}
+	if c.DBPath == "" {
+		return fmt.Errorf("DB_PATH cannot be empty")
+	}
+	if c.UploadDir == "" {
+		return fmt.Errorf("UPLOAD_DIR cannot be empty")
+	}
+	if c.MaxUploadSize <= 0 {
+		return fmt.Errorf("MAX_UPLOAD_SIZE must be positive")
+	}
+	return nil
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvAsInt64OrDefault(key string, defaultValue int64) int64 {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvAsBoolOrDefault(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if boolValue, err := strconv.ParseBool(value); err == nil {
+			return boolValue
+		}
+	}
+	return defaultValue
+}

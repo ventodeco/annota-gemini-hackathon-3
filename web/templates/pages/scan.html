@@ -1,0 +1,80 @@
+{{define "scan"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Mobile-first PWA for OCR and annotation of Japanese book pages">
+    <title>Scan View</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous"></script>
+    
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <meta name="theme-color" content="#3b82f6">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <main class="container mx-auto px-4 py-8 max-w-4xl">
+        <div class="max-w-2xl mx-auto">
+            <h1 class="text-2xl font-bold mb-6 text-gray-900">Extracted Text</h1>
+            
+            <div id="ocr-status-container" hx-get="/scans/{{.Scan.ID}}" hx-trigger="every 2s" hx-swap="outerHTML" hx-target="this">
+                {{if .OCRResult}}
+                <div class="bg-white rounded-lg shadow p-6 mb-6">
+                    <div class="prose max-w-none">
+                        <p class="text-lg leading-relaxed text-gray-800 whitespace-pre-wrap" id="ocr-text">{{.OCRResult.RawText}}</p>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow p-6 mb-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-900">Select Text to Annotate</h2>
+                    <form hx-post="/scans/{{.Scan.ID}}/annotate" 
+                          hx-target="#annotation-result" 
+                          hx-swap="innerHTML"
+                          hx-indicator="#loading">
+                        <input type="hidden" name="selected_text" id="selected-text-input">
+                        <button type="button" 
+                                onclick="captureSelection()" 
+                                class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 transition-colors">
+                            Annotate Selected Text
+                        </button>
+                    </form>
+                </div>
+                
+                <div id="loading" class="htmx-indicator">
+                    {{template "loading.html" .}}
+                </div>
+                
+                <div id="annotation-result"></div>
+                {{else if eq .Scan.Status "failed"}}
+                <div class="bg-red-50 border border-red-200 rounded-lg p-6">
+                    <p class="text-red-800 font-semibold">OCR Processing Failed</p>
+                    <p class="text-red-700 mt-2">The OCR service encountered an error. Please check your API key and try uploading the image again.</p>
+                    <a href="/" class="mt-4 inline-block bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+                        Upload New Image
+                    </a>
+                </div>
+                {{else}}
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                    <p class="text-yellow-800">OCR processing in progress...</p>
+                    <div class="mt-4">
+                        <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-600"></div>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </main>
+    
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/service-worker.js')
+                    .catch(err => console.log('Service worker registration failed:', err));
+            });
+        }
+    </script>
+    <script src="/static/js/selection.js"></script>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,35 @@
+{{define "home"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Mobile-first PWA for OCR and annotation of Japanese book pages">
+    <title>Upload Image</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous"></script>
+    
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <meta name="theme-color" content="#3b82f6">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <main class="container mx-auto px-4 py-8 max-w-4xl">
+        <div class="max-w-md mx-auto">
+            <h1 class="text-3xl font-bold text-center mb-8 text-gray-900">Upload Book Page</h1>
+            
+            {{template "upload_form.html" .}}
+        </div>
+    </main>
+    
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/service-worker.js')
+                    .catch(err => console.log('Service worker registration failed:', err));
+            });
+        }
+    </script>
+</body>
+</html>
+{{end}}
