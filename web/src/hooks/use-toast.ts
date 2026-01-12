@@ -7,7 +7,7 @@ export type ToastProps = {
   title?: React.ReactNode
   description?: React.ReactNode
   action?: ToastActionElement
-  variant?: "default" | "destructive"
+  variant?: "default" | "destructive" | "success"
   duration?: number
 }
 

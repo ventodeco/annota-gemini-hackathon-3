@@ -12,6 +12,8 @@ const toastVariants = cva(
         default: "border bg-background text-foreground",
         destructive:
           "destructive group border-destructive bg-destructive text-destructive-foreground",
+        success:
+          "border-green-200 bg-green-50 text-green-900",
       },
     },
     defaultVariants: {
@@ -24,10 +26,17 @@ const Toast = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<"div"> & VariantProps<typeof toastVariants>
 >(({ className, variant, ...props }, ref) => {
+  const isSuccess = variant === "success"
   return (
     <div
       ref={ref}
-      className={cn(toastVariants({ variant }), "fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:max-w-[420px]", className)}
+      className={cn(
+        toastVariants({ variant }),
+        isSuccess
+          ? "fixed top-4 left-4 right-4 md:left-auto md:right-4 md:max-w-[420px]"
+          : "fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:max-w-[420px]",
+        className
+      )}
       {...props}
     />
   )
@@ -60,12 +69,13 @@ ToastDescription.displayName = "ToastDescription"
 
 const ToastClose = React.forwardRef<
   HTMLButtonElement,
-  React.ComponentPropsWithoutRef<"button">
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<"button"> & { variant?: "default" | "destructive" | "success" }
+>(({ className, variant, ...props }, ref) => (
   <button
     ref={ref}
     className={cn(
       "absolute right-2 top-2 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 group-hover:opacity-100 group-[.destructive]:text-red-300 group-[.destructive]:hover:text-red-50 group-[.destructive]:focus:ring-red-400 group-[.destructive]:focus:ring-offset-red-600",
+      variant === "success" && "text-green-700 hover:text-green-900 focus:ring-green-400",
       className
     )}
     {...props}

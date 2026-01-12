@@ -1,11 +1,13 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { motion } from 'framer-motion'
 import { useDrawerHeight, useDrawerGestures } from '@/hooks/useDrawerHeight'
 import { DrawerHeader } from './DrawerHeader'
 import { AnnotationContent } from './AnnotationContent'
 import { Button } from '@/components/ui/button'
-import { Bookmark } from 'lucide-react'
+import { Bookmark, BookmarkCheck } from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
+import { saveAnnotation, isAnnotationSaved, removeAnnotation } from '@/lib/storage'
 import type { Annotation } from '@/lib/types'
 
 interface AnnotationDrawerProps {
@@ -17,6 +19,8 @@ interface AnnotationDrawerProps {
 export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDrawerProps) {
   const { drawerState, expandDrawer, collapseDrawer } = useDrawerHeight()
   const { handleDragEnd } = useDrawerGestures(expandDrawer, collapseDrawer)
+  const { toast } = useToast()
+  const [isSaved, setIsSaved] = useState(false)
 
   useEffect(() => {
     if (isOpen && annotation) {
@@ -24,9 +28,46 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
     }
   }, [isOpen, annotation, collapseDrawer])
 
+  useEffect(() => {
+    if (annotation?.id) {
+      setIsSaved(isAnnotationSaved(annotation.id))
+    } else {
+      setIsSaved(false)
+    }
+  }, [annotation?.id])
+
   const handleSave = useCallback(() => {
-    console.log('Save annotation:', annotation?.id)
-  }, [annotation])
+    if (!annotation) {
+      return
+    }
+
+    try {
+      if (isSaved) {
+        removeAnnotation(annotation.id)
+        setIsSaved(false)
+        toast({
+          title: 'Annotation Removed',
+          description: 'The annotation has been removed from your saved items',
+          variant: 'default',
+        })
+      } else {
+        saveAnnotation(annotation)
+        setIsSaved(true)
+        toast({
+          title: 'Annotation Saved',
+          description: 'Your annotation has been saved successfully',
+          variant: 'success',
+        })
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save annotation'
+      toast({
+        title: 'Operation Failed',
+        description: errorMessage,
+        variant: 'destructive',
+      })
+    }
+  }, [annotation, isSaved, toast])
 
   const handleHeaderCollapse = useCallback(() => {
     if (drawerState === 'expanded') {
@@ -80,11 +121,25 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
               
               <Button
                 onClick={handleSave}
-                className="w-full h-12 bg-[#0F172A] text-white font-medium text-base shrink-0"
+                className={`w-full h-12 font-medium text-base shrink-0 ${
+                  isSaved
+                    ? 'bg-green-50 text-green-900 border border-green-200 hover:bg-green-100'
+                    : 'bg-[#0F172A] text-white'
+                }`}
                 size="lg"
+                disabled={!annotation}
               >
-                <Bookmark className="w-5 h-5 mr-2" />
-                Save Annotation
+                {isSaved ? (
+                  <>
+                    <BookmarkCheck className="w-5 h-5 mr-2" />
+                    Saved
+                  </>
+                ) : (
+                  <>
+                    <Bookmark className="w-5 h-5 mr-2" />
+                    Save Annotation
+                  </>
+                )}
               </Button>
             </div>
           )}
