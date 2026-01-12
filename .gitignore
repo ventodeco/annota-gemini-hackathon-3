@@ -50,3 +50,18 @@ Thumbs.db
 
 # Cursor
 .cursor/
+node_modules
+
+# Backend
+backend/data/
+backend/server
+backend/app
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Binary outputs
+server
+app

@@ -1,0 +1,1 @@
+{"name":"Gemini OCR+Annotation PWA","short_name":"OCR PWA","description":"Mobile-first PWA for OCR and annotation of Japanese book pages","start_url":"/","display":"standalone","background_color":"#ffffff","theme_color":"#3b82f6","lang":"en","scope":"/","icons":[{"src":"/vite.svg","sizes":"any","type":"image/svg+xml"}]}

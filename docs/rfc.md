@@ -1,7 +1,7 @@
-## RFC: Mobile-first PWA OCR+Annotation (Go + HTMX + Gemini)
+## RFC: Mobile-first PWA OCR+Annotation (Go + React + Gemini)
 
 ### Status
-Draft
+Active - React frontend with Go API backend
 
 ### Summary
 Build a **mobile-first PWA** that lets users **upload/take a photo of a Japanese book page**, runs **Gemini Flash OCR** to extract text, then lets users **highlight words/sentences** to get **contextual professional/work explanations** (meaning, usage example, when to use, word breakdown, alternative meanings).
@@ -9,7 +9,7 @@ Build a **mobile-first PWA** that lets users **upload/take a photo of a Japanese
 ### Goals
 - **Fast OCR**: image → readable text preview (target OCR success rate ≥ 85% per PRD)
 - **Core value loop**: highlight → annotation within ≤ 3 seconds on average (PRD)
-- **Mobile UX first**: HTMX-driven UI optimized for touch selection and quick iteration
+- **Mobile UX first**: React-driven UI optimized for touch selection and quick iteration
 - **Persistence**: scans and annotations persist across sessions (session-based in Phase0)
 
 ### Non-goals (Phase0)
@@ -44,14 +44,34 @@ Build a **mobile-first PWA** that lets users **upload/take a photo of a Japanese
 - User can highlight another phrase (loop)
 
 ### Architecture
+#### Monorepo Structure
+```
+gemini-hackathon/
+├── backend/          # Go API server
+│   ├── cmd/server/   # Application entry point
+│   ├── internal/     # Internal Go packages
+│   ├── migrations/   # Database migrations
+│   └── go.mod        # Go module definition
+├── web/              # React frontend
+│   ├── src/         # React source code
+│   ├── public/      # Static assets
+│   ├── dist/        # Build output (gitignored)
+│   └── package.json # Frontend dependencies
+├── docs/             # Documentation
+│   ├── rfc.md       # This file
+│   ├── prd.md       # Product requirements
+│   └── task.md      # Implementation tasks
+└── image/           # Test images
+```
+
 #### Components
-- **PWA client**: server-rendered HTML + HTMX partials, minimal JS only where required for mobile selection UX
-- **Go web server**: routes for upload, OCR, scan view, annotation generation; renders templates and HTMX fragments
+- **PWA client**: React SPA with shadcn/ui components, Tailwind CSS v4, optimized for mobile selection UX
+- **Go web server**: API backend serving JSON responses; serves React static files from `web/dist/` in production
 - **Gemini API client**: two calls
   - **OCR**: image → extracted text JSON
   - **Annotation**: extracted text + selection → structured annotation JSON
 - **SQLite**: metadata + OCR text + annotations (Phase0); users/bookmarks later
-- **File storage**: store uploaded images on disk (e.g. `data/uploads/`), DB stores path + hashes
+- **File storage**: store uploaded images on disk (e.g. `backend/data/uploads/`), DB stores path + hashes
 
 #### PWA strategy
 - `manifest.webmanifest` for installability
@@ -63,60 +83,70 @@ Build a **mobile-first PWA** that lets users **upload/take a photo of a Japanese
 - **Output format**: JSON-first prompts so backend can store and render reliably
 - **Prompt versioning**: store `prompt_version` with OCR/annotation for later iteration
 
-### API surface (proposed)
-- **GET /**: home/upload entry
-- **POST /scans**: multipart upload, create scan, start OCR, redirect to scan page
-- **GET /scans/{scanID}**: text preview + highlight UI (HTMX fragments for updates)
-- **POST /scans/{scanID}/annotate**: accepts selection payload, returns annotation fragment
+### API surface
+
+#### JSON API Endpoints
+- **POST /api/scans**: multipart upload, returns JSON `{"scanID": "...", "status": "uploaded", "createdAt": "..."}`
+- **GET /api/scans/{id}**: returns JSON `{"scan": {...}, "ocrResult": {...} | null, "status": "..."}`
+- **POST /api/scans/{id}/annotate**: accepts JSON `{"selectedText": "..."}`, returns annotation JSON
+- **GET /api/scans/{id}/image**: returns binary image data
 - **GET /healthz**: basic health check
+
+#### Static File Serving
+- **GET /** (and all non-API routes): serves React SPA from `web/dist/`
+- React Router handles client-side routing for all non-API paths
 
 ### Data model
 #### Diagrams
 ```mermaid
 flowchart LR
-  User[UserMobileBrowser] --> PWA[PWA_HTMX_UI]
-  PWA --> GoServer[GoWebServer]
-  GoServer --> SQLite[(SQLite)]
-  GoServer --> FileStore[(LocalFileStorage)]
-  GoServer --> Gemini[GeminiAPI]
+  User[UserMobileBrowser] --> ReactApp[React_PWA_App]
+  ReactApp --> GoAPI[Go_API_Server]
+  GoAPI --> SQLite[(SQLite)]
+  GoAPI --> FileStore[(LocalFileStorage)]
+  GoAPI --> Gemini[GeminiAPI]
+  
+  ReactApp -.->|Static_Assets| GoAPI
 ```
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant B as BrowserPWA
-  participant S as GoServer
+  participant R as ReactApp
+  participant S as GoAPIServer
   participant G as GeminiAPI
   participant D as SQLite
   participant F as FileStore
 
-  U->>B: SelectImageOrCapture
-  B->>S: POST_/scans(multipart_image)
+  U->>R: SelectImageOrCapture
+  R->>S: POST_/api/scans(multipart_image)
   S->>F: PersistImageFile
   S->>D: InsertScan+ImageMetadata
+  S-->>R: JSON{scanID,status}
   S->>G: OCR(image,ocr_prompt)
   G-->>S: OCR_JSON(extracted_text)
   S->>D: UpsertOCRResult
-  S-->>B: 302_/scans/{scanID}
-  B->>S: GET_/scans/{scanID}
-  S-->>B: TextPreviewHTML
+  R->>S: GET_/api/scans/{scanID}(polling)
+  S-->>R: JSON{scan,ocrResult,status}
+  R->>R: RenderTextPreview
 ```
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant B as BrowserPWA
-  participant S as GoServer
+  participant R as ReactApp
+  participant S as GoAPIServer
   participant G as GeminiAPI
   participant D as SQLite
 
-  U->>B: HighlightText
-  B->>S: POST_/scans/{scanID}/annotate(selection_payload)
+  U->>R: HighlightText
+  R->>S: POST_/api/scans/{scanID}/annotate{selectedText}
   S->>D: ReadOCRText
-  S->>G: Annotate(ocr_text,selection,annotation_prompt)
+  S->>G: Annotate(ocr_text,selection)
   G-->>S: Annotation_JSON
   S->>D: InsertAnnotation
-  S-->>B: AnnotationFragmentHTML(HTMX)
+  S-->>R: JSON_Annotation
+  R->>R: RenderAnnotationCard
 ```
 
 ```mermaid
@@ -293,13 +323,135 @@ CREATE INDEX IF NOT EXISTS idx_annotations_scan_id_created_at ON annotations(sca
 CREATE INDEX IF NOT EXISTS idx_bookmarks_user_id_created_at ON bookmarks(user_id, created_at);
 ```
 
+### Frontend Architecture
+
+#### React App Stack
+- **Package Manager**: Bun (fast installs, built-in test runner)
+- **Build Tool**: Vite (fast HMR, optimized production builds)
+- **Language**: TypeScript
+- **UI Framework**: React 18+
+- **Component Library**: shadcn/ui (Tailwind v4 compatible)
+- **Styling**: Tailwind CSS v4 (via `@tailwindcss/vite` plugin)
+- **Testing**: Vitest (with React Testing Library, target ≥80% coverage)
+- **Routing**: React Router v6
+- **Data Fetching**: TanStack Query (React Query) for API calls
+- **State Management**: React Query + Context API (minimal global state)
+- **PWA**: Vite PWA Plugin
+- **Form Handling**: React Hook Form
+
+#### Frontend Component Structure
+```
+web/src/
+├── pages/                    # Page components
+│   ├── HomePage.tsx
+│   ├── ScanPage.tsx
+│   └── NotFoundPage.tsx
+├── components/
+│   ├── ui/                  # shadcn/ui components
+│   ├── homepage/            # HomePage-specific components
+│   └── scanpage/            # ScanPage-specific components
+├── hooks/                    # Custom React hooks
+│   ├── useScan.ts
+│   ├── useAnnotation.ts
+│   └── useTextSelection.ts
+├── lib/                      # Utilities, API client, types
+│   ├── api.ts               # API client functions
+│   ├── types.ts             # TypeScript types
+│   └── utils.ts             # Utility functions
+└── test/                     # Test setup and utilities
+```
+
+#### Backend Package Structure
+```
+backend/
+├── cmd/server/              # Application entry point
+│   └── main.go              # HTTP server setup and routing
+├── internal/
+│   ├── config/              # Configuration loading
+│   ├── handlers/            # HTTP handlers (JSON API)
+│   ├── middleware/          # Session, logging middleware
+│   ├── models/              # Data models
+│   ├── storage/             # Database and file storage
+│   ├── gemini/              # Gemini API client
+│   └── testutil/            # Test helpers and mocks
+└── migrations/              # SQLite schema migrations
+```
+
+#### Build Integration
+
+**Development**:
+- React dev server runs on `http://localhost:5173` (Vite default)
+- Go server runs on `http://localhost:8080`
+- Vite proxy configured to forward `/api/*` to Go server
+- Run both: `cd web && bun run dev` (frontend) and `cd backend && go run cmd/server/main.go` (backend)
+
+**Production**:
+- React app builds to `web/dist/` (via `cd web && bun run build`)
+- Go server serves static files from `web/dist/` directory
+- Go server handles `/api/*` routes, everything else serves React app (SPA routing)
+- Build backend: `cd backend && go build -o ../server ./cmd/server`
+- Run: `./server` (from root directory)
+
+### Technology Stack Decisions
+
+#### Frontend: React + TypeScript + Vite
+
+**Why React**:
+- Rich ecosystem (shadcn/ui, React Query, etc.)
+- Excellent state management solutions
+- Component reusability and composition
+- Strong TypeScript support
+- Better mobile UX libraries and patterns
+- Modern tooling (Vite, HMR, etc.)
+- Easier to implement complex interactions
+- Large community and resources
+
+**Why TypeScript**:
+- Type safety for API contracts
+- Better IDE support and autocomplete
+- Catch errors at compile time
+- Improved maintainability
+
+**Why Vite**:
+- Fast HMR for development
+- Optimized production builds
+- Built-in PWA plugin support
+- Modern ES modules
+
+**Why shadcn/ui**:
+- Accessible components out of the box
+- Tailwind CSS v4 compatible
+- Mobile-optimized components
+- Easy customization
+
+#### Backend: Go
+
+**Why Go**:
+- Fast compilation and execution
+- Excellent standard library for HTTP servers
+- Simple concurrency model (goroutines)
+- Good SQLite support
+- Small binary size
+- Cross-platform support
+
 ### Tasks
 #### Phase0: Core happy flow (7.1.2 ImageCaptureUpload + 7.1.3 Annotation)
-- [ ] Add base Go web server (router, templates, static assets)
-- [ ] Add HTMX-driven pages/fragments
-  - [ ] Home/upload page
-  - [ ] Scan page with text preview
-  - [ ] Annotation fragment returned via HTMX
+- [x] Add base Go web server (API backend)
+- [x] Migrate to React frontend
+  - [x] Setup Bun workspace and React app with Vite
+  - [x] Install Tailwind CSS v4 and shadcn/ui
+  - [x] Create React components (HomePage, ScanPage, components)
+  - [x] Implement custom hooks (useScan, useAnnotation, useTextSelection)
+  - [x] Setup API client and TypeScript types
+  - [x] Restructure monorepo: backend/, web/, docs/, image/
+- [x] Add JSON API endpoints
+  - [x] POST /api/scans
+  - [x] GET /api/scans/{id}
+  - [x] POST /api/scans/{id}/annotate
+  - [x] GET /api/scans/{id}/image
+- [x] Static file serving
+  - [x] Go server serves React SPA from `web/dist/`
+  - [x] SPA routing for all non-API routes
 - [ ] Implement session cookie identity
   - [ ] Create/read session cookie
   - [ ] Update `sessions.last_seen_at`

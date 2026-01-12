@@ -36,16 +36,46 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 
 3. **Install dependencies**:
    ```bash
+   cd backend
    go mod tidy
+   cd ../web
+   bun install
+   cd ..
    ```
 
-4. **Run the server**:
+4. **Build the frontend**:
    ```bash
+   cd web
+   bun run build
+   cd ..
+   ```
+
+5. **Run the backend server**:
+   ```bash
+   cd backend
    go run cmd/server/main.go
    ```
 
-5. **Open in browser**:
+6. **Open in browser**:
    Navigate to `http://localhost:8080`
+
+### Development Mode
+
+Run backend and frontend separately for development:
+
+**Terminal 1 - Backend:**
+```bash
+cd backend
+go run cmd/server/main.go
+```
+
+**Terminal 2 - Frontend:**
+```bash
+cd web
+bun run dev
+```
+
+Then access the frontend dev server at `http://localhost:5173`
 
 ## Environment Variables
 
@@ -64,8 +94,9 @@ See `.env.example` for all available configuration options:
 
 ### Running Tests
 
+**Backend tests:**
 ```bash
-# Run all tests
+cd backend
 go test ./...
 
 # Run tests with race detection
@@ -75,25 +106,50 @@ go test -race ./...
 go test -v ./...
 ```
 
+**Frontend tests:**
+```bash
+cd web
+bun test
+
+# Run with coverage
+bun run test:coverage
+
+# Run in watch mode
+bun run test:watch
+```
+
 ### Project Structure
 
 ```
 gemini-hackathon/
-├── cmd/server/          # Application entry point
-├── internal/
-│   ├── config/         # Configuration management
-│   ├── handlers/       # HTTP route handlers
-│   ├── middleware/     # HTTP middleware (session, logging)
-│   ├── models/         # Data models
-│   ├── services/       # Business logic (future)
-│   ├── storage/        # Database and file storage interfaces
-│   ├── gemini/         # Gemini API client
-│   └── testutil/       # Test utilities and mocks
+├── backend/
+│   ├── cmd/server/      # Application entry point
+│   ├── internal/
+│   │   ├── config/      # Configuration management
+│   │   ├── handlers/    # HTTP route handlers (JSON API)
+│   │   ├── middleware/  # HTTP middleware (session, logging)
+│   │   ├── models/      # Data models
+│   │   ├── storage/     # Database and file storage interfaces
+│   │   ├── gemini/      # Gemini API client
+│   │   └── testutil/    # Test utilities and mocks
+│   ├── migrations/      # Database migration files
+│   ├── go.mod           # Go module definition
+│   └── go.sum           # Go module checksums
 ├── web/
-│   ├── templates/      # HTML templates (Go templates)
-│   └── static/         # Static assets (CSS, JS, images)
-├── migrations/         # Database migration files
-└── docs/              # Project documentation
+│   ├── src/             # React source code
+│   │   ├── components/  # React components
+│   │   ├── pages/       # Page components
+│   │   ├── hooks/       # Custom React hooks
+│   │   ├── lib/         # Utilities, API client, types
+│   │   └── test/        # Test setup and utilities
+│   ├── public/          # Static assets
+│   ├── dist/            # Build output (gitignored)
+│   ├── package.json     # Frontend dependencies
+│   └── vite.config.ts   # Vite configuration
+└── docs/
+    ├── prd.md           # Product requirements
+    ├── rfc.md           # Technical architecture
+    └── task.md          # Implementation tasks
 ```
 
 ### Code Style
@@ -106,11 +162,12 @@ gemini-hackathon/
 
 ## API Endpoints
 
-- `GET /` - Home page with upload form
-- `POST /scans` - Upload image and create scan
-- `GET /scans/{id}` - View scan with OCR text
-- `POST /scans/{id}/annotate` - Generate annotation for selected text
 - `GET /healthz` - Health check endpoint
+- `POST /api/scans` - Upload image and create scan
+- `GET /api/scans/{id}` - Get scan data with OCR result
+- `POST /api/scans/{id}/annotate` - Generate annotation for selected text
+- `GET /api/scans/{id}/image` - Get scan image file
+- `GET /` - Serves React frontend (SPA)
 
 ## Database
 
@@ -120,9 +177,13 @@ Migrations are run automatically on startup. See `migrations/001_initial_schema.
 
 ## Frontend
 
-- **HTMX 2.0.8**: For progressive enhancement and dynamic content updates
-- **Tailwind CSS**: For styling (loaded via CDN for MVP)
-- **Vanilla JavaScript**: Minimal JS for text selection handling
+- **React 19**: Modern UI framework
+- **TypeScript**: Type-safe development
+- **Vite**: Fast build tool and dev server
+- **Tailwind CSS v4**: Utility-first CSS framework
+- **shadcn/ui**: Accessible component library
+- **TanStack Query**: Data fetching and state management
+- **Vitest**: Unit testing framework
 
 ## Testing
 
@@ -162,6 +223,22 @@ Future phases:
 ## License
 
 See LICENSE file for details.
+
+## Build for Production
+
+```bash
+# Build frontend
+cd web
+bun run build
+
+# Build backend
+cd ../backend
+go build -o ../server cmd/server/main.go
+
+# Run from root
+cd ..
+./server
+```
 
 ## References
 

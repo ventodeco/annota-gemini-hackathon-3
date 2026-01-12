@@ -4,34 +4,56 @@ This document provides guidelines for AI agents working on the Gemini OCR+Annota
 
 ## Project Overview
 
-A mobile-first PWA built with Go + HTMX that uses Gemini Flash for OCR and contextual annotations of Japanese text. See `docs/rfc.md` and `docs/prd.md` for detailed requirements.
+A mobile-first PWA built with Go backend (JSON API) + React frontend that uses Gemini Flash for OCR and contextual annotations of Japanese text. See `docs/rfc.md` and `docs/prd.md` for detailed requirements.
 
 ## Build Commands
 
+**Backend:**
 ```bash
 # Run all tests
-go test ./...
+cd backend && go test ./...
 
 # Run tests with race detector
-go test -race ./...
+cd backend && go test -race ./...
 
 # Run a single test
-go test -run TestFunctionName ./internal/handlers
+cd backend && go test -run TestFunctionName ./internal/handlers
 
 # Run tests with verbose output
-go test -v ./...
+cd backend && go test -v ./...
 
 # Build the application
-go build -o bin/app ./cmd/server
+cd backend && go build -o ../server ./cmd/server
 
-# Run the application
-./bin/app
+# Run the application (from root)
+./server
 
 # Run go vet
-go vet ./...
+cd backend && go vet ./...
 
 # Run go fmt
-go fmt ./...
+cd backend && go fmt ./...
+```
+
+**Frontend:**
+```bash
+# Install dependencies
+cd web && bun install
+
+# Run dev server
+cd web && bun run dev
+
+# Build for production
+cd web && bun run build
+
+# Run tests
+cd web && bun test
+
+# Run tests with coverage
+cd web && bun run test:coverage
+
+# Run tests in watch mode
+cd web && bun run test:watch
 ```
 
 ## Environment Variables
@@ -168,23 +190,37 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 ### Project Structure
 
 ```
-cmd/
-    server/          # Main entry point
-internal/
+backend/
+  cmd/server/        # Main entry point
+  internal/
     config/          # Configuration loading
     gemini/          # Gemini API client (interface + implementation)
-    handlers/        # HTTP handlers
+    handlers/        # HTTP handlers (JSON API)
     middleware/      # Session, logging middleware
     models/          # Data models
     storage/         # SQLite storage (interface + implementation)
     testutil/        # Test helpers and mocks
+  migrations/        # SQLite schema migrations
+  go.mod             # Go module definition
+  go.sum             # Go module checksums
 web/
-    templates/       # HTML templates
-    static/          # Static assets (CSS, JS, images)
-migrations/         # SQLite schema migrations
+  src/               # React source code
+    components/      # React components
+    pages/           # Page components
+    hooks/           # Custom React hooks
+    lib/             # Utilities, API client, types
+    test/            # Test setup and utilities
+  public/            # Static assets
+  dist/              # Build output (gitignored)
+  package.json       # Frontend dependencies
+  vite.config.ts     # Vite configuration
+docs/
+  prd.md             # Product requirements
+  rfc.md             # Technical architecture
+  task.md            # Implementation tasks
 data/
-    app.db           # SQLite database (created at runtime)
-    uploads/         # Uploaded images
+  app.db             # SQLite database (created at runtime)
+  uploads/           # Uploaded images
 ```
 
 ### Configuration

@@ -1,0 +1,8 @@
+{
+  "name": "gemini-hackathon",
+  "private": true,
+  "workspaces": ["web"],
+  "devDependencies": {
+    "shadcn": "^3.6.3"
+  }
+}
