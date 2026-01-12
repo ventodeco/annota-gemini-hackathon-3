@@ -1,35 +1,42 @@
-import { useToast } from "@/hooks/use-toast"
+"use client"
+
 import {
-  Toast,
-  ToastClose,
-  ToastDescription,
-  ToastTitle,
-  ToastViewport,
-} from "@/components/ui/toast"
+  CircleCheckIcon,
+  InfoIcon,
+  Loader2Icon,
+  OctagonXIcon,
+  TriangleAlertIcon,
+} from "lucide-react"
+import { useTheme } from "next-themes"
+import { Toaster as Sonner, type ToasterProps,  } from "sonner"
 
-export function Toaster() {
-  const { toasts } = useToast()
-
-  if (toasts.length === 0) {
-    return <ToastViewport />
-  }
+const Toaster = ({ ...props }: ToasterProps) => {
+  const { theme = "system" } = useTheme()
 
   return (
-    <>
-      {toasts.map(function ({ id, title, description, variant, ...props }) {
-        return (
-          <Toast key={id} variant={variant} {...props}>
-            <div className="grid gap-1">
-              {title && <ToastTitle>{title}</ToastTitle>}
-              {description && (
-                <ToastDescription>{description}</ToastDescription>
-              )}
-            </div>
-            <ToastClose variant={variant} />
-          </Toast>
-        )
-      })}
-      <ToastViewport />
-    </>
+    <Sonner
+      theme={theme as ToasterProps["theme"]}
+      className="toaster group"
+      position="top-center"
+      icons={{
+        success: <CircleCheckIcon className="size-4" />,
+        info: <InfoIcon className="size-4" />,
+        warning: <TriangleAlertIcon className="size-4" />,
+        error: <OctagonXIcon className="size-4" />,
+        loading: <Loader2Icon className="size-4 animate-spin" />,
+      }}
+      style={
+        {
+          "--normal-bg": "var(--popover)",
+          "--normal-text": "var(--popover-foreground)",
+          "--normal-border": "var(--border)",
+          "--border-radius": "var(--radius)",
+          top: "60px",
+        } as React.CSSProperties
+      }
+      {...props}
+    />
   )
 }
+
+export { Toaster }

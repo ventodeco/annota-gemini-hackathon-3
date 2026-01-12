@@ -6,7 +6,7 @@ import { DrawerHeader } from './DrawerHeader'
 import { AnnotationContent } from './AnnotationContent'
 import { Button } from '@/components/ui/button'
 import { Bookmark, BookmarkCheck } from 'lucide-react'
-import { useToast } from '@/hooks/use-toast'
+import { toast } from 'sonner'
 import { saveAnnotation, isAnnotationSaved, removeAnnotation } from '@/lib/storage'
 import type { Annotation } from '@/lib/types'
 
@@ -19,7 +19,6 @@ interface AnnotationDrawerProps {
 export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDrawerProps) {
   const { drawerState, expandDrawer, collapseDrawer } = useDrawerHeight()
   const { handleDragEnd } = useDrawerGestures(expandDrawer, collapseDrawer)
-  const { toast } = useToast()
   const [isSaved, setIsSaved] = useState(false)
 
   useEffect(() => {
@@ -45,29 +44,25 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
       if (isSaved) {
         removeAnnotation(annotation.id)
         setIsSaved(false)
-        toast({
-          title: 'Annotation Removed',
+        toast('Annotation Removed', {
           description: 'The annotation has been removed from your saved items',
-          variant: 'default',
+          duration: 3000,
         })
       } else {
         saveAnnotation(annotation)
         setIsSaved(true)
-        toast({
-          title: 'Annotation Saved',
+        toast.success('Annotation Saved', {
           description: 'Your annotation has been saved successfully',
-          variant: 'success',
+          duration: 3000,
         })
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to save annotation'
-      toast({
-        title: 'Operation Failed',
+      toast.error('Operation Failed', {
         description: errorMessage,
-        variant: 'destructive',
       })
     }
-  }, [annotation, isSaved, toast])
+  }, [annotation, isSaved])
 
   const handleHeaderCollapse = useCallback(() => {
     if (drawerState === 'expanded') {
@@ -80,6 +75,7 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
       <SheetContent
         side="bottom"
         className="bg-white border-t border-gray-200 rounded-t-2xl p-6 overflow-hidden"
+        showCloseButton={false}
         style={{
           height: drawerState === 'closed' ? '0%' : drawerState === 'collapsed' ? '35vh' : '75vh',
           transition: 'height 300ms cubic-bezier(0.4, 0, 0.2, 1)',
