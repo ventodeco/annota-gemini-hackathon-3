@@ -18,10 +18,11 @@ export default function LoginPage() {
         </p>
         <Button
           onClick={handleSignIn}
-          className="w-full bg-gray-900 text-white hover:bg-gray-800 rounded-full px-8 py-4 h-auto text-base font-medium shadow-lg"
+          variant="default"
+          className="w-[265px] h-[46px] rounded-full p-[3px] gap-[10px] text-[14px] font-medium font-roboto leading-none tracking-normal"
         >
           <svg
-            className="w-5 h-5 mr-2"
+            className="w-5 h-5"
             viewBox="0 0 24 24"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"

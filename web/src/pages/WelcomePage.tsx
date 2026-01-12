@@ -36,26 +36,27 @@ export default function WelcomePage() {
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <h1 className="text-3xl font-bold text-gray-900 text-center mb-4">
+        <h1 className="font-roboto font-semibold text-[16px] leading-normal tracking-normal text-center text-gray-900 mb-4 align-middle">
           Welcome to ANNOTA
         </h1>
-        <p className="text-center text-gray-700 mb-8 text-base leading-relaxed">
-          You no longer need to worry about learning a new language!
+        <p className="font-roboto font-normal text-[16px] leading-normal tracking-normal text-center text-gray-700 mb-8 align-middle">
+        You no longer need to worry about learning a new language!
         </p>
-        <div className="w-full max-w-sm flex flex-col gap-4">
+        <div className="w-full flex flex-col items-center gap-4">
           <Button
             onClick={handleTakePhoto}
-            className="w-full bg-gray-900 text-white hover:bg-gray-800 rounded-full px-6 py-4 h-auto text-base font-medium"
+            variant="default"
+            className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
           >
-            <Camera className="w-5 h-5 mr-2" />
+            <Camera className="w-5 h-5" />
             Take Photo
           </Button>
           <Button
             onClick={handleUploadGallery}
-            variant="outline"
-            className="w-full border-2 border-gray-900 text-gray-900 hover:bg-gray-50 rounded-full px-6 py-4 h-auto text-base font-medium"
+            variant="secondary"
+            className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
           >
-            <ImageIcon className="w-5 h-5 mr-2" />
+            <ImageIcon className="w-5 h-5" />
             Upload for Gallery
           </Button>
         </div>
