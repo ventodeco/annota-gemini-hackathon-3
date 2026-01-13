@@ -63,7 +63,7 @@ export default function UploadForm() {
           <img
             src={preview}
             alt="Preview"
-            className="max-w-full h-auto rounded-lg border border-gray-200"
+            className="h-auto max-w-full rounded-lg border border-gray-200"
           />
         </div>
       )}

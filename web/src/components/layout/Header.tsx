@@ -23,26 +23,28 @@ export default function Header({ title, onBack }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-10 bg-white border-b border-gray-200">
-      <div className="flex items-center justify-between px-4 py-3 max-w-md mx-auto">
+    <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+      <div className="
+        mx-auto flex max-w-md items-center justify-between px-4 py-3
+      ">
         <Button
           variant="ghost"
           size="icon"
           onClick={handleBack}
-          className="h-10 w-10 text-gray-900"
+          className="size-10 text-gray-900"
           aria-label="Go back"
         >
-          <ChevronLeft className="w-6 h-6" />
+          <ChevronLeft className="size-6" />
         </Button>
         <h1 className="flex-1 text-center font-semibold text-gray-900">{title}</h1>
         <Button
           variant="ghost"
           size="icon"
           onClick={handleHome}
-          className="h-10 w-10 text-gray-900"
+          className="size-10 text-gray-900"
           aria-label="Go home"
         >
-          <Home className="w-6 h-6" />
+          <Home className="size-6" />
         </Button>
       </div>
     </header>

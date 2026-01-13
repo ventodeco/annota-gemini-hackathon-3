@@ -34,29 +34,41 @@ export default function WelcomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col pb-20">
-      <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <h1 className="font-roboto font-semibold text-[16px] leading-normal tracking-normal text-center text-gray-900 mb-4 align-middle">
+    <div className="flex min-h-screen flex-col bg-white pb-20">
+      <div className="flex flex-1 flex-col items-center justify-center p-6">
+        <h1 className="
+          mb-4 text-center align-middle text-[16px] leading-normal font-semibold
+          tracking-normal text-gray-900
+        ">
           Welcome to ANNOTA
         </h1>
-        <p className="font-roboto font-normal text-[16px] leading-normal tracking-normal text-center text-gray-700 mb-8 align-middle">
+        <p className="
+          mb-8 text-center align-middle text-[16px] leading-normal font-normal
+          tracking-normal text-gray-700
+        ">
         You no longer need to worry about learning a new language!
         </p>
-        <div className="w-full flex flex-col items-center gap-4">
+        <div className="flex w-full flex-col items-center gap-4">
           <Button
             onClick={handleTakePhoto}
             variant="default"
-            className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
+            className="
+              h-auto min-h-[40px] w-[200px] gap-2 rounded-full px-6 py-[9.5px]
+              text-[14px] leading-none font-medium
+            "
           >
-            <Camera className="w-5 h-5" />
+            <Camera className="size-5" />
             Take Photo
           </Button>
           <Button
             onClick={handleUploadGallery}
             variant="secondary"
-            className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
+            className="
+              h-auto min-h-[40px] w-[200px] gap-2 rounded-full px-6 py-[9.5px]
+              text-[14px] leading-none font-medium
+            "
           >
-            <ImageIcon className="w-5 h-5" />
+            <ImageIcon className="size-5" />
             Upload for Gallery
           </Button>
         </div>

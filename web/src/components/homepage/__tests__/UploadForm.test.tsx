@@ -5,7 +5,6 @@ import React from 'react'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import UploadForm from '../UploadForm'
-import * as api from '@/lib/api'
 
 vi.mock('@/lib/api')
 vi.mock('react-router-dom', async () => {

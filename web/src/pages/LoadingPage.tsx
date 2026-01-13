@@ -32,15 +32,15 @@ export default function LoadingPage() {
   }, [navigate])
 
   return (
-    <div className="min-h-screen bg-white flex flex-col pb-20">
-      <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <h1 className="text-2xl font-bold text-gray-900 text-center mb-4">
+    <div className="flex min-h-screen flex-col bg-white pb-20">
+      <div className="flex flex-1 flex-col items-center justify-center p-6">
+        <h1 className="mb-4 text-center text-2xl font-bold text-gray-900">
           Scanning in Progress..
         </h1>
-        <p className="text-center text-gray-600 mb-8 text-sm leading-relaxed">
+        <p className="mb-8 text-center text-sm/relaxed text-gray-600">
           Please stay on the page while the scanning in progress
         </p>
-        <Hourglass className="w-16 h-16 text-gray-400 animate-pulse" />
+        <Hourglass className="size-16 animate-pulse text-gray-400" />
       </div>
       <BottomActionBar disabled={true} />
     </div>

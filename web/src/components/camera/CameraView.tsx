@@ -21,7 +21,7 @@ export default function CameraView({ videoRef, stream }: CameraViewProps) {
       autoPlay
       playsInline
       muted
-      className="w-full h-full object-cover"
+      className="size-full object-cover"
       style={{ transform: 'scaleX(-1)' }}
     />
   )

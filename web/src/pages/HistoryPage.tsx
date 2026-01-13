@@ -10,7 +10,7 @@ export default function HistoryPage() {
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
       <Header title="History" />
-      <main className="pt-4 px-4">
+      <main className="px-4 pt-4">
         {savedAnnotations.length > 0 ? (
           <BookmarkList
             annotations={savedAnnotations}

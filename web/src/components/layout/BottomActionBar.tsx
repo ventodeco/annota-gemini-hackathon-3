@@ -15,7 +15,12 @@ export default function BottomActionBar({
   onBookmark,
 }: BottomActionBarProps) {
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[348px] h-[72px] bg-white border border-[#F1F5F9] rounded-[16px] shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)] px-8 py-4 flex items-center gap-6 z-50">
+    <div className="
+      fixed bottom-8 left-1/2 z-50 flex h-[72px] w-[348px] -translate-x-1/2
+      items-center gap-6 rounded-[16px] border border-[#F1F5F9] bg-white px-8
+      py-4
+      shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]
+    ">
       <Button
         onClick={onExplain}
         disabled={disabled || isLoading}
@@ -24,12 +29,12 @@ export default function BottomActionBar({
       >
         {isLoading ? (
           <>
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <Loader2 className="size-5 animate-spin" />
             Loading...
           </>
         ) : (
           <>
-            <Sparkles className="w-5 h-5" />
+            <Sparkles className="size-5" />
             Explain this
           </>
         )}
@@ -38,10 +43,14 @@ export default function BottomActionBar({
       <button
         onClick={onBookmark}
         disabled={disabled || isLoading}
-        className="w-10 h-10 rounded-[12px] flex items-center justify-center bg-white text-[#0F172A] border border-[#F1F5F9] disabled:opacity-50 transition-colors"
+        className="
+          flex size-10 items-center justify-center rounded-[12px] border
+          border-[#F1F5F9] bg-white text-[#0F172A] transition-colors
+          disabled:opacity-50
+        "
         aria-label="Bookmark"
       >
-        <Bookmark className="w-5 h-5" />
+        <Bookmark className="size-5" />
       </button>
     </div>
   )

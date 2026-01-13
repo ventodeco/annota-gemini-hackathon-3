@@ -1,7 +1,9 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-interface SpinnerProps extends React.HTMLAttributes<HTMLDivElement> {}
+export type SpinnerProps = React.HTMLAttributes<HTMLDivElement> & {
+  // Spinner-specific props extend HTMLDivElement attributes
+}
 
 const Spinner = React.forwardRef<HTMLDivElement, SpinnerProps>(
   ({ className, ...props }, ref) => {
@@ -9,7 +11,10 @@ const Spinner = React.forwardRef<HTMLDivElement, SpinnerProps>(
       <div
         ref={ref}
         className={cn(
-          "inline-block animate-spin rounded-full border-2 border-[var(--foreground)] border-t-transparent",
+          `
+            inline-block animate-spin rounded-full border-2
+            border-(--foreground) border-t-transparent
+          `,
           className
         )}
         {...props}

@@ -13,9 +13,9 @@ export function AnnotationContent({ annotation, drawerState }: AnnotationContent
   const renderWordBreakdown = (breakdown: string) => {
     const items = breakdown.split('\n').filter((line) => line.trim())
     return (
-      <ul className="list-disc list-inside space-y-2">
+      <ul className="list-inside list-disc space-y-2">
         {items.map((item, index) => (
-          <li key={index} className="text-base text-gray-900 leading-relaxed">
+          <li key={index} className="text-base/relaxed text-gray-900">
             {item.replace(/^•\s*/, '')}
           </li>
         ))}
@@ -25,11 +25,11 @@ export function AnnotationContent({ annotation, drawerState }: AnnotationContent
 
   const renderSection = (title: string, content: string, isBullets = false) => (
     <div className="flex flex-col gap-4">
-      <h3 className="font-semibold text-base leading-6 text-black">{title}</h3>
+      <h3 className="text-base/6 font-semibold text-black">{title}</h3>
       {isBullets ? (
         renderWordBreakdown(content)
       ) : (
-        <p className="text-base font-normal text-gray-900 leading-relaxed">{content}</p>
+        <p className="text-base/relaxed font-normal text-gray-900">{content}</p>
       )}
     </div>
   )
@@ -43,7 +43,7 @@ export function AnnotationContent({ annotation, drawerState }: AnnotationContent
   return (
     <ScrollArea
       ref={scrollAreaRef}
-      className="flex-1 pr-2 overscroll-contain min-h-0"
+      className="min-h-0 flex-1 overscroll-contain pr-2"
       style={{ overscrollBehavior: 'contain' }}
     >
       <div className="flex flex-col gap-6">

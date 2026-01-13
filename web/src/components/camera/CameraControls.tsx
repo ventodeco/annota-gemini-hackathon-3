@@ -22,30 +22,42 @@ export default function CameraControls({
 }: CameraControlsProps) {
   if (isPreview) {
     return (
-      <div className="absolute bottom-0 left-0 right-0 bg-black/50 backdrop-blur-sm safe-area-inset-bottom">
-        <div className="flex items-center justify-between px-6 py-6 max-w-md mx-auto">
+      <div className="
+        safe-area-inset-bottom absolute inset-x-0 bottom-0 bg-black/50
+        backdrop-blur-sm
+      ">
+        <div className="mx-auto flex max-w-md items-center justify-between p-6">
           <Button
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="h-12 w-12 text-white hover:bg-white/20"
+            className="
+              size-12 text-white
+              hover:bg-white/20
+            "
             aria-label="Close camera"
           >
-            <X className="w-6 h-6" />
+            <X className="size-6" />
           </Button>
           <Button
             onClick={onRetake}
-            className="h-16 w-16 rounded-full bg-white text-gray-900 hover:bg-gray-100"
+            className="
+              size-16 rounded-full bg-white text-gray-900
+              hover:bg-gray-100
+            "
             aria-label="Retake photo"
           >
-            <RotateCcw className="w-8 h-8" />
+            <RotateCcw className="size-8" />
           </Button>
           <Button
             onClick={onConfirm}
-            className="h-16 w-16 rounded-full bg-green-500 text-white hover:bg-green-600"
+            className="
+              size-16 rounded-full bg-green-500 text-white
+              hover:bg-green-600
+            "
             aria-label="Confirm photo"
           >
-            <Check className="w-8 h-8" />
+            <Check className="size-8" />
           </Button>
         </div>
       </div>
@@ -53,34 +65,47 @@ export default function CameraControls({
   }
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 bg-black/50 backdrop-blur-sm safe-area-inset-bottom">
-      <div className="flex items-center justify-between px-6 py-6 max-w-md mx-auto">
+    <div className="
+      safe-area-inset-bottom absolute inset-x-0 bottom-0 bg-black/50
+      backdrop-blur-sm
+    ">
+      <div className="mx-auto flex max-w-md items-center justify-between p-6">
         <Button
           variant="ghost"
           size="icon"
           onClick={onClose}
-          className="h-12 w-12 text-white hover:bg-white/20"
+          className="
+            size-12 text-white
+            hover:bg-white/20
+          "
           aria-label="Close camera"
         >
-          <X className="w-6 h-6" />
+          <X className="size-6" />
         </Button>
         <Button
           onClick={onCapture}
           disabled={isCapturing}
-          className="h-16 w-16 rounded-full bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
+          className="
+            size-16 rounded-full bg-white text-gray-900
+            hover:bg-gray-100
+            disabled:opacity-50
+          "
           aria-label="Capture photo"
         >
-          <Camera className="w-8 h-8" />
+          <Camera className="size-8" />
         </Button>
         {onSwitch && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onSwitch}
-            className="h-12 w-12 text-white hover:bg-white/20"
+            className="
+              size-12 text-white
+              hover:bg-white/20
+            "
             aria-label="Switch camera"
           >
-            <RotateCcw className="w-6 h-6" />
+            <RotateCcw className="size-6" />
           </Button>
         )}
         {!onSwitch && <div className="w-12" />}

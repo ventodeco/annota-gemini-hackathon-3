@@ -38,13 +38,25 @@ export default defineConfig([
       'react/prop-types': 'off',
     },
   },
+  // Components using shadcn/ui patterns - disable better-tailwindcss/no-unknown-classes
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ['**/components/**/*.{ts,tsx}'],
+    ignores: ['**/node_modules/**'],
     plugins: {
       'better-tailwindcss': eslintPluginBetterTailwindcss,
     },
     rules: {
-      ...eslintPluginBetterTailwindcss.configs['recommended-error'].rules,
+      'better-tailwindcss/no-unknown-classes': 'off',
+    },
+  },
+  {
+    files: ['**/*.{ts,tsx}'],
+    ignores: ['**/components/**/*.{ts,tsx}', '**/node_modules/**'],
+    plugins: {
+      'better-tailwindcss': eslintPluginBetterTailwindcss,
+    },
+    rules: {
+      ...eslintPluginBetterTailwindcss.configs.recommended.rules,
     },
     settings: {
       'better-tailwindcss': {

@@ -19,7 +19,9 @@ export default function ScanPage() {
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
 
   useEffect(() => {
-    if (id) {
+    if (!id) return
+
+    const initializeScan = async () => {
       const mockScan = getMockScan(id)
       if (mockScan) {
         setScanData(mockScan)
@@ -29,6 +31,8 @@ export default function ScanPage() {
         }
       }
     }
+
+    initializeScan()
   }, [id])
 
   const handleTextSelect = () => {
@@ -61,9 +65,9 @@ export default function ScanPage() {
 
   if (!scanData || !scanData.ocrResult) {
     return (
-      <div className="min-h-screen bg-white flex flex-col">
+      <div className="flex min-h-screen flex-col bg-white">
         <Header title="Scan Result" />
-        <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex flex-1 items-center justify-center p-6">
           <p className="text-gray-600">Scan not found</p>
         </div>
       </div>
@@ -73,7 +77,7 @@ export default function ScanPage() {
   const { ocrResult } = scanData
 
   return (
-    <div className="min-h-screen bg-white flex flex-col pb-20">
+    <div className="flex min-h-screen flex-col bg-white pb-20">
       <Header title="Scan Result" />
       <ScrollArea className="flex-1">
         <div className="p-6">
@@ -81,11 +85,11 @@ export default function ScanPage() {
             <img
               src={imageUrl}
               alt="Scanned document"
-              className="w-full mb-6 rounded-lg"
+              className="mb-6 w-full rounded-lg"
             />
           )}
           <p
-            className="text-base leading-relaxed text-gray-900 whitespace-pre-wrap"
+            className="text-base/relaxed whitespace-pre-wrap text-gray-900"
             onMouseUp={handleTextSelect}
             onTouchEnd={handleTextSelect}
           >

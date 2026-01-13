@@ -47,7 +47,11 @@ export function BookmarkCard({ annotation, onDelete }: BookmarkCardProps) {
 
   return (
     <div
-      className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 active:opacity-70 transition-opacity cursor-pointer"
+      className="
+        cursor-pointer rounded-xl border border-gray-100 bg-white p-4 shadow-sm
+        transition-opacity
+        active:opacity-70
+      "
       onClick={handleCardClick}
       role="button"
       tabIndex={0}
@@ -58,24 +62,28 @@ export function BookmarkCard({ annotation, onDelete }: BookmarkCardProps) {
         }
       }}
     >
-      <div className="flex justify-between items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-lg font-medium text-gray-900 mb-1 line-clamp-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="mb-1 line-clamp-2 text-lg font-medium text-gray-900">
             {truncateText(annotation.selectedText, 60)}
           </p>
-          <p className="text-sm text-gray-600 line-clamp-2">
+          <p className="line-clamp-2 text-sm text-gray-600">
             {truncateText(annotation.meaning, 100)}
           </p>
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="mt-2 text-xs text-gray-400">
             {formatDate(annotation.createdAt)}
           </p>
         </div>
         <button
           onClick={handleDelete}
-          className="shrink-0 p-2 text-gray-400 hover:text-red-500 active:bg-red-50 rounded-lg transition-colors"
+          className="
+            shrink-0 rounded-lg p-2 text-gray-400 transition-colors
+            hover:text-red-500
+            active:bg-red-50
+          "
           aria-label="Delete annotation"
         >
-          <Trash2 className="w-5 h-5" />
+          <Trash2 className="size-5" />
         </button>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-2xl mx-auto pt-8">
+      <div className="mx-auto max-w-2xl pt-8">
         <Card>
           <CardHeader>
             <CardTitle className="text-2xl">Upload Image</CardTitle>

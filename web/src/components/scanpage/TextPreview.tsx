@@ -40,23 +40,23 @@ export default function TextPreview({ text, scanID }: TextPreviewProps) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Extracted Text</h2>
+      <div className="rounded-lg bg-white p-6 shadow-sm">
+        <h2 className="mb-4 text-xl font-semibold">Extracted Text</h2>
         <div
           className="prose max-w-none"
           onMouseUp={handleTextSelect}
           onTouchEnd={handleTextSelect}
         >
-          <p className="text-lg leading-relaxed text-gray-800 whitespace-pre-wrap">
+          <p className="text-lg/relaxed whitespace-pre-wrap text-gray-800">
             {text}
           </p>
         </div>
       </div>
 
       {selectedText && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-2">Selected Text</h3>
-          <p className="text-gray-700 mb-4">&quot;{selectedText}&quot;</p>
+        <div className="rounded-lg bg-white p-6 shadow-sm">
+          <h3 className="mb-2 text-lg font-semibold">Selected Text</h3>
+          <p className="mb-4 text-gray-700">&quot;{selectedText}&quot;</p>
           <Button
             onClick={handleAnnotate}
             disabled={annotationMutation.isPending}

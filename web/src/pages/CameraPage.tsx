@@ -105,13 +105,13 @@ export default function CameraPage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-black z-50">
+    <div className="fixed inset-0 z-50 bg-black">
       <div className="absolute inset-0">
         {previewUrl ? (
           <img
             src={previewUrl}
             alt="Preview"
-            className="w-full h-full object-cover"
+            className="size-full object-cover"
             style={{ transform: 'scaleX(-1)' }}
           />
         ) : (

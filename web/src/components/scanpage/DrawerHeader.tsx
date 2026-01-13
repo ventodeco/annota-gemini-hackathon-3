@@ -13,9 +13,9 @@ export function DrawerHeader({ onClose, onCollapse }: DrawerHeaderProps) {
   }
 
   return (
-    <div className="flex items-center justify-between h-6 gap-2">
+    <div className="flex h-6 items-center justify-between gap-2">
       <div 
-        className="flex items-center gap-2 cursor-pointer"
+        className="flex cursor-pointer items-center gap-2"
         onClick={handleTitleClick}
       >
         <svg
@@ -47,14 +47,17 @@ export function DrawerHeader({ onClose, onCollapse }: DrawerHeaderProps) {
             strokeLinejoin="round"
           />
         </svg>
-        <span className="font-semibold text-lg leading-6 text-gray-900">Annotation</span>
+        <span className="text-lg/6 font-semibold text-gray-900">Annotation</span>
       </div>
       <button
         onClick={onClose}
-        className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+        className="
+          flex size-6 items-center justify-center rounded-full transition-colors
+          hover:bg-gray-100
+        "
         aria-label="Close annotation"
       >
-        <X className="w-5 h-5 text-gray-500" />
+        <X className="size-5 text-gray-500" />
       </button>
     </div>
   )

@@ -9,7 +9,7 @@ export default function ImagePreview({ src, alt = 'Preview' }: ImagePreviewProps
       <img
         src={src}
         alt={alt}
-        className="max-w-full h-auto rounded-lg border border-gray-200"
+        className="h-auto max-w-full rounded-lg border border-gray-200"
       />
     </div>
   )

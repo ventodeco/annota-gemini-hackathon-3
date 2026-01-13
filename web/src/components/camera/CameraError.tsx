@@ -10,11 +10,13 @@ interface CameraErrorProps {
 
 export default function CameraError({ error, onRetry, onClose }: CameraErrorProps) {
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6">
-      <Card className="max-w-md w-full">
+    <div className="
+      flex min-h-screen items-center justify-center bg-gray-900 p-6
+    ">
+      <Card className="w-full max-w-md">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-6 h-6 text-destructive" />
+            <AlertCircle className="text-destructive size-6" />
             <CardTitle>Camera Error</CardTitle>
           </div>
         </CardHeader>

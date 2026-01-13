@@ -10,19 +10,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6">
-      <div className="flex flex-col items-center gap-8 max-w-md w-full">
-        <h1 className="text-5xl font-bold text-gray-900 tracking-tight">ANNOTA</h1>
-        <p className="text-center text-gray-700 text-base leading-relaxed">
+    <div className="
+      flex min-h-screen flex-col items-center justify-center bg-white p-6
+    ">
+      <div className="flex w-full max-w-md flex-col items-center gap-8">
+        <h1 className="text-5xl font-bold tracking-tight text-gray-900">ANNOTA</h1>
+        <p className="text-center text-base/relaxed text-gray-700">
           You no longer need to worry about learning a new language!
         </p>
         <Button
           onClick={handleSignIn}
           variant="default"
-          className="w-[265px] h-[46px] rounded-full p-[3px] gap-[10px] text-[14px] font-medium font-roboto leading-none tracking-normal"
+          className="
+            h-[46px] w-[265px] gap-[10px] rounded-full p-[3px] text-[14px]
+            leading-none font-medium tracking-normal
+          "
         >
           <svg
-            className="w-5 h-5"
+            className="size-5"
             viewBox="0 0 24 24"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"

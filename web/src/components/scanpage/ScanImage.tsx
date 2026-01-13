@@ -11,7 +11,7 @@ export default function ScanImage({ scanID, alt = 'Scanned image' }: ScanImagePr
       <img
         src={getScanImageURL(scanID)}
         alt={alt}
-        className="w-full h-auto rounded-lg border border-gray-200"
+        className="h-auto w-full rounded-lg border border-gray-200"
       />
     </div>
   )

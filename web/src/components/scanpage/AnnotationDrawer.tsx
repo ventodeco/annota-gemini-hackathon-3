@@ -28,11 +28,15 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
   }, [isOpen, annotation, collapseDrawer])
 
   useEffect(() => {
-    if (annotation?.id) {
-      setIsSaved(isAnnotationSaved(annotation.id))
-    } else {
-      setIsSaved(false)
+    const checkSavedStatus = () => {
+      if (annotation?.id) {
+        setIsSaved(isAnnotationSaved(annotation.id))
+      } else {
+        setIsSaved(false)
+      }
     }
+
+    checkSavedStatus()
   }, [annotation?.id])
 
   const handleSave = useCallback(() => {
@@ -74,7 +78,9 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
     <Sheet open={isOpen} onOpenChange={(open: boolean) => !open && onClose()}>
       <SheetContent
         side="bottom"
-        className="bg-white border-t border-gray-200 rounded-t-2xl p-6 overflow-hidden"
+        className="
+          overflow-hidden rounded-t-2xl border-t border-gray-200 bg-white p-6
+        "
         showCloseButton={false}
         style={{
           height: drawerState === 'closed' ? '0%' : drawerState === 'collapsed' ? '35vh' : '75vh',
@@ -84,9 +90,12 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
         role="dialog"
         aria-modal="true"
       >
-        <div className="flex flex-col h-full">
+        <div className="flex h-full flex-col">
           <motion.div 
-            className="flex justify-center -mt-4 pb-2 cursor-grab active:cursor-grabbing"
+            className="
+              -mt-4 flex cursor-grab justify-center pb-2
+              active:cursor-grabbing
+            "
             role="slider"
             aria-label="Drawer resize handle"
             aria-valuemin={0}
@@ -98,7 +107,7 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
             dragElastic={0.2}
             onDragEnd={(_, info) => handleDragEnd(_, info)}
           >
-            <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+            <div className="h-1.5 w-12 rounded-full bg-gray-300" />
           </motion.div>
 
           <DrawerHeader onClose={onClose} onCollapse={handleHeaderCollapse} />
@@ -106,7 +115,7 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
           <div className="h-6" />
 
           {annotation && (
-            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <AnnotationContent
                 key={drawerState}
                 annotation={annotation}
@@ -117,22 +126,28 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
               
               <Button
                 onClick={handleSave}
-                className={`w-full h-12 font-medium text-base shrink-0 ${
+                className={`
+                  h-12 w-full shrink-0 text-base font-medium
+                  ${
                   isSaved
-                    ? 'bg-green-50 text-green-900 border border-green-200 hover:bg-green-100'
+                    ? `
+                      border border-green-200 bg-green-50 text-green-900
+                      hover:bg-green-100
+                    `
                     : 'bg-[#0F172A] text-white'
-                }`}
+                }
+                `}
                 size="lg"
                 disabled={!annotation}
               >
                 {isSaved ? (
                   <>
-                    <BookmarkCheck className="w-5 h-5 mr-2" />
+                    <BookmarkCheck className="mr-2 size-5" />
                     Saved
                   </>
                 ) : (
                   <>
-                    <Bookmark className="w-5 h-5 mr-2" />
+                    <Bookmark className="mr-2 size-5" />
                     Save Annotation
                   </>
                 )}
