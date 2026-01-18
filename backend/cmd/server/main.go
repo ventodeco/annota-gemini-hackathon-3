@@ -45,10 +45,7 @@ func main() {
 
 	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)
 
-	h, err := handlers.NewHandlers(storageDB, fileStorage, geminiClient, cfg)
-	if err != nil {
-		log.Fatalf("Failed to create handlers: %v", err)
-	}
+	h := handlers.NewHandlers(storageDB, fileStorage, geminiClient, cfg)
 
 	sessionMiddleware := middleware.NewSessionMiddleware(storageDB, cfg.SessionCookieName, cfg.SessionSecure)
 
