@@ -9,14 +9,14 @@ import (
 )
 
 type Config struct {
-	GeminiAPIKey     string
-	AppBaseURL       string
-	Port             string
-	DBPath           string
-	UploadDir        string
-	MaxUploadSize    int64
+	GeminiAPIKey      string
+	AppBaseURL        string
+	Port              string
+	DBConnectionString string
+	UploadDir         string
+	MaxUploadSize     int64
 	SessionCookieName string
-	SessionSecure    bool
+	SessionSecure     bool
 }
 
 func Load() (*Config, error) {
@@ -28,15 +28,32 @@ func Load() (*Config, error) {
 		geminiAPIKey = os.Getenv("GEMINI_API_KEY")
 	}
 
+	// Build PostgreSQL connection string if individual components are provided
+	dbConnStr := os.Getenv("DB_CONNECTION_STRING")
+	if dbConnStr == "" {
+		// Build from individual components
+		host := getEnvOrDefault("POSTGRES_HOST", "localhost")
+		port := getEnvOrDefault("POSTGRES_PORT", "5432")
+		user := getEnvOrDefault("POSTGRES_USER", "gemini_user")
+		password := getEnvOrDefault("POSTGRES_PASSWORD", "gemini_password")
+		dbname := getEnvOrDefault("POSTGRES_DB", "gemini_db")
+		sslmode := getEnvOrDefault("POSTGRES_SSLMODE", "disable")
+		
+		if host != "" && port != "" && user != "" && password != "" && dbname != "" {
+			dbConnStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+				host, port, user, password, dbname, sslmode)
+		}
+	}
+
 	cfg := &Config{
-		GeminiAPIKey:      geminiAPIKey,
-		AppBaseURL:        getEnvOrDefault("APP_BASE_URL", "http://localhost:8080"),
-		Port:              getEnvOrDefault("PORT", "8080"),
-		DBPath:            getEnvOrDefault("DB_PATH", "data/app.db"),
-		UploadDir:         getEnvOrDefault("UPLOAD_DIR", "data/uploads"),
-		MaxUploadSize:     getEnvAsInt64OrDefault("MAX_UPLOAD_SIZE", 10*1024*1024),
-		SessionCookieName: getEnvOrDefault("SESSION_COOKIE_NAME", "sid"),
-		SessionSecure:     getEnvAsBoolOrDefault("SESSION_SECURE", false),
+		GeminiAPIKey:       geminiAPIKey,
+		AppBaseURL:         getEnvOrDefault("APP_BASE_URL", "http://localhost:8080"),
+		Port:               getEnvOrDefault("PORT", "8080"),
+		DBConnectionString:  dbConnStr,
+		UploadDir:          getEnvOrDefault("UPLOAD_DIR", "data/uploads"),
+		MaxUploadSize:      getEnvAsInt64OrDefault("MAX_UPLOAD_SIZE", 10*1024*1024),
+		SessionCookieName:  getEnvOrDefault("SESSION_COOKIE_NAME", "sid"),
+		SessionSecure:      getEnvAsBoolOrDefault("SESSION_SECURE", false),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -50,8 +67,8 @@ func (c *Config) Validate() error {
 	if c.GeminiAPIKey == "" {
 		return fmt.Errorf("GEMINI_API_KEY or GOOGLE_API_KEY is required")
 	}
-	if c.DBPath == "" {
-		return fmt.Errorf("DB_PATH cannot be empty")
+	if c.DBConnectionString == "" {
+		return fmt.Errorf("DB_CONNECTION_STRING or PostgreSQL connection details are required")
 	}
 	if c.UploadDir == "" {
 		return fmt.Errorf("UPLOAD_DIR cannot be empty")

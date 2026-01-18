@@ -5,10 +5,9 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/lib/pq"
 
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/gemini"
@@ -23,21 +22,21 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0755); err != nil {
-		log.Fatalf("Failed to create data directory: %v", err)
-	}
-
-	db, err := sql.Open("sqlite", cfg.DBPath)
+	db, err := sql.Open("postgres", cfg.DBConnectionString)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
 	defer db.Close()
 
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+
 	if err := storage.RunMigrations(db, "backend/migrations"); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	storageDB := storage.NewSQLiteDB(db)
+	storageDB := storage.NewPostgresDB(db)
 
 	fileStorage, err := storage.NewLocalFileStorage(cfg.UploadDir)
 	if err != nil {

@@ -28,18 +28,18 @@ type DB interface {
 	GetAnnotationsByScanID(ctx context.Context, scanID string) ([]*models.Annotation, error)
 }
 
-type sqliteDB struct {
+type postgresDB struct {
 	db *sql.DB
 }
 
-func NewSQLiteDB(db *sql.DB) DB {
-	return &sqliteDB{db: db}
+func NewPostgresDB(db *sql.DB) DB {
+	return &postgresDB{db: db}
 }
 
-func (s *sqliteDB) CreateSession(ctx context.Context, session *models.Session) error {
+func (s *postgresDB) CreateSession(ctx context.Context, session *models.Session) error {
 	query := `
 		INSERT INTO sessions (id, user_id, created_at, last_seen_at)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 	`
 	_, err := s.db.ExecContext(ctx, query,
 		session.ID,
@@ -50,11 +50,11 @@ func (s *sqliteDB) CreateSession(ctx context.Context, session *models.Session) e
 	return err
 }
 
-func (s *sqliteDB) GetSession(ctx context.Context, id string) (*models.Session, error) {
+func (s *postgresDB) GetSession(ctx context.Context, id string) (*models.Session, error) {
 	query := `
 		SELECT id, user_id, created_at, last_seen_at
 		FROM sessions
-		WHERE id = ?
+		WHERE id = $1
 	`
 	var session models.Session
 	var userID sql.NullString
@@ -89,20 +89,20 @@ func (s *sqliteDB) GetSession(ctx context.Context, id string) (*models.Session, 
 	return &session, nil
 }
 
-func (s *sqliteDB) UpdateSessionLastSeen(ctx context.Context, id string) error {
+func (s *postgresDB) UpdateSessionLastSeen(ctx context.Context, id string) error {
 	query := `
 		UPDATE sessions
-		SET last_seen_at = ?
-		WHERE id = ?
+		SET last_seen_at = $1
+		WHERE id = $2
 	`
 	_, err := s.db.ExecContext(ctx, query, time.Now().Format(time.RFC3339), id)
 	return err
 }
 
-func (s *sqliteDB) CreateScan(ctx context.Context, scan *models.Scan) error {
+func (s *postgresDB) CreateScan(ctx context.Context, scan *models.Scan) error {
 	query := `
 		INSERT INTO scans (id, session_id, user_id, source, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	_, err := s.db.ExecContext(ctx, query,
 		scan.ID,
@@ -115,11 +115,11 @@ func (s *sqliteDB) CreateScan(ctx context.Context, scan *models.Scan) error {
 	return err
 }
 
-func (s *sqliteDB) GetScan(ctx context.Context, id string) (*models.Scan, error) {
+func (s *postgresDB) GetScan(ctx context.Context, id string) (*models.Scan, error) {
 	query := `
 		SELECT id, session_id, user_id, source, status, created_at
 		FROM scans
-		WHERE id = ?
+		WHERE id = $1
 	`
 	var scan models.Scan
 	var userID sql.NullString
@@ -150,17 +150,17 @@ func (s *sqliteDB) GetScan(ctx context.Context, id string) (*models.Scan, error)
 	return &scan, nil
 }
 
-func (s *sqliteDB) UpdateScanStatus(ctx context.Context, scanID string, status string) error {
+func (s *postgresDB) UpdateScanStatus(ctx context.Context, scanID string, status string) error {
 	query := `
 		UPDATE scans
-		SET status = ?
-		WHERE id = ?
+		SET status = $1
+		WHERE id = $2
 	`
 	_, err := s.db.ExecContext(ctx, query, status, scanID)
 	return err
 }
 
-func (s *sqliteDB) GetScanWithOCR(ctx context.Context, id string) (*models.Scan, *models.OCRResult, error) {
+func (s *postgresDB) GetScanWithOCR(ctx context.Context, id string) (*models.Scan, *models.OCRResult, error) {
 	scan, err := s.GetScan(ctx, id)
 	if err != nil {
 		return nil, nil, err
@@ -174,10 +174,10 @@ func (s *sqliteDB) GetScanWithOCR(ctx context.Context, id string) (*models.Scan,
 	return scan, ocrResult, nil
 }
 
-func (s *sqliteDB) CreateScanImage(ctx context.Context, image *models.ScanImage) error {
+func (s *postgresDB) CreateScanImage(ctx context.Context, image *models.ScanImage) error {
 	query := `
 		INSERT INTO scan_images (id, scan_id, storage_path, mime_type, sha256, width, height, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	_, err := s.db.ExecContext(ctx, query,
 		image.ID,
@@ -192,11 +192,11 @@ func (s *sqliteDB) CreateScanImage(ctx context.Context, image *models.ScanImage)
 	return err
 }
 
-func (s *sqliteDB) GetScanImage(ctx context.Context, scanID string) (*models.ScanImage, error) {
+func (s *postgresDB) GetScanImage(ctx context.Context, scanID string) (*models.ScanImage, error) {
 	query := `
 		SELECT id, scan_id, storage_path, mime_type, sha256, width, height, created_at
 		FROM scan_images
-		WHERE scan_id = ?
+		WHERE scan_id = $1
 	`
 	var image models.ScanImage
 	var sha256 sql.NullString
@@ -238,10 +238,10 @@ func (s *sqliteDB) GetScanImage(ctx context.Context, scanID string) (*models.Sca
 	return &image, nil
 }
 
-func (s *sqliteDB) CreateOCRResult(ctx context.Context, result *models.OCRResult) error {
+func (s *postgresDB) CreateOCRResult(ctx context.Context, result *models.OCRResult) error {
 	query := `
 		INSERT INTO ocr_results (id, scan_id, model, language, raw_text, structured_json, prompt_version, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	_, err := s.db.ExecContext(ctx, query,
 		result.ID,
@@ -256,11 +256,11 @@ func (s *sqliteDB) CreateOCRResult(ctx context.Context, result *models.OCRResult
 	return err
 }
 
-func (s *sqliteDB) GetOCRResult(ctx context.Context, scanID string) (*models.OCRResult, error) {
+func (s *postgresDB) GetOCRResult(ctx context.Context, scanID string) (*models.OCRResult, error) {
 	query := `
 		SELECT id, scan_id, model, language, raw_text, structured_json, prompt_version, created_at
 		FROM ocr_results
-		WHERE scan_id = ?
+		WHERE scan_id = $1
 	`
 	var result models.OCRResult
 	var language sql.NullString
@@ -297,14 +297,14 @@ func (s *sqliteDB) GetOCRResult(ctx context.Context, scanID string) (*models.OCR
 	return &result, nil
 }
 
-func (s *sqliteDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) error {
+func (s *postgresDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) error {
 	query := `
 		INSERT INTO annotations (
 			id, scan_id, ocr_result_id, selected_text, selection_start, selection_end,
 			meaning, usage_example, when_to_use, word_breakdown, alternative_meanings,
 			model, prompt_version, created_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 	_, err := s.db.ExecContext(ctx, query,
 		annotation.ID,
@@ -325,13 +325,13 @@ func (s *sqliteDB) CreateAnnotation(ctx context.Context, annotation *models.Anno
 	return err
 }
 
-func (s *sqliteDB) GetAnnotationsByScanID(ctx context.Context, scanID string) ([]*models.Annotation, error) {
+func (s *postgresDB) GetAnnotationsByScanID(ctx context.Context, scanID string) ([]*models.Annotation, error) {
 	query := `
 		SELECT id, scan_id, ocr_result_id, selected_text, selection_start, selection_end,
 		       meaning, usage_example, when_to_use, word_breakdown, alternative_meanings,
 		       model, prompt_version, created_at
 		FROM annotations
-		WHERE scan_id = ?
+		WHERE scan_id = $1
 		ORDER BY created_at ASC
 	`
 	rows, err := s.db.QueryContext(ctx, query, scanID)

@@ -47,15 +47,15 @@ func RunMigrations(db *sql.DB, migrationsDir string) error {
 }
 
 func enableForeignKeys(db *sql.DB) error {
-	_, err := db.Exec("PRAGMA foreign_keys = ON")
-	return err
+	// PostgreSQL has foreign keys enabled by default, no action needed
+	return nil
 }
 
 func createMigrationsTable(db *sql.DB) error {
 	query := `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
-			name TEXT PRIMARY KEY,
-			applied_at TEXT NOT NULL
+			name VARCHAR(255) PRIMARY KEY,
+			applied_at TIMESTAMP NOT NULL
 		)
 	`
 	_, err := db.Exec(query)
@@ -64,7 +64,7 @@ func createMigrationsTable(db *sql.DB) error {
 
 func isMigrationApplied(db *sql.DB, name string) (bool, error) {
 	var count int
-	query := "SELECT COUNT(*) FROM schema_migrations WHERE name = ?"
+	query := "SELECT COUNT(*) FROM schema_migrations WHERE name = $1"
 	err := db.QueryRow(query, name).Scan(&count)
 	if err != nil {
 		return false, err
@@ -73,7 +73,7 @@ func isMigrationApplied(db *sql.DB, name string) (bool, error) {
 }
 
 func recordMigration(db *sql.DB, name string) error {
-	query := "INSERT INTO schema_migrations (name, applied_at) VALUES (?, datetime('now'))"
+	query := "INSERT INTO schema_migrations (name, applied_at) VALUES ($1, NOW())"
 	_, err := db.Exec(query, name)
 	return err
 }
