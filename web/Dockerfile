@@ -5,9 +5,18 @@ WORKDIR /app/frontend
 RUN npm install -g bun
 
 COPY web/package.json web/bun.lock* ./
-RUN bun install
+RUN bun install --frozen-lockfile
 
-COPY web/ .
+COPY web/src src
+COPY web/public public
+COPY web/index.html .
+COPY web/vite.config.ts .
+COPY web/tsconfig.json .
+COPY web/tsconfig.app.json .
+COPY web/tsconfig.node.json .
+COPY web/tsconfig.vitest.json .
+COPY web/components.json .
+COPY web/eslint.config.js .
 
 RUN bun run build
 

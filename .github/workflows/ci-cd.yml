@@ -136,6 +136,7 @@ jobs:
           context: .
           file: web/Dockerfile
           push: true
+          no-cache: true
           tags: |
             ${{ env.FRONTEND_IMAGE_NAME }}:${{ env.TAG }}
             ${{ env.FRONTEND_IMAGE_NAME }}:latest
