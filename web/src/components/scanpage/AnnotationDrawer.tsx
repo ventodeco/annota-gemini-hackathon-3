@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState, useRef } from 'react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { motion } from 'framer-motion'
 import { useDrawerHeight, useDrawerGestures } from '@/hooks/useDrawerHeight'
@@ -21,6 +21,8 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
   const { handleDragEnd } = useDrawerGestures(expandDrawer, collapseDrawer)
   const [isSaved, setIsSaved] = useState(false)
 
+  const isSavedRef = useRef(false)
+
   useEffect(() => {
     if (isOpen && annotation) {
       collapseDrawer()
@@ -29,8 +31,10 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
 
   useEffect(() => {
     if (annotation?.id) {
-      setIsSaved(isAnnotationSaved(annotation.id))
+      isSavedRef.current = isAnnotationSaved(annotation.id)
+      setIsSaved(isSavedRef.current)
     } else {
+      isSavedRef.current = false
       setIsSaved(false)
     }
   }, [annotation?.id])

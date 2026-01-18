@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -11,25 +11,22 @@ import { getMockAnnotation } from '@/lib/mockAnnotations'
 
 export default function ScanPage() {
   const { id } = useParams<{ id: string }>()
-  const [scanData, setScanData] = useState<GetScanResponse | null>(null)
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [scanData] = useState<GetScanResponse | null>(() => {
+    if (id) {
+      return getMockScan(id) || null
+    }
+    return null
+  })
+  const [imageUrl] = useState<string | null>(() => {
+    if (id) {
+      return getMockImageUrl(id)
+    }
+    return null
+  })
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
   const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
-
-  useEffect(() => {
-    if (id) {
-      const mockScan = getMockScan(id)
-      if (mockScan) {
-        setScanData(mockScan)
-        const url = getMockImageUrl(id)
-        if (url) {
-          setImageUrl(url)
-        }
-      }
-    }
-  }, [id])
 
   const handleTextSelect = () => {
     const selection = window.getSelection()

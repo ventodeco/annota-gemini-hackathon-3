@@ -52,4 +52,4 @@ export interface AnnotateRequest {
   selectedText: string
 }
 
-export interface AnnotateResponse extends Annotation {}
+export type AnnotateResponse = Annotation

@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { createScan, getScan, annotate, getScanImageURL } from '../api'
 
 describe('API Client', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    global.fetch = vi.fn()
+    global.fetch = vi.fn() as Mock
   })
 
   describe('createScan', () => {
@@ -15,7 +15,7 @@ describe('API Client', () => {
         createdAt: '2024-01-01T00:00:00Z',
       }
 
-      ;(global.fetch as any).mockResolvedValueOnce({
+      ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => mockResponse,
       })
@@ -34,7 +34,7 @@ describe('API Client', () => {
     })
 
     it('should handle errors', async () => {
-      ;(global.fetch as any).mockResolvedValueOnce({
+      ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: false,
         status: 400,
         text: async () => 'Invalid image type',
@@ -53,7 +53,7 @@ describe('API Client', () => {
         status: 'ocr_done',
       }
 
-      ;(global.fetch as any).mockResolvedValueOnce({
+      ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => mockResponse,
       })
@@ -67,7 +67,7 @@ describe('API Client', () => {
     })
 
     it('should handle 404 errors', async () => {
-      ;(global.fetch as any).mockResolvedValueOnce({
+      ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: false,
         status: 404,
         text: async () => 'Scan not found',
@@ -88,7 +88,7 @@ describe('API Client', () => {
         alternativeMeanings: 'test alt',
       }
 
-      ;(global.fetch as any).mockResolvedValueOnce({
+      ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => mockResponse,
       })
@@ -107,7 +107,7 @@ describe('API Client', () => {
     })
 
     it('should handle errors', async () => {
-      ;(global.fetch as any).mockResolvedValueOnce({
+      ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: false,
         status: 400,
         text: async () => 'Invalid selection',
