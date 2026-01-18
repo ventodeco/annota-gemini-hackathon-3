@@ -52,5 +52,5 @@ docs/
 
 # Docker
 docker-compose.yml
-Dockerfile
+.Dockerfile
 .dockerignore

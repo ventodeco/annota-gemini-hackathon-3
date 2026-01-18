@@ -1,17 +1,19 @@
 FROM node:22-alpine AS builder
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-COPY package.json bun.lock ./
+RUN npm install -g bun
+
+COPY web/package.json web/bun.lock* ./
 RUN bun install
 
-COPY . .
+COPY web/ .
 
 RUN bun run build
 
 FROM nginx:alpine
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
 EXPOSE 80
 
