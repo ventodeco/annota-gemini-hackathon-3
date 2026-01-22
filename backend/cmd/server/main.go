@@ -9,6 +9,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/gemini-hackathon/app/internal/auth"
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/gemini"
 	"github.com/gemini-hackathon/app/internal/handlers"
@@ -43,68 +44,58 @@ func main() {
 		log.Fatalf("Failed to create file storage: %v", err)
 	}
 
+	redisClient, err := storage.NewRedisClient(cfg.RedisAddr)
+	if err != nil {
+		log.Printf("Warning: Failed to connect to Redis: %v. OAuth state will not work.", err)
+	}
+
 	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)
 
-	h := handlers.NewHandlers(storageDB, fileStorage, geminiClient, cfg)
+	tokenService := auth.NewTokenService(cfg.JWTSecret, cfg.TokenExpiryMinutes)
 
-	sessionMiddleware := middleware.NewSessionMiddleware(storageDB, cfg.SessionCookieName, cfg.SessionSecure)
+	googleOAuth := auth.NewGoogleOAuthService(cfg, redisClient)
+
+	authHandlers := handlers.NewAuthHandlers(googleOAuth, tokenService, storageDB, cfg)
+	userHandlers := handlers.NewUserHandlers(storageDB)
+	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, geminiClient, cfg)
+	aiHandlers := handlers.NewAIHandlers(storageDB, geminiClient)
+	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg)
+
+	authMiddleware := middleware.NewAuthMiddleware(tokenService)
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/healthz", h.Healthz)
-
-	mux.HandleFunc("/api/scans", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			h.CreateScanAPI(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
 	})
 
-	mux.HandleFunc("/api/scans/", func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/api/scans/")
-		parts := strings.Split(path, "/")
+	mux.HandleFunc("/v1/auth/google/state", authHandlers.GoogleStateAPI)
+	mux.HandleFunc("/v1/auth/google/callback", authHandlers.GoogleCallbackRedirect)
+	mux.HandleFunc("/v1/auth/google/callback", authHandlers.GoogleCallbackAPI)
 
-		if len(parts) == 1 && parts[0] != "" {
-			if r.Method == http.MethodGet {
-				h.GetScanAPI(w, r)
-			} else {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-			return
-		}
+	authMux := http.NewServeMux()
+	authMux.HandleFunc("/v1/users/me/languages", userHandlers.GetLanguagesAPI)
+	authMux.HandleFunc("/v1/users/me", userHandlers.GetUserProfileAPI)
+	authMux.HandleFunc("/v1/users/me", userHandlers.UpdateUserPreferencesAPI)
+	authMux.HandleFunc("/v1/scans", scanHandlers.CreateScanAPI)
+	authMux.HandleFunc("/v1/scans", scanHandlers.GetScansAPI)
+	authMux.HandleFunc("/v1/scans/", scanHandlers.GetScanAPI)
+	authMux.HandleFunc("/v1/ai/analyze", aiHandlers.AnalyzeAPI)
+	authMux.HandleFunc("/v1/annotations", annotationHandlers.CreateAnnotationAPI)
+	authMux.HandleFunc("/v1/annotations", annotationHandlers.GetAnnotationsAPI)
 
-		if len(parts) == 2 {
-			switch parts[1] {
-			case "annotate":
-				if r.Method == http.MethodPost {
-					h.AnnotateAPI(w, r)
-				} else {
-					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				}
-				return
-			case "image":
-				if r.Method == http.MethodGet {
-					h.GetScanImage(w, r)
-				} else {
-					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				}
-				return
-			}
-		}
-
-		http.NotFound(w, r)
-	})
+	mux.Handle("/v1/", authMiddleware.Handle(authMux))
 
 	reactFS := http.FileServer(http.Dir("web/dist"))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/v1/") || strings.HasPrefix(r.URL.Path, "/healthz") {
 			http.NotFound(w, r)
 			return
 		}
 
 		if _, err := os.Stat("web/dist/index.html"); err == nil {
-			if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/api/") {
+			if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.Path != "/healthz" {
 				r.URL.Path = "/"
 			}
 			reactFS.ServeHTTP(w, r)
@@ -113,7 +104,7 @@ func main() {
 		}
 	})
 
-	handler := middleware.LoggingMiddleware(sessionMiddleware.Handle(mux))
+	handler := middleware.LoggingMiddleware(mux)
 
 	log.Printf("Server starting on :%s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {

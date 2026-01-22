@@ -1,0 +1,233 @@
+meta {
+  name: Gemini OCR+Annotation API
+  type: http
+  seq: 1
+}
+
+get /healthz {
+  health check endpoint
+}
+
+get /v1/auth/google/state {
+  Get Google OAuth URL for login redirect
+  
+  Returns:
+  {
+    "ssoRedirection": "https://accounts.google.com/o/oauth2/v2/auth?..."
+  }
+}
+
+get /v1/auth/google/callback {
+  Google OAuth callback redirect
+  
+  Query params:
+  - state: State from Google
+  - code: Authorization code from Google
+  
+  Response: 302 redirect to frontend with state and code
+}
+
+post /v1/auth/google/callback {
+  Exchange Google OAuth code for JWT token
+  
+  Body:
+  {
+    "code": "4/ABCD..."
+  }
+  
+  Returns:
+  {
+    "token": "eyJ...",
+    "expirySeconds": 1800,
+    "expiresAt": "2026-01-22T10:30:00Z"
+  }
+}
+
+get /v1/users/me {
+  Get current user profile
+  
+  Headers:
+  - x-token: {{token}}
+  
+  Returns:
+  {
+    "preferredLanguage": "ID"
+  }
+}
+
+get /v1/users/me/languages {
+  Get available languages
+  
+  Headers:
+  - x-token: {{token}}
+  
+  Returns:
+  {
+    "languages": [
+      {"caption": "ID", "imageUrl": "..."},
+      {"caption": "JP", "imageUrl": "..."},
+      {"caption": "EN", "imageUrl": "..."}
+    ]
+  }
+}
+
+patch /v1/users/me {
+  Update user preferences
+  
+  Headers:
+  - x-token: {{token}}
+  - Content-Type: application/json
+  
+  Body:
+  {
+    "preferredLanguage": "JP"
+  }
+  
+  Returns:
+  {
+    "preferredLanguage": "JP"
+  }
+}
+
+post /v1/scans {
+  Upload image and create new scan
+  
+  Headers:
+  - x-token: {{token}}
+  - Content-Type: multipart/form-data
+  
+  Body:
+  - image: (file upload)
+  
+  Returns:
+  {
+    "scanId": 1,
+    "fullText": null,
+    "imageUrl": "/uploads/..."
+  }
+}
+
+get /v1/scans {
+  Get scan history with pagination
+  
+  Headers:
+  - x-token: {{token}}
+  
+  Query params:
+  - page: 1 (default)
+  - size: 20 (default)
+  
+  Returns:
+  {
+    "data": [
+      {
+        "id": 1,
+        "imageUrl": "...",
+        "detectedLanguage": "JP",
+        "createdAt": "2026-01-13T08:30:00Z"
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 20,
+      "nextPage": 2,
+      "previousPage": null
+    }
+  }
+}
+
+get /v1/scans/{id} {
+  Get scan details
+  
+  Headers:
+  - x-token: {{token}}
+  
+  Returns:
+  {
+    "id": 1,
+    "fullText": "...",
+    "imageUrl": "...",
+    "detectedLanguage": "JP",
+    "createdAt": "2026-01-13T08:30:00Z"
+  }
+}
+
+post /v1/ai/analyze {
+  Analyze text with AI
+  
+  Headers:
+  - x-token: {{token}}
+  - Content-Type: application/json
+  
+  Body:
+  {
+    "textToAnalyze": "Giling Basah",
+    "context": "Kopi ini menggunakan teknik Giling Basah."
+  }
+  
+  Returns:
+  {
+    "meaning": "Teknik penggilingan basah...",
+    "usageExample": "Petani di Sumatra sering...",
+    "usageTiming": "Ketika kopi diolah...",
+    "wordBreakdown": "Giling (Grind) + Basah (Wet)",
+    "alternativeMeaning": "Dalam konteks metafora..."
+  }
+}
+
+post /v1/annotations {
+  Create new annotation/bookmark
+  
+  Headers:
+  - x-token: {{token}}
+  - Content-Type: application/json
+  
+  Body:
+  {
+    "scanId": 1,
+    "highlightedText": "Giling Basah",
+    "contextText": "Kopi ini menggunakan teknik Giling Basah.",
+    "nuanceData": {
+      "meaning": "...",
+      "usageExample": "...",
+      "usageTiming": "...",
+      "wordBreakdown": "...",
+      "alternativeMeaning": "..."
+    }
+  }
+  
+  Returns:
+  {
+    "annotationId": 1,
+    "status": "saved"
+  }
+}
+
+get /v1/annotations {
+  Get all annotations with pagination
+  
+  Headers:
+  - x-token: {{token}}
+  
+  Query params:
+  - page: 1 (default)
+  - size: 20 (default)
+  
+  Returns:
+  {
+    "data": [
+      {
+        "id": 1,
+        "highlightedText": "Giling Basah",
+        "nuanceSummary": "Wet Hulled coffee processing...",
+        "createdAt": "2026-01-13T08:35:00Z"
+      }
+    ],
+    "meta": {
+      "currentPage": 1,
+      "pageSize": 20,
+      "nextPage": 2,
+      "previousPage": null
+    }
+  }
+}

@@ -1,29 +1,15 @@
-version: '3.8'
-
+version: '3'
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: hackathon-gemini-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-gemini_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gemini_password}
-      POSTGRES_DB: ${POSTGRES_DB:-gemini_db}
+  db:
+    image: postgres:13-alpine
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gemini_user}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - gemini-network
+      - "pg-data:/var/lib/postgresql/data"
+    environment:
+      - POSTGRES_DB=gemini_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
 
 volumes:
-  postgres_data:
-    driver: local
-
-networks:
-  gemini-network:
-    driver: bridge
+  pg-data: {}

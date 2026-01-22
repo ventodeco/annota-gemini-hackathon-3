@@ -17,6 +17,13 @@ type Config struct {
 	MaxUploadSize      int64
 	SessionCookieName  string
 	SessionSecure      bool
+
+	GoogleOAuthClientID     string
+	GoogleOAuthClientSecret string
+	RedisAddr               string
+	JWTSecret               string
+	TokenExpiryMinutes      int
+	DefaultPageSize         int
 }
 
 func Load() (*Config, error) {
@@ -49,14 +56,20 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		GeminiAPIKey:       geminiAPIKey,
-		AppBaseURL:         getEnvOrDefault("APP_BASE_URL", "http://localhost:8080"),
-		Port:               getEnvOrDefault("PORT", "8080"),
-		DBConnectionString: dbConnStr,
-		UploadDir:          getEnvOrDefault("UPLOAD_DIR", "data/uploads"),
-		MaxUploadSize:      getEnvAsInt64OrDefault("MAX_UPLOAD_SIZE", 10*1024*1024),
-		SessionCookieName:  getEnvOrDefault("SESSION_COOKIE_NAME", "sid"),
-		SessionSecure:      getEnvAsBoolOrDefault("SESSION_SECURE", false),
+		GeminiAPIKey:            geminiAPIKey,
+		AppBaseURL:              getEnvOrDefault("APP_BASE_URL", "http://localhost:8080"),
+		Port:                    getEnvOrDefault("PORT", "8080"),
+		DBConnectionString:      dbConnStr,
+		UploadDir:               getEnvOrDefault("UPLOAD_DIR", "data/uploads"),
+		MaxUploadSize:           getEnvAsInt64OrDefault("MAX_UPLOAD_SIZE", 10*1024*1024),
+		SessionCookieName:       getEnvOrDefault("SESSION_COOKIE_NAME", "sid"),
+		SessionSecure:           getEnvAsBoolOrDefault("SESSION_SECURE", false),
+		GoogleOAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
+		GoogleOAuthClientSecret: os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+		RedisAddr:               getEnvOrDefault("REDIS_ADDR", "localhost:6379"),
+		JWTSecret:               os.Getenv("JWT_SECRET"),
+		TokenExpiryMinutes:      getEnvAsIntOrDefault("TOKEN_EXPIRY_MINUTES", 30),
+		DefaultPageSize:         getEnvAsIntOrDefault("DEFAULT_PAGE_SIZE", 20),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -79,6 +92,12 @@ func (c *Config) Validate() error {
 	if c.MaxUploadSize <= 0 {
 		return fmt.Errorf("MAX_UPLOAD_SIZE must be positive")
 	}
+	if c.TokenExpiryMinutes <= 0 {
+		return fmt.Errorf("TOKEN_EXPIRY_MINUTES must be positive")
+	}
+	if c.DefaultPageSize <= 0 {
+		return fmt.Errorf("DEFAULT_PAGE_SIZE must be positive")
+	}
 	return nil
 }
 
@@ -92,6 +111,15 @@ func getEnvOrDefault(key, defaultValue string) string {
 func getEnvAsInt64OrDefault(key string, defaultValue int64) int64 {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvAsIntOrDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
 		}
 	}

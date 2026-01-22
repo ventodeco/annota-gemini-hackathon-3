@@ -3,29 +3,27 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/gemini-hackathon/app/internal/models"
 )
 
 type DB interface {
-	CreateSession(ctx context.Context, session *models.Session) error
-	GetSession(ctx context.Context, id string) (*models.Session, error)
-	UpdateSessionLastSeen(ctx context.Context, id string) error
+	CreateUser(ctx context.Context, user *models.User) error
+	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
+	GetUserByProvider(ctx context.Context, provider, providerID string) (*models.User, error)
+	GetUserByID(ctx context.Context, userID int64) (*models.User, error)
+	UpdateUserLanguage(ctx context.Context, userID int64, language string) error
 
-	CreateScan(ctx context.Context, scan *models.Scan) error
-	UpdateScanStatus(ctx context.Context, scanID string, status string) error
-	GetScan(ctx context.Context, id string) (*models.Scan, error)
-	GetScanWithOCR(ctx context.Context, id string) (*models.Scan, *models.OCRResult, error)
+	CreateScan(ctx context.Context, scan *models.Scan) (int64, error)
+	GetScanByID(ctx context.Context, scanID int64) (*models.Scan, error)
+	GetScansByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Scan, error)
+	UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error
 
-	CreateScanImage(ctx context.Context, image *models.ScanImage) error
-	GetScanImage(ctx context.Context, scanID string) (*models.ScanImage, error)
-
-	CreateOCRResult(ctx context.Context, result *models.OCRResult) error
-	GetOCRResult(ctx context.Context, scanID string) (*models.OCRResult, error)
-
-	CreateAnnotation(ctx context.Context, annotation *models.Annotation) error
-	GetAnnotationsByScanID(ctx context.Context, scanID string) ([]*models.Annotation, error)
+	CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error)
+	GetAnnotationsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Annotation, error)
 }
 
 type postgresDB struct {
@@ -36,305 +34,242 @@ func NewPostgresDB(db *sql.DB) DB {
 	return &postgresDB{db: db}
 }
 
-func (s *postgresDB) CreateSession(ctx context.Context, session *models.Session) error {
+func (s *postgresDB) CreateUser(ctx context.Context, user *models.User) error {
 	query := `
-		INSERT INTO sessions (id, user_id, created_at, last_seen_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
 	`
-	_, err := s.db.ExecContext(ctx, query,
-		session.ID,
-		session.UserID,
-		session.CreatedAt.Format(time.RFC3339),
-		session.LastSeenAt.Format(time.RFC3339),
-	)
+	err := s.db.QueryRowContext(ctx, query,
+		user.Email,
+		user.Provider,
+		user.ProviderID,
+		user.AvatarURL,
+		user.PreferredLanguage,
+		user.CreatedAt,
+		user.UpdatedAt,
+	).Scan(&user.ID)
 	return err
 }
 
-func (s *postgresDB) GetSession(ctx context.Context, id string) (*models.Session, error) {
+func (s *postgresDB) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, user_id, created_at, last_seen_at
-		FROM sessions
+		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at
+		FROM users
+		WHERE email = $1
+	`
+	user, err := s.scanUser(s.db.QueryRowContext(ctx, query, email))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return user, err
+}
+
+func (s *postgresDB) GetUserByProvider(ctx context.Context, provider, providerID string) (*models.User, error) {
+	query := `
+		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at
+		FROM users
+		WHERE provider = $1 AND provider_id = $2
+	`
+	user, err := s.scanUser(s.db.QueryRowContext(ctx, query, provider, providerID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return user, err
+}
+
+func (s *postgresDB) GetUserByID(ctx context.Context, userID int64) (*models.User, error) {
+	query := `
+		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at
+		FROM users
 		WHERE id = $1
 	`
-	var session models.Session
-	var userID sql.NullString
-	var createdAtStr, lastSeenAtStr string
+	user, err := s.scanUser(s.db.QueryRowContext(ctx, query, userID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return user, err
+}
 
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&session.ID,
-		&userID,
-		&createdAtStr,
-		&lastSeenAtStr,
+func (s *postgresDB) UpdateUserLanguage(ctx context.Context, userID int64, language string) error {
+	query := `
+		UPDATE users
+		SET preferred_language = $1, updated_at = $2
+		WHERE id = $3
+	`
+	_, err := s.db.ExecContext(ctx, query, language, time.Now(), userID)
+	return err
+}
+
+func (s *postgresDB) scanUser(row *sql.Row) (*models.User, error) {
+	var user models.User
+	var avatarURL sql.NullString
+	var preferredLanguage string
+	var createdAt, updatedAt time.Time
+
+	err := row.Scan(
+		&user.ID,
+		&user.Email,
+		&user.Provider,
+		&user.ProviderID,
+		&avatarURL,
+		&preferredLanguage,
+		&createdAt,
+		&updatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	if userID.Valid {
-		session.UserID = &userID.String
+	if avatarURL.Valid {
+		user.AvatarURL = &avatarURL.String
 	}
+	user.PreferredLanguage = preferredLanguage
+	user.CreatedAt = createdAt
+	user.UpdatedAt = updatedAt
 
-	createdAt, err := time.Parse(time.RFC3339, createdAtStr)
-	if err != nil {
-		return nil, err
-	}
-	session.CreatedAt = createdAt
-
-	lastSeenAt, err := time.Parse(time.RFC3339, lastSeenAtStr)
-	if err != nil {
-		return nil, err
-	}
-	session.LastSeenAt = lastSeenAt
-
-	return &session, nil
+	return &user, nil
 }
 
-func (s *postgresDB) UpdateSessionLastSeen(ctx context.Context, id string) error {
+func (s *postgresDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, error) {
 	query := `
-		UPDATE sessions
-		SET last_seen_at = $1
-		WHERE id = $2
+		INSERT INTO scans (user_id, image_url, full_ocr_text, detected_language, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id
 	`
-	_, err := s.db.ExecContext(ctx, query, time.Now().Format(time.RFC3339), id)
-	return err
-}
-
-func (s *postgresDB) CreateScan(ctx context.Context, scan *models.Scan) error {
-	query := `
-		INSERT INTO scans (id, session_id, user_id, source, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`
-	_, err := s.db.ExecContext(ctx, query,
-		scan.ID,
-		scan.SessionID,
+	err := s.db.QueryRowContext(ctx, query,
 		scan.UserID,
-		scan.Source,
-		scan.Status,
-		scan.CreatedAt.Format(time.RFC3339),
-	)
-	return err
+		scan.ImageURL,
+		scan.FullOCRText,
+		scan.DetectedLanguage,
+		scan.CreatedAt,
+	).Scan(&scan.ID)
+	return scan.ID, err
 }
 
-func (s *postgresDB) GetScan(ctx context.Context, id string) (*models.Scan, error) {
+func (s *postgresDB) GetScanByID(ctx context.Context, scanID int64) (*models.Scan, error) {
 	query := `
-		SELECT id, session_id, user_id, source, status, created_at
+		SELECT id, user_id, image_url, full_ocr_text, detected_language, created_at
 		FROM scans
 		WHERE id = $1
 	`
 	var scan models.Scan
-	var userID sql.NullString
-	var createdAtStr string
+	var fullOCRText, detectedLanguage sql.NullString
+	var createdAt time.Time
 
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
+	err := s.db.QueryRowContext(ctx, query, scanID).Scan(
 		&scan.ID,
-		&scan.SessionID,
-		&userID,
-		&scan.Source,
-		&scan.Status,
-		&createdAtStr,
+		&scan.UserID,
+		&scan.ImageURL,
+		&fullOCRText,
+		&detectedLanguage,
+		&createdAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	if userID.Valid {
-		scan.UserID = &userID.String
+	if fullOCRText.Valid {
+		scan.FullOCRText = &fullOCRText.String
 	}
-
-	createdAt, err := time.Parse(time.RFC3339, createdAtStr)
-	if err != nil {
-		return nil, err
+	if detectedLanguage.Valid {
+		scan.DetectedLanguage = &detectedLanguage.String
 	}
 	scan.CreatedAt = createdAt
 
 	return &scan, nil
 }
 
-func (s *postgresDB) UpdateScanStatus(ctx context.Context, scanID string, status string) error {
+func (s *postgresDB) GetScansByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Scan, error) {
+	offset := (page - 1) * size
+	query := `
+		SELECT id, user_id, image_url, full_ocr_text, detected_language, created_at
+		FROM scans
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := s.db.QueryContext(ctx, query, userID, size, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scans []*models.Scan
+	for rows.Next() {
+		var scan models.Scan
+		var fullOCRText, detectedLanguage sql.NullString
+		var createdAt time.Time
+
+		err := rows.Scan(
+			&scan.ID,
+			&scan.UserID,
+			&scan.ImageURL,
+			&fullOCRText,
+			&detectedLanguage,
+			&createdAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if fullOCRText.Valid {
+			scan.FullOCRText = &fullOCRText.String
+		}
+		if detectedLanguage.Valid {
+			scan.DetectedLanguage = &detectedLanguage.String
+		}
+		scan.CreatedAt = createdAt
+
+		scans = append(scans, &scan)
+	}
+
+	return scans, rows.Err()
+}
+
+func (s *postgresDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error {
 	query := `
 		UPDATE scans
-		SET status = $1
-		WHERE id = $2
+		SET full_ocr_text = $1, detected_language = $2
+		WHERE id = $3
 	`
-	_, err := s.db.ExecContext(ctx, query, status, scanID)
+	_, err := s.db.ExecContext(ctx, query, text, language, scanID)
 	return err
 }
 
-func (s *postgresDB) GetScanWithOCR(ctx context.Context, id string) (*models.Scan, *models.OCRResult, error) {
-	scan, err := s.GetScan(ctx, id)
+func (s *postgresDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error) {
+	nuanceJSON, err := json.Marshal(annotation.NuanceData)
 	if err != nil {
-		return nil, nil, err
+		return 0, fmt.Errorf("failed to marshal nuance_data: %w", err)
 	}
 
-	ocrResult, err := s.GetOCRResult(ctx, id)
-	if err != nil {
-		return scan, nil, nil
-	}
-
-	return scan, ocrResult, nil
-}
-
-func (s *postgresDB) CreateScanImage(ctx context.Context, image *models.ScanImage) error {
 	query := `
-		INSERT INTO scan_images (id, scan_id, storage_path, mime_type, sha256, width, height, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO annotations (user_id, scan_id, highlighted_text, context_text, nuance_data, is_bookmarked, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
 	`
-	_, err := s.db.ExecContext(ctx, query,
-		image.ID,
-		image.ScanID,
-		image.StoragePath,
-		image.MimeType,
-		image.SHA256,
-		image.Width,
-		image.Height,
-		image.CreatedAt.Format(time.RFC3339),
-	)
-	return err
-}
-
-func (s *postgresDB) GetScanImage(ctx context.Context, scanID string) (*models.ScanImage, error) {
-	query := `
-		SELECT id, scan_id, storage_path, mime_type, sha256, width, height, created_at
-		FROM scan_images
-		WHERE scan_id = $1
-	`
-	var image models.ScanImage
-	var sha256 sql.NullString
-	var width, height sql.NullInt64
-	var createdAtStr string
-
-	err := s.db.QueryRowContext(ctx, query, scanID).Scan(
-		&image.ID,
-		&image.ScanID,
-		&image.StoragePath,
-		&image.MimeType,
-		&sha256,
-		&width,
-		&height,
-		&createdAtStr,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if sha256.Valid {
-		image.SHA256 = &sha256.String
-	}
-	if width.Valid {
-		w := int(width.Int64)
-		image.Width = &w
-	}
-	if height.Valid {
-		h := int(height.Int64)
-		image.Height = &h
-	}
-
-	createdAt, err := time.Parse(time.RFC3339, createdAtStr)
-	if err != nil {
-		return nil, err
-	}
-	image.CreatedAt = createdAt
-
-	return &image, nil
-}
-
-func (s *postgresDB) CreateOCRResult(ctx context.Context, result *models.OCRResult) error {
-	query := `
-		INSERT INTO ocr_results (id, scan_id, model, language, raw_text, structured_json, prompt_version, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`
-	_, err := s.db.ExecContext(ctx, query,
-		result.ID,
-		result.ScanID,
-		result.Model,
-		result.Language,
-		result.RawText,
-		result.StructuredJSON,
-		result.PromptVersion,
-		result.CreatedAt.Format(time.RFC3339),
-	)
-	return err
-}
-
-func (s *postgresDB) GetOCRResult(ctx context.Context, scanID string) (*models.OCRResult, error) {
-	query := `
-		SELECT id, scan_id, model, language, raw_text, structured_json, prompt_version, created_at
-		FROM ocr_results
-		WHERE scan_id = $1
-	`
-	var result models.OCRResult
-	var language sql.NullString
-	var structuredJSON sql.NullString
-	var createdAtStr string
-
-	err := s.db.QueryRowContext(ctx, query, scanID).Scan(
-		&result.ID,
-		&result.ScanID,
-		&result.Model,
-		&language,
-		&result.RawText,
-		&structuredJSON,
-		&result.PromptVersion,
-		&createdAtStr,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if language.Valid {
-		result.Language = &language.String
-	}
-	if structuredJSON.Valid {
-		result.StructuredJSON = &structuredJSON.String
-	}
-
-	createdAt, err := time.Parse(time.RFC3339, createdAtStr)
-	if err != nil {
-		return nil, err
-	}
-	result.CreatedAt = createdAt
-
-	return &result, nil
-}
-
-func (s *postgresDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) error {
-	query := `
-		INSERT INTO annotations (
-			id, scan_id, ocr_result_id, selected_text, selection_start, selection_end,
-			meaning, usage_example, when_to_use, word_breakdown, alternative_meanings,
-			model, prompt_version, created_at
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-	`
-	_, err := s.db.ExecContext(ctx, query,
-		annotation.ID,
+	err = s.db.QueryRowContext(ctx, query,
+		annotation.UserID,
 		annotation.ScanID,
-		annotation.OCRResultID,
-		annotation.SelectedText,
-		annotation.SelectionStart,
-		annotation.SelectionEnd,
-		annotation.Meaning,
-		annotation.UsageExample,
-		annotation.WhenToUse,
-		annotation.WordBreakdown,
-		annotation.AlternativeMeanings,
-		annotation.Model,
-		annotation.PromptVersion,
-		annotation.CreatedAt.Format(time.RFC3339),
-	)
-	return err
+		annotation.HighlightedText,
+		annotation.ContextText,
+		nuanceJSON,
+		annotation.IsBookmarked,
+		annotation.CreatedAt,
+	).Scan(&annotation.ID)
+	return annotation.ID, err
 }
 
-func (s *postgresDB) GetAnnotationsByScanID(ctx context.Context, scanID string) ([]*models.Annotation, error) {
+func (s *postgresDB) GetAnnotationsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Annotation, error) {
+	offset := (page - 1) * size
 	query := `
-		SELECT id, scan_id, ocr_result_id, selected_text, selection_start, selection_end,
-		       meaning, usage_example, when_to_use, word_breakdown, alternative_meanings,
-		       model, prompt_version, created_at
+		SELECT id, user_id, scan_id, highlighted_text, context_text, nuance_data, is_bookmarked, created_at
 		FROM annotations
-		WHERE scan_id = $1
-		ORDER BY created_at ASC
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := s.db.QueryContext(ctx, query, scanID)
+	rows, err := s.db.QueryContext(ctx, query, userID, size, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -343,41 +278,33 @@ func (s *postgresDB) GetAnnotationsByScanID(ctx context.Context, scanID string) 
 	var annotations []*models.Annotation
 	for rows.Next() {
 		var annotation models.Annotation
-		var selectionStart, selectionEnd sql.NullInt64
-		var createdAtStr string
+		var scanID sql.NullInt64
+		var contextText sql.NullString
+		var nuanceData []byte
+		var createdAt time.Time
 
 		err := rows.Scan(
 			&annotation.ID,
-			&annotation.ScanID,
-			&annotation.OCRResultID,
-			&annotation.SelectedText,
-			&selectionStart,
-			&selectionEnd,
-			&annotation.Meaning,
-			&annotation.UsageExample,
-			&annotation.WhenToUse,
-			&annotation.WordBreakdown,
-			&annotation.AlternativeMeanings,
-			&annotation.Model,
-			&annotation.PromptVersion,
-			&createdAtStr,
+			&annotation.UserID,
+			&scanID,
+			&annotation.HighlightedText,
+			&contextText,
+			&nuanceData,
+			&annotation.IsBookmarked,
+			&createdAt,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		if selectionStart.Valid {
-			s := int(selectionStart.Int64)
-			annotation.SelectionStart = &s
+		if scanID.Valid {
+			annotation.ScanID = &scanID.Int64
 		}
-		if selectionEnd.Valid {
-			e := int(selectionEnd.Int64)
-			annotation.SelectionEnd = &e
+		if contextText.Valid {
+			annotation.ContextText = &contextText.String
 		}
-
-		createdAt, err := time.Parse(time.RFC3339, createdAtStr)
-		if err != nil {
-			return nil, err
+		if err := json.Unmarshal(nuanceData, &annotation.NuanceData); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal nuance_data: %w", err)
 		}
 		annotation.CreatedAt = createdAt
 
