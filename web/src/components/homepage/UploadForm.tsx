@@ -14,7 +14,7 @@ export default function UploadForm() {
   const uploadMutation = useMutation({
     mutationFn: createScan,
     onSuccess: (data) => {
-      navigate(`/scans/${data.scanID}`)
+      navigate(`/scans/${data.scanId}`)
     },
   })
 

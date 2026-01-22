@@ -4,10 +4,12 @@ import { useCamera } from '@/hooks/useCamera'
 import CameraView from '@/components/camera/CameraView'
 import CameraControls from '@/components/camera/CameraControls'
 import CameraError from '@/components/camera/CameraError'
+import { useCreateScan } from '@/hooks/useScans'
 
 export default function CameraPage() {
   const navigate = useNavigate()
   const { stream, error, isSupported, videoRef, startCamera, stopCamera, switchCamera, capturePhoto } = useCamera()
+  const createScan = useCreateScan()
   const [isCapturing, setIsCapturing] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const capturedBlobRef = useRef<Blob | null>(null)
@@ -57,20 +59,18 @@ export default function CameraPage() {
     if (!capturedBlobRef.current) return
 
     const blob = capturedBlobRef.current
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const base64data = reader.result as string
-      sessionStorage.setItem('pendingImage', JSON.stringify({
-        blob: base64data,
-        type: 'image/jpeg',
-        source: 'camera',
-      }))
+    const file = new File([blob], `scan-${Date.now()}.jpg`, { type: 'image/jpeg' })
+
+    try {
+      const result = await createScan.mutateAsync(file)
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl)
       }
-      navigate('/loading')
+      navigate(`/loading/${result.scanId}`)
+    } catch (err) {
+      console.error('Failed to upload scan:', err)
+      alert('Failed to upload image. Please try again.')
     }
-    reader.readAsDataURL(blob)
   }
 
   const handleClose = async () => {
@@ -126,6 +126,7 @@ export default function CameraPage() {
         isPreview={!!previewUrl}
         onRetake={handleRetake}
         onConfirm={handleConfirm}
+        isUploading={createScan.isPending}
       />
     </div>
   )

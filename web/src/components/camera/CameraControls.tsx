@@ -9,6 +9,7 @@ interface CameraControlsProps {
   isPreview?: boolean
   onRetake?: () => void
   onConfirm?: () => void
+  isUploading?: boolean
 }
 
 export default function CameraControls({
@@ -19,6 +20,7 @@ export default function CameraControls({
   isPreview = false,
   onRetake,
   onConfirm,
+  isUploading = false,
 }: CameraControlsProps) {
   if (isPreview) {
     return (
@@ -35,17 +37,23 @@ export default function CameraControls({
           </Button>
           <Button
             onClick={onRetake}
-            className="h-16 w-16 rounded-full bg-white text-gray-900 hover:bg-gray-100"
+            disabled={isUploading}
+            className="h-16 w-16 rounded-full bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
             aria-label="Retake photo"
           >
             <RotateCcw className="w-8 h-8" />
           </Button>
           <Button
             onClick={onConfirm}
-            className="h-16 w-16 rounded-full bg-green-500 text-white hover:bg-green-600"
+            disabled={isUploading}
+            className="h-16 w-16 rounded-full bg-green-500 text-white hover:bg-green-600 disabled:opacity-50"
             aria-label="Confirm photo"
           >
-            <Check className="w-8 h-8" />
+            {isUploading ? (
+              <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Check className="w-8 h-8" />
+            )}
           </Button>
         </div>
       </div>
@@ -66,11 +74,15 @@ export default function CameraControls({
         </Button>
         <Button
           onClick={onCapture}
-          disabled={isCapturing}
+          disabled={isCapturing || isUploading}
           className="h-16 w-16 rounded-full bg-white text-gray-900 hover:bg-gray-100 disabled:opacity-50"
           aria-label="Capture photo"
         >
-          <Camera className="w-8 h-8" />
+          {isCapturing ? (
+            <div className="w-8 h-8 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Camera className="w-8 h-8" />
+          )}
         </Button>
         {onSwitch && (
           <Button

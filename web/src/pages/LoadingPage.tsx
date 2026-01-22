@@ -1,48 +1,24 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Hourglass } from 'lucide-react'
-import BottomActionBar from '@/components/layout/BottomActionBar'
-import { createMockScan } from '@/lib/mockData'
+import { useNavigate, useParams } from 'react-router-dom'
 
 export default function LoadingPage() {
   const navigate = useNavigate()
+  const { id } = useParams<{ id: string }>()
 
   useEffect(() => {
-    const pendingImageData = sessionStorage.getItem('pendingImage')
-    if (!pendingImageData) {
-      navigate('/welcome')
-      return
+    if (id) {
+      navigate(`/scans/${id}`, { replace: true })
+    } else {
+      navigate('/welcome', { replace: true })
     }
-
-    try {
-      const imageData = JSON.parse(pendingImageData)
-      const mockDelay = 2500
-
-      const timer = setTimeout(() => {
-        const mockScan = createMockScan(imageData.blob, imageData.source)
-        sessionStorage.removeItem('pendingImage')
-        navigate(`/scans/${mockScan.scan.id}`)
-      }, mockDelay)
-
-      return () => clearTimeout(timer)
-    } catch (error) {
-      console.error('Error processing image:', error)
-      navigate('/welcome')
-    }
-  }, [navigate])
+  }, [id, navigate])
 
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <h1 className="text-2xl font-bold text-gray-900 text-center mb-4">
-          Scanning in Progress..
-        </h1>
-        <p className="text-center text-gray-600 mb-8 text-sm leading-relaxed">
-          Please stay on the page while the scanning in progress
-        </p>
-        <Hourglass className="w-16 h-16 text-gray-400 animate-pulse" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+        <p className="mt-4 text-center text-gray-600 text-sm">Loading...</p>
       </div>
-      <BottomActionBar disabled={true} />
     </div>
   )
 }

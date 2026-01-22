@@ -1,12 +1,11 @@
-import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { useInitiateLogin } from '@/hooks/useAuthApi'
 
 export default function LoginPage() {
-  const navigate = useNavigate()
+  const { initiateLogin, isOpening } = useInitiateLogin()
 
-  const handleSignIn = () => {
-    localStorage.setItem('isLoggedIn', 'true')
-    navigate('/welcome')
+  const handleSignIn = async () => {
+    await initiateLogin()
   }
 
   return (
@@ -19,7 +18,8 @@ export default function LoginPage() {
         <Button
           onClick={handleSignIn}
           variant="default"
-          className="w-[265px] h-[46px] rounded-full p-[3px] gap-[10px] text-[14px] font-medium font-roboto leading-none tracking-normal"
+          disabled={isOpening}
+          className="w-[265px] h-[46px] rounded-full p-[3px] gap-[10px] text-[14px] font-medium font-roboto leading-none tracking-normal disabled:opacity-50"
         >
           <svg
             className="w-5 h-5"
@@ -44,7 +44,7 @@ export default function LoginPage() {
               fill="#EA4335"
             />
           </svg>
-          Sign in with Google
+          {isOpening ? 'Opening login...' : 'Sign in with Google'}
         </Button>
       </div>
     </div>

@@ -10,33 +10,33 @@ export default function AnnotationCard({ annotation }: AnnotationCardProps) {
     <Card className="mb-6">
       <CardHeader>
         <CardTitle>Annotation</CardTitle>
-        <CardDescription>Selected text: &quot;{annotation.selectedText}&quot;</CardDescription>
+        <CardDescription>Selected text: &quot;{annotation.highlighted_text}&quot;</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
           <h3 className="font-semibold mb-2">Meaning</h3>
-          <p className="text-gray-700">{annotation.meaning}</p>
+          <p className="text-gray-700">{annotation.nuance_data.meaning}</p>
         </div>
         
         <div>
           <h3 className="font-semibold mb-2">Usage Example</h3>
-          <p className="text-gray-700">{annotation.usageExample}</p>
+          <p className="text-gray-700">{annotation.nuance_data.usageExample}</p>
         </div>
         
         <div>
           <h3 className="font-semibold mb-2">When to Use</h3>
-          <p className="text-gray-700">{annotation.whenToUse}</p>
+          <p className="text-gray-700">{annotation.nuance_data.usageTiming}</p>
         </div>
         
         <div>
           <h3 className="font-semibold mb-2">Word Breakdown</h3>
-          <p className="text-gray-700">{annotation.wordBreakdown}</p>
+          <p className="text-gray-700">{annotation.nuance_data.wordBreakdown}</p>
         </div>
         
-        {annotation.alternativeMeanings && (
+        {annotation.nuance_data.alternativeMeaning && (
           <div>
             <h3 className="font-semibold mb-2">Alternative Meanings</h3>
-            <p className="text-gray-700">{annotation.alternativeMeanings}</p>
+            <p className="text-gray-700">{annotation.nuance_data.alternativeMeaning}</p>
           </div>
         )}
       </CardContent>

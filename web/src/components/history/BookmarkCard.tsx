@@ -1,21 +1,19 @@
 import { useNavigate } from 'react-router-dom'
 import { Trash2 } from 'lucide-react'
 import type { Annotation } from '@/lib/types'
-import { getMockScan } from '@/lib/mockData'
 import { toast } from 'sonner'
 
 interface BookmarkCardProps {
   annotation: Annotation
-  onDelete: (id: string) => void
+  onDelete: (id: number) => void
 }
 
 export function BookmarkCard({ annotation, onDelete }: BookmarkCardProps) {
   const navigate = useNavigate()
 
   const handleCardClick = () => {
-    const scan = getMockScan(annotation.scanID)
-    if (scan) {
-      navigate(`/scans/${annotation.scanID}`)
+    if (annotation.scan_id) {
+      navigate(`/scans/${annotation.scan_id}`)
     } else {
       toast.error('Scan not found', {
         description: 'The original scan for this annotation is no longer available.',
@@ -61,13 +59,13 @@ export function BookmarkCard({ annotation, onDelete }: BookmarkCardProps) {
       <div className="flex justify-between items-start gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-lg font-medium text-gray-900 mb-1 line-clamp-2">
-            {truncateText(annotation.selectedText, 60)}
+            {truncateText(annotation.highlighted_text, 60)}
           </p>
           <p className="text-sm text-gray-600 line-clamp-2">
-            {truncateText(annotation.meaning, 100)}
+            {truncateText(annotation.nuance_data.meaning, 100)}
           </p>
           <p className="text-xs text-gray-400 mt-2">
-            {formatDate(annotation.createdAt)}
+            {formatDate(annotation.created_at)}
           </p>
         </div>
         <button

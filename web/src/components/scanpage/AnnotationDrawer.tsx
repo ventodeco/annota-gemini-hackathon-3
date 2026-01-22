@@ -1,27 +1,30 @@
-import { useEffect, useCallback, useState, useRef } from 'react'
+import { useEffect, useCallback } from 'react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { motion } from 'framer-motion'
 import { useDrawerHeight, useDrawerGestures } from '@/hooks/useDrawerHeight'
 import { DrawerHeader } from './DrawerHeader'
 import { AnnotationContent } from './AnnotationContent'
 import { Button } from '@/components/ui/button'
-import { Bookmark, BookmarkCheck } from 'lucide-react'
-import { toast } from 'sonner'
-import { saveAnnotation, isAnnotationSaved, removeAnnotation } from '@/lib/storage'
+import { Bookmark } from 'lucide-react'
 import type { Annotation } from '@/lib/types'
 
 interface AnnotationDrawerProps {
   isOpen: boolean
   onClose: () => void
   annotation: Annotation | null
+  onSave?: () => void
+  isSaving?: boolean
 }
 
-export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDrawerProps) {
+export function AnnotationDrawer({
+  isOpen,
+  onClose,
+  annotation,
+  onSave,
+  isSaving = false,
+}: AnnotationDrawerProps) {
   const { drawerState, expandDrawer, collapseDrawer } = useDrawerHeight()
   const { handleDragEnd } = useDrawerGestures(expandDrawer, collapseDrawer)
-  const [isSaved, setIsSaved] = useState(false)
-
-  const isSavedRef = useRef(false)
 
   useEffect(() => {
     if (isOpen && annotation) {
@@ -29,44 +32,11 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
     }
   }, [isOpen, annotation, collapseDrawer])
 
-  useEffect(() => {
-    if (annotation?.id) {
-      isSavedRef.current = isAnnotationSaved(annotation.id)
-      setIsSaved(isSavedRef.current)
-    } else {
-      isSavedRef.current = false
-      setIsSaved(false)
-    }
-  }, [annotation?.id])
-
   const handleSave = useCallback(() => {
-    if (!annotation) {
-      return
+    if (onSave) {
+      onSave()
     }
-
-    try {
-      if (isSaved) {
-        removeAnnotation(annotation.id)
-        setIsSaved(false)
-        toast('Annotation Removed', {
-          description: 'The annotation has been removed from your saved items',
-          duration: 3000,
-        })
-      } else {
-        saveAnnotation(annotation)
-        setIsSaved(true)
-        toast.success('Annotation Saved', {
-          description: 'Your annotation has been saved successfully',
-          duration: 3000,
-        })
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save annotation'
-      toast.error('Operation Failed', {
-        description: errorMessage,
-      })
-    }
-  }, [annotation, isSaved])
+  }, [onSave])
 
   const handleHeaderCollapse = useCallback(() => {
     if (drawerState === 'expanded') {
@@ -121,25 +91,16 @@ export function AnnotationDrawer({ isOpen, onClose, annotation }: AnnotationDraw
               
               <Button
                 onClick={handleSave}
-                className={`w-full h-12 font-medium text-base shrink-0 ${
-                  isSaved
-                    ? 'bg-green-50 text-green-900 border border-green-200 hover:bg-green-100'
-                    : 'bg-[#0F172A] text-white'
-                }`}
+                className="w-full h-12 font-medium text-base shrink-0 bg-[#0F172A] text-white hover:bg-[#1E293B]"
                 size="lg"
-                disabled={!annotation}
+                disabled={isSaving}
               >
-                {isSaved ? (
-                  <>
-                    <BookmarkCheck className="w-5 h-5 mr-2" />
-                    Saved
-                  </>
+                {isSaving ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
                 ) : (
-                  <>
-                    <Bookmark className="w-5 h-5 mr-2" />
-                    Save Annotation
-                  </>
+                  <Bookmark className="w-5 h-5 mr-2" />
                 )}
+                {isSaving ? 'Saving...' : 'Save Annotation'}
               </Button>
             </div>
           )}

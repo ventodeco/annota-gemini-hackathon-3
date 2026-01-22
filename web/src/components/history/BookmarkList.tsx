@@ -3,12 +3,12 @@ import { BookmarkCard } from './BookmarkCard'
 
 interface BookmarkListProps {
   annotations: Annotation[]
-  onDelete: (id: string) => void
+  onDelete: (id: number) => void
 }
 
 export function BookmarkList({ annotations, onDelete }: BookmarkListProps) {
   const sortedAnnotations = [...annotations].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   )
 
   return (

@@ -1,8 +1,25 @@
 import { useMutation } from '@tanstack/react-query'
-import { annotate, type AnnotateRequest } from '@/lib/api'
+import { analyzeText, createAnnotation } from '@/lib/api'
+import type { NuanceData } from '@/lib/types'
 
-export function useAnnotation(scanID: string) {
+interface AnnotateRequest {
+  textToAnalyze: string
+  context: string
+}
+
+export function useAnnotation(scanId: number) {
   return useMutation({
-    mutationFn: (request: AnnotateRequest) => annotate(scanID, request),
+    mutationFn: async ({ textToAnalyze, context }: AnnotateRequest) => {
+      const nuanceData: NuanceData = await analyzeText({
+        textToAnalyze,
+        context,
+      })
+      return createAnnotation({
+        scanId,
+        highlightedText: textToAnalyze,
+        contextText: context,
+        nuanceData,
+      })
+    },
   })
 }

@@ -47,13 +47,13 @@ export function AnnotationContent({ annotation, drawerState }: AnnotationContent
       style={{ overscrollBehavior: 'contain' }}
     >
       <div className="flex flex-col gap-6">
-        <HighlightedTextSection text={annotation.selectedText} />
-        {renderSection('Context', annotation.context)}
-        {renderSection('Meaning', annotation.meaning)}
-        {renderSection('Usage Example', annotation.usageExample)}
-        {renderSection('Usage Timing', annotation.whenToUse)}
-        {renderSection('Word Breakdown', annotation.wordBreakdown, true)}
-        {renderSection('Alternative Meaning', annotation.alternativeMeanings)}
+        <HighlightedTextSection text={annotation.highlighted_text} />
+        {renderSection('Context', annotation.context_text || '')}
+        {renderSection('Meaning', annotation.nuance_data.meaning)}
+        {renderSection('Usage Example', annotation.nuance_data.usageExample)}
+        {renderSection('Usage Timing', annotation.nuance_data.usageTiming)}
+        {renderSection('Word Breakdown', annotation.nuance_data.wordBreakdown, true)}
+        {renderSection('Alternative Meaning', annotation.nuance_data.alternativeMeaning)}
       </div>
     </ScrollArea>
   )

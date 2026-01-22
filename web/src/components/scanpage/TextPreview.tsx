@@ -2,16 +2,15 @@ import { Button } from '@/components/ui/button'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { useAnnotation } from '@/hooks/useAnnotation'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import AnnotationCard from './AnnotationCard'
 
 interface TextPreviewProps {
   text: string
-  scanID: string
+  scanId: number
 }
 
-export default function TextPreview({ text, scanID }: TextPreviewProps) {
+export default function TextPreview({ text, scanId }: TextPreviewProps) {
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
-  const annotationMutation = useAnnotation(scanID)
+  const annotationMutation = useAnnotation(scanId)
 
   const handleTextSelect = () => {
     const selection = window.getSelection()
@@ -29,7 +28,7 @@ export default function TextPreview({ text, scanID }: TextPreviewProps) {
     if (!selectedText) return
 
     annotationMutation.mutate(
-      { selectedText },
+      { textToAnalyze: selectedText, context: text },
       {
         onSuccess: () => {
           clearSelection()
@@ -77,8 +76,12 @@ export default function TextPreview({ text, scanID }: TextPreviewProps) {
         </Alert>
       )}
 
-      {annotationMutation.isSuccess && annotationMutation.data && (
-        <AnnotationCard annotation={annotationMutation.data} />
+      {annotationMutation.isSuccess && (
+        <Alert>
+          <AlertDescription>
+            Annotation created successfully!
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   )
