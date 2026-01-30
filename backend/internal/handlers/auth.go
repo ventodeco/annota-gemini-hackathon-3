@@ -197,6 +197,17 @@ func (h *AuthHandlers) GoogleCallbackAPI(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (h *AuthHandlers) GoogleCallback(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.GoogleCallbackRedirect(w, r)
+	case http.MethodPost:
+		h.GoogleCallbackAPI(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func generateState(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)

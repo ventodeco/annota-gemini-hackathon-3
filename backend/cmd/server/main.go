@@ -71,8 +71,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/v1/auth/google/state", authHandlers.GoogleStateAPI)
-	mux.HandleFunc("/v1/auth/google/callback", authHandlers.GoogleCallbackRedirect)
-	mux.HandleFunc("/v1/auth/google/callback", authHandlers.GoogleCallbackAPI)
+	mux.HandleFunc("/v1/auth/google/callback", authHandlers.GoogleCallback)
 
 	authMux := http.NewServeMux()
 	authMux.HandleFunc("/v1/users/me/languages", userHandlers.GetLanguagesAPI)
