@@ -75,8 +75,7 @@ func main() {
 
 	authMux := http.NewServeMux()
 	authMux.HandleFunc("/v1/users/me/languages", userHandlers.GetLanguagesAPI)
-	authMux.HandleFunc("/v1/users/me", userHandlers.GetUserProfileAPI)
-	authMux.HandleFunc("/v1/users/me", userHandlers.UpdateUserPreferencesAPI)
+	authMux.HandleFunc("/v1/users/me", userHandlers.UsersMeAPI)
 	authMux.HandleFunc("/v1/scans", scanHandlers.CreateScanAPI)
 	authMux.HandleFunc("/v1/scans", scanHandlers.GetScansAPI)
 	authMux.HandleFunc("/v1/scans/", scanHandlers.GetScanAPI)

@@ -118,6 +118,17 @@ func (h *UserHandlers) UpdateUserPreferencesAPI(w http.ResponseWriter, r *http.R
 	})
 }
 
+func (h *UserHandlers) UsersMeAPI(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.GetUserProfileAPI(w, r)
+	case http.MethodPatch:
+		h.UpdateUserPreferencesAPI(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func isValidLanguage(lang string) bool {
 	for _, l := range supportedLanguages {
 		if l.Caption == lang {
