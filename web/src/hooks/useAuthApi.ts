@@ -6,7 +6,7 @@ import {
   setAuthToken,
   clearAuthToken,
 } from '@/lib/api'
-import { useAuth } from '@/contexts/AuthContext'
+import { useAuth } from '@/contexts/useAuth'
 
 export function useLogin() {
   const navigate = useNavigate()

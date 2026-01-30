@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Camera, Image as ImageIcon, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useAuth } from '@/contexts/AuthContext'
+import { useAuth } from '@/contexts/useAuth'
 import { createScan } from '@/lib/api'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 
