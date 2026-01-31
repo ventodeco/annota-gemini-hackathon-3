@@ -57,7 +57,10 @@ func (h *AuthHandlers) GoogleStateAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	state := generateState(32)
-	redirectURL := h.googleOAuth.GetAuthURL(state)
+
+	redirectURI := r.URL.Query().Get("redirect_uri")
+
+	redirectURL := h.googleOAuth.GetAuthURL(state, redirectURI)
 
 	if err := h.googleOAuth.RedisClient().SetState(r.Context(), state, "", 10*time.Minute); err != nil {
 		log.ErrorWithErr(err, "Failed to store state in Redis")
@@ -65,7 +68,7 @@ func (h *AuthHandlers) GoogleStateAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Infof("Generated OAuth state for Google SSO")
+	log.Infof("Generated OAuth state for Google SSO (redirect_uri: %s)", redirectURI)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(GoogleStateResponse{

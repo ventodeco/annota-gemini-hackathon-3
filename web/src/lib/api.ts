@@ -68,8 +68,11 @@ async function handleResponse<T>(response: Response, method: string, url: string
 // Auth API
 // ============================================================================
 
-export async function getGoogleAuthUrl(): Promise<{ ssoRedirection: string }> {
-  const url = `${API_BASE_URL}/v1/auth/google/state`
+export async function getGoogleAuthUrl(redirectUri?: string): Promise<{ ssoRedirection: string }> {
+  let url = `${API_BASE_URL}/v1/auth/google/state`
+  if (redirectUri) {
+    url += `?redirect_uri=${encodeURIComponent(redirectUri)}`
+  }
   const response = await fetch(url, {
     method: 'GET',
     headers: {
