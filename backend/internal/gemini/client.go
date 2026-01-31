@@ -65,7 +65,7 @@ func (c *client) OCR(ctx context.Context, imageData []byte, mimeType string) (*O
 		return nil, fmt.Errorf("gemini client not initialized: check API key")
 	}
 
-	prompt := "Extract all Japanese text from this image. Return ONLY a JSON object with keys 'raw_text' (the extracted text) and 'language' (detected language code). Preserve line breaks and formatting. Do not include markdown, code fences, or any extra text."
+	prompt := "Extract all Japanese text from this image. Return ONLY a JSON object with keys 'raw_text' (the extracted text) and 'language' (detected language code 'JP' for japan). Preserve line breaks and formatting. Do not include markdown, code fences, or any extra text."
 
 	parts := []*genai.Part{
 		{Text: prompt},
@@ -123,7 +123,7 @@ func (c *client) OCR(ctx context.Context, imageData []byte, mimeType string) (*O
 	}
 
 	var structured struct {
-		RawText string `json:"raw_text"`
+		RawText  string `json:"raw_text"`
 		Language string `json:"language"`
 	}
 

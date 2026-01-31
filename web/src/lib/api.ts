@@ -228,7 +228,8 @@ export async function getAnnotations(page = 1, size = 20): Promise<GetAnnotation
 // Utility Functions
 // ============================================================================
 
-export function getScanImageUrl(imageUrl: string): string {
+export function getScanImageUrl(imageUrl: string | undefined): string {
+  if (!imageUrl) return ''
   if (imageUrl.startsWith('/')) {
     return `${API_BASE_URL}${imageUrl}`
   }
