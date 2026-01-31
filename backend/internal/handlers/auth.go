@@ -92,7 +92,11 @@ func (h *AuthHandlers) GoogleCallbackRedirect(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	log.Infof("Processing OAuth callback with state: %s...", state[:8])
+	statePreview := state
+	if len(state) > 8 {
+		statePreview = state[:8]
+	}
+	log.Infof("Processing OAuth callback with state: %s...", statePreview)
 
 	redirectURL := fmt.Sprintf("%s/auth/callback?state=%s&code=%s", h.config.AppBaseURL, state, code)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
