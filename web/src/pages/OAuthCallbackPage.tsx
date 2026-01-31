@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useLogin } from '@/hooks/useAuthApi'
 
@@ -7,14 +7,19 @@ export default function OAuthCallbackPage() {
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing')
   const loginMutation = useLogin()
+  const hasCalledRef = useRef(false)
 
   useEffect(() => {
+    // Prevent duplicate calls
+    if (hasCalledRef.current) {
+      return
+    }
+
     const code = searchParams.get('code')
     const state = searchParams.get('state')
     const error = searchParams.get('error')
 
     if (error) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus('error')
       return
     }
@@ -22,6 +27,8 @@ export default function OAuthCallbackPage() {
     if (!code || !state) {
       return
     }
+
+    hasCalledRef.current = true
 
     loginMutation.mutate({ code, state }, {
       onSuccess: () => {
@@ -45,7 +52,8 @@ export default function OAuthCallbackPage() {
         }
       },
     })
-  }, [searchParams, loginMutation, navigate])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6">
