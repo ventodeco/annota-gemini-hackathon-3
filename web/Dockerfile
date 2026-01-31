@@ -29,6 +29,7 @@ RUN bun run build
 FROM nginx:alpine
 
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
+COPY web/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
