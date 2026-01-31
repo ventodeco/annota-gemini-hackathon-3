@@ -26,12 +26,23 @@ export default function OAuthCallbackPage() {
     loginMutation.mutate({ code, state }, {
       onSuccess: () => {
         setStatus('success')
-        setTimeout(() => {
-          navigate('/welcome')
-        }, 1500)
+        // If opened as popup, notify opener and close
+        if (window.opener) {
+          window.opener.postMessage({ type: 'oauth-success' }, window.location.origin)
+          setTimeout(() => window.close(), 500)
+        } else {
+          // If not a popup, redirect normally
+          setTimeout(() => {
+            navigate('/welcome')
+          }, 1500)
+        }
       },
       onError: () => {
         setStatus('error')
+        // If opened as popup, notify opener of error
+        if (window.opener) {
+          window.opener.postMessage({ type: 'oauth-error' }, window.location.origin)
+        }
       },
     })
   }, [searchParams, loginMutation, navigate])

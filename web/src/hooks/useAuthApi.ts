@@ -49,6 +49,8 @@ export function useLogout() {
 
 export function useInitiateLogin() {
   const [isOpening, setIsOpening] = useState(false)
+  const { refreshUser } = useAuth()
+  const navigate = useNavigate()
 
   const initiateLogin = useCallback(async () => {
     if (isOpening) return
@@ -69,9 +71,26 @@ export function useInitiateLogin() {
       )
 
       if (popup) {
+        // Listen for message from popup
+        const handleMessage = async (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) return
+
+          if (event.data?.type === 'oauth-success') {
+            window.removeEventListener('message', handleMessage)
+            setIsOpening(false)
+            await refreshUser()
+            navigate('/welcome')
+          } else if (event.data?.type === 'oauth-error') {
+            window.removeEventListener('message', handleMessage)
+            setIsOpening(false)
+          }
+        }
+        window.addEventListener('message', handleMessage)
+
         const checkClosed = setInterval(() => {
           if (popup.closed) {
             clearInterval(checkClosed)
+            window.removeEventListener('message', handleMessage)
             setIsOpening(false)
           }
         }, 500)
@@ -81,7 +100,7 @@ export function useInitiateLogin() {
     } catch {
       setIsOpening(false)
     }
-  }, [isOpening])
+  }, [isOpening, refreshUser, navigate])
 
   return { initiateLogin, isOpening }
 }
