@@ -17,7 +17,7 @@ export default function AnnotationDetailPage() {
   if (!annotation) {
     return (
       <div className="min-h-screen bg-gray-50 pb-28">
-        <Header title="Annotation" showBack onBack={() => navigate('/history')} />
+        <Header title="Annotation" onBack={() => navigate('/history')} />
         <main className="pt-4 px-4">
           <div className="text-center py-8 text-gray-500">
             Annotation not found. Please go back to history.
@@ -36,7 +36,7 @@ export default function AnnotationDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
-      <Header title="Annotation" showBack onBack={() => navigate('/history')} />
+      <Header title="Annotation" onBack={() => navigate('/history')} />
       <main className="pt-4 px-4 space-y-4">
         {/* Highlighted Text */}
         <div className="bg-white rounded-lg p-4 shadow-sm">
