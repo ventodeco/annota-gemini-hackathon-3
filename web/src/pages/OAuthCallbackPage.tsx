@@ -10,6 +10,7 @@ export default function OAuthCallbackPage() {
 
   useEffect(() => {
     const code = searchParams.get('code')
+    const state = searchParams.get('state')
     const error = searchParams.get('error')
 
     if (error) {
@@ -18,11 +19,11 @@ export default function OAuthCallbackPage() {
       return
     }
 
-    if (!code) {
+    if (!code || !state) {
       return
     }
 
-    loginMutation.mutate(code, {
+    loginMutation.mutate({ code, state }, {
       onSuccess: () => {
         setStatus('success')
         setTimeout(() => {

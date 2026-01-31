@@ -79,14 +79,14 @@ export async function getGoogleAuthUrl(): Promise<{ ssoRedirection: string }> {
   return handleResponse(response, 'GET', url)
 }
 
-export async function exchangeGoogleCode(code: string): Promise<TokenResponse> {
+export async function exchangeGoogleCode(code: string, state: string): Promise<TokenResponse> {
   const url = `${API_BASE_URL}/v1/auth/google/callback`
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, state }),
   })
   return handleResponse(response, 'POST', url)
 }

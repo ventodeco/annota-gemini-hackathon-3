@@ -38,7 +38,8 @@ type GoogleStateResponse struct {
 }
 
 type GoogleCallbackRequest struct {
-	Code string `json:"code"`
+	Code  string `json:"code"`
+	State string `json:"state"`
 }
 
 type GoogleCallbackResponse struct {
@@ -119,9 +120,15 @@ func (h *AuthHandlers) GoogleCallbackAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if req.State == "" {
+		log.Warn("Empty state received")
+		http.Error(w, "State is required", http.StatusBadRequest)
+		return
+	}
+
 	log.Infof("Attempting to exchange authorization code")
 
-	_, err := h.googleOAuth.RedisClient().GetState(r.Context(), req.Code)
+	_, err := h.googleOAuth.RedisClient().GetState(r.Context(), req.State)
 	if err != nil {
 		log.ErrorWithErr(err, "State validation failed")
 		http.Error(w, "Invalid state", http.StatusBadRequest)

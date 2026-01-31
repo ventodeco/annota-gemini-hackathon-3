@@ -14,8 +14,8 @@ export function useLogin() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (code: string) => {
-      const response = await exchangeGoogleCode(code)
+    mutationFn: async ({ code, state }: { code: string; state: string }) => {
+      const response = await exchangeGoogleCode(code, state)
       setAuthToken(response.token)
       return response
     },
