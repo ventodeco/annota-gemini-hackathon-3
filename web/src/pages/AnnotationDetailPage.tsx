@@ -1,20 +1,31 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import Header from '@/components/layout/Header'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { formatDate } from '@/lib/api'
-
-interface AnnotationState {
-  highlightedText: string
-  nuanceSummary: string
-  createdAt: string
-}
+import { useAnnotationById } from '@/hooks/useAnnotationById'
 
 export default function AnnotationDetailPage() {
   const navigate = useNavigate()
-  const location = useLocation()
-  const annotation = location.state as AnnotationState | null
+  const { id } = useParams<{ id: string }>()
+  const annotationId = id ? parseInt(id, 10) : undefined
 
-  if (!annotation) {
+  const { data: annotation, isLoading, error } = useAnnotationById(annotationId)
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 pb-28">
+        <Header title="Annotation" onBack={() => navigate('/history')} />
+        <main className="pt-4 px-4">
+          <div className="flex justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+          </div>
+        </main>
+        <BottomNavigation />
+      </div>
+    )
+  }
+
+  if (error || !annotation) {
     return (
       <div className="min-h-screen bg-gray-50 pb-28">
         <Header title="Annotation" onBack={() => navigate('/history')} />
@@ -44,11 +55,51 @@ export default function AnnotationDetailPage() {
           <p className="text-lg font-medium text-gray-900">{annotation.highlightedText}</p>
         </div>
 
-        {/* Explanation */}
+        {/* Meaning */}
         <div className="bg-white rounded-lg p-4 shadow-sm">
-          <h2 className="text-sm font-medium text-gray-500 mb-2">Explanation</h2>
-          <p className="text-base text-gray-700 whitespace-pre-wrap">{annotation.nuanceSummary}</p>
+          <h2 className="text-sm font-medium text-gray-500 mb-2">Meaning</h2>
+          <p className="text-base text-gray-700 whitespace-pre-wrap">{annotation.nuanceData.meaning}</p>
         </div>
+
+        {/* Usage Example */}
+        {annotation.nuanceData.usageExample && (
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <h2 className="text-sm font-medium text-gray-500 mb-2">Usage Example</h2>
+            <p className="text-base text-gray-700 whitespace-pre-wrap">{annotation.nuanceData.usageExample}</p>
+          </div>
+        )}
+
+        {/* When to Use */}
+        {annotation.nuanceData.usageTiming && (
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <h2 className="text-sm font-medium text-gray-500 mb-2">When to Use</h2>
+            <p className="text-base text-gray-700 whitespace-pre-wrap">{annotation.nuanceData.usageTiming}</p>
+          </div>
+        )}
+
+        {/* Word Breakdown */}
+        {annotation.nuanceData.wordBreakdown && (
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <h2 className="text-sm font-medium text-gray-500 mb-2">Word Breakdown</h2>
+            <p className="text-base text-gray-700 whitespace-pre-wrap">{annotation.nuanceData.wordBreakdown}</p>
+          </div>
+        )}
+
+        {/* Alternative Meaning */}
+        {annotation.nuanceData.alternativeMeaning && (
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <h2 className="text-sm font-medium text-gray-500 mb-2">Alternative Meaning</h2>
+            <p className="text-base text-gray-700 whitespace-pre-wrap">{annotation.nuanceData.alternativeMeaning}</p>
+          </div>
+        )}
+
+        {/* Context */}
+        {annotation.contextText && (
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <h2 className="text-sm font-medium text-gray-500 mb-2">Context</h2>
+            <p className="text-base text-gray-700 whitespace-pre-wrap">{annotation.contextText}</p>
+          </div>
+        )}
 
         {/* Metadata */}
         <div className="bg-white rounded-lg p-4 shadow-sm">

@@ -96,6 +96,10 @@ func (m *MockDB) CreateAnnotation(ctx context.Context, annotation *models.Annota
 	return annotation.ID, nil
 }
 
+func (m *MockDB) GetAnnotationByID(ctx context.Context, annotationID int64) (*models.Annotation, error) {
+	return m.annotations[annotationID], nil
+}
+
 func (m *MockDB) GetAnnotationsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Annotation, error) {
 	var result []*models.Annotation
 	for _, ann := range m.annotations {

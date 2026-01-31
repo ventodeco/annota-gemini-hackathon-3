@@ -44,6 +44,14 @@ type AnnotationListItem struct {
 	CreatedAt       string `json:"createdAt"`
 }
 
+type GetAnnotationResponse struct {
+	ID              int64             `json:"id"`
+	HighlightedText string            `json:"highlightedText"`
+	ContextText     string            `json:"contextText,omitempty"`
+	NuanceData      models.NuanceData `json:"nuanceData"`
+	CreatedAt       string            `json:"createdAt"`
+}
+
 type GetAnnotationsResponse struct {
 	Data []AnnotationListItem `json:"data"`
 	Meta PaginationMeta       `json:"meta"`
@@ -101,6 +109,57 @@ func (h *AnnotationHandlers) CreateAnnotationAPI(w http.ResponseWriter, r *http.
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}
+
+func (h *AnnotationHandlers) GetAnnotationAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == 0 {
+		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// Extract annotation ID from path: /v1/annotations/{id}
+	path := r.URL.Path
+	idStr := path[len("/v1/annotations/"):]
+	annotationID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		h.writeJSONError(w, http.StatusBadRequest, "Invalid annotation ID")
+		return
+	}
+
+	annotation, err := h.db.GetAnnotationByID(r.Context(), annotationID)
+	if err != nil {
+		log.Printf("Failed to get annotation: %v", err)
+		h.writeJSONError(w, http.StatusNotFound, "Annotation not found")
+		return
+	}
+
+	// Verify the annotation belongs to the user
+	if annotation.UserID != userID {
+		h.writeJSONError(w, http.StatusForbidden, "Access denied")
+		return
+	}
+
+	contextText := ""
+	if annotation.ContextText != nil {
+		contextText = *annotation.ContextText
+	}
+
+	response := GetAnnotationResponse{
+		ID:              annotation.ID,
+		HighlightedText: annotation.HighlightedText,
+		ContextText:     contextText,
+		NuanceData:      annotation.NuanceData,
+		CreatedAt:       annotation.CreatedAt.Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 

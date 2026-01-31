@@ -75,6 +75,14 @@ export interface AnnotationListItem {
   createdAt: string
 }
 
+export interface AnnotationDetail {
+  id: number
+  highlightedText: string
+  contextText?: string
+  nuanceData: NuanceData
+  createdAt: string
+}
+
 export interface GetAnnotationsResponse {
   data: AnnotationListItem[]
   meta: {

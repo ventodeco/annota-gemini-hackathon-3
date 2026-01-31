@@ -16,6 +16,7 @@ import type {
   CreateAnnotationRequest,
   CreateAnnotationResponse,
   GetAnnotationsResponse,
+  AnnotationDetail,
 } from './types'
 import { logger } from './logger'
 
@@ -214,6 +215,18 @@ export async function createAnnotation(
 
 export async function getAnnotations(page = 1, size = 20): Promise<GetAnnotationsResponse> {
   const url = `${API_BASE_URL}/v1/annotations?page=${page}&size=${size}`
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+  })
+  return handleResponse(response, 'GET', url)
+}
+
+export async function getAnnotation(annotationId: number): Promise<AnnotationDetail> {
+  const url = `${API_BASE_URL}/v1/annotations/${annotationId}`
   const response = await fetch(url, {
     method: 'GET',
     headers: {

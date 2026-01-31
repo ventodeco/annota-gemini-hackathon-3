@@ -23,6 +23,7 @@ type DB interface {
 	UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error
 
 	CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error)
+	GetAnnotationByID(ctx context.Context, annotationID int64) (*models.Annotation, error)
 	GetAnnotationsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Annotation, error)
 }
 
@@ -258,6 +259,46 @@ func (s *postgresDB) CreateAnnotation(ctx context.Context, annotation *models.An
 		annotation.CreatedAt,
 	).Scan(&annotation.ID)
 	return annotation.ID, err
+}
+
+func (s *postgresDB) GetAnnotationByID(ctx context.Context, annotationID int64) (*models.Annotation, error) {
+	query := `
+		SELECT id, user_id, scan_id, highlighted_text, context_text, nuance_data, is_bookmarked, created_at
+		FROM annotations
+		WHERE id = $1
+	`
+	var annotation models.Annotation
+	var scanID sql.NullInt64
+	var contextText sql.NullString
+	var nuanceData []byte
+	var createdAt time.Time
+
+	err := s.db.QueryRowContext(ctx, query, annotationID).Scan(
+		&annotation.ID,
+		&annotation.UserID,
+		&scanID,
+		&annotation.HighlightedText,
+		&contextText,
+		&nuanceData,
+		&annotation.IsBookmarked,
+		&createdAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if scanID.Valid {
+		annotation.ScanID = &scanID.Int64
+	}
+	if contextText.Valid {
+		annotation.ContextText = &contextText.String
+	}
+	if err := json.Unmarshal(nuanceData, &annotation.NuanceData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal nuance_data: %w", err)
+	}
+	annotation.CreatedAt = createdAt
+
+	return &annotation, nil
 }
 
 func (s *postgresDB) GetAnnotationsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Annotation, error) {

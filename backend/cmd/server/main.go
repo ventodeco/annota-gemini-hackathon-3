@@ -80,6 +80,7 @@ func main() {
 	authMux.HandleFunc("/v1/scans/", scanHandlers.GetScanAPI)
 	authMux.HandleFunc("/v1/ai/analyze", aiHandlers.AnalyzeAPI)
 	authMux.HandleFunc("/v1/annotations", annotationHandlers.AnnotationsAPI)
+	authMux.HandleFunc("/v1/annotations/", annotationHandlers.GetAnnotationAPI)
 
 	mux.Handle("/v1/", authMiddleware.Handle(authMux))
 
