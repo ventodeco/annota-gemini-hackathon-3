@@ -9,6 +9,7 @@ import CameraPage from '@/pages/CameraPage'
 import LoadingPage from '@/pages/LoadingPage'
 import HistoryPage from '@/pages/HistoryPage'
 import ScanPage from '@/pages/ScanPage'
+import AnnotationDetailPage from '@/pages/AnnotationDetailPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 import OAuthCallbackPage from '@/pages/OAuthCallbackPage'
 
@@ -94,6 +95,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <ScanPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/annotations/:id"
+              element={
+                <ProtectedRoute>
+                  <AnnotationDetailPage />
                 </ProtectedRoute>
               }
             />

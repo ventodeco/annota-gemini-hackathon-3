@@ -17,8 +17,8 @@ export default function HistoryPage() {
   const [page, setPage] = useState(1)
   const { data, isLoading, error } = useAnnotations(page, 20)
 
-  const handleScanClick = (id: number) => {
-    navigate(`/scans/${id}`)
+  const handleAnnotationClick = (item: AnnotationItem) => {
+    navigate(`/annotations/${item.id}`, { state: item })
   }
 
   return (
@@ -49,7 +49,7 @@ export default function HistoryPage() {
               <div
                 key={item.id}
                 className="bg-white rounded-lg p-4 shadow-sm cursor-pointer"
-                onClick={() => handleScanClick(item.id)}
+                onClick={() => handleAnnotationClick(item)}
               >
                 <p className="font-medium text-gray-900">{item.highlightedText}</p>
                 <p className="text-sm text-gray-500 mt-1 line-clamp-2">
