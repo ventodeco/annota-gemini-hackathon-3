@@ -46,12 +46,7 @@ func NewGoogleOAuthService(cfg *config.Config, redis storage.RedisClient) *Googl
 	}
 }
 
-func (s *GoogleOAuthService) GetAuthURL(state string, redirectURI string) string {
-	if redirectURI != "" {
-		return s.config.AuthCodeURL(state,
-			oauth2.SetAuthURLParam("redirect_uri", redirectURI),
-			oauth2.SetAuthURLParam("prompt", "consent"))
-	}
+func (s *GoogleOAuthService) GetAuthURL(state string) string {
 	return s.config.AuthCodeURL(state, oauth2.SetAuthURLParam("prompt", "consent"))
 }
 
