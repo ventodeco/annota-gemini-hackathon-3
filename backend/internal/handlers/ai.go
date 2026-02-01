@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gemini-hackathon/app/internal/gemini"
+	"github.com/gemini-hackathon/app/internal/knowledge"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/storage"
@@ -15,12 +16,14 @@ import (
 type AIHandlers struct {
 	db           storage.DB
 	geminiClient gemini.Client
+	knowledge    knowledge.Service
 }
 
-func NewAIHandlers(db storage.DB, geminiClient gemini.Client) *AIHandlers {
+func NewAIHandlers(db storage.DB, geminiClient gemini.Client, knowledgeSvc knowledge.Service) *AIHandlers {
 	return &AIHandlers{
 		db:           db,
 		geminiClient: geminiClient,
+		knowledge:    knowledgeSvc,
 	}
 }
 
@@ -81,7 +84,11 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 		targetLanguage = "ID"
 	}
 
-	resp, err := h.geminiClient.Annotate(r.Context(), req.Context, req.TextToAnalyze)
+	// Lookup knowledge context for the selected text
+	entries := h.knowledge.Lookup(req.TextToAnalyze)
+
+	// Call Gemini with knowledge context
+	resp, err := h.geminiClient.AnnotateWithKnowledge(r.Context(), req.Context, req.TextToAnalyze, entries)
 	if err != nil {
 		log.Printf("Failed to generate annotation: %v", err)
 		http.Error(w, "Failed to analyze text", http.StatusInternalServerError)
@@ -123,7 +130,10 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	resp, err := h.geminiClient.Annotate(r.Context(), req.Context, req.TextToAnalyze)
+	// Lookup knowledge context for the selected text
+	entries := h.knowledge.Lookup(req.TextToAnalyze)
+
+	resp, err := h.geminiClient.AnnotateWithKnowledge(r.Context(), req.Context, req.TextToAnalyze, entries)
 	if err != nil {
 		log.Printf("Failed to generate annotation with language: %v", err)
 		http.Error(w, "Failed to analyze text", http.StatusInternalServerError)

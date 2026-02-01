@@ -8,12 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gemini-hackathon/app/internal/knowledge"
 	"google.golang.org/genai"
 )
 
 type Client interface {
 	OCR(ctx context.Context, imageData []byte, mimeType string) (*OCRResponse, error)
 	Annotate(ctx context.Context, ocrText string, selectedText string) (*AnnotationResponse, error)
+	AnnotateWithKnowledge(ctx context.Context, ocrText string, selectedText string, entries []knowledge.Entry) (*AnnotationResponse, error)
 }
 
 type client struct {
@@ -251,6 +253,141 @@ Return only valid JSON, no markdown formatting.`, ocrText, selectedText)
 	}
 
 	return &annotation, nil
+}
+
+func (c *client) AnnotateWithKnowledge(ctx context.Context, ocrText string, selectedText string, entries []knowledge.Entry) (*AnnotationResponse, error) {
+	if c.genaiClient == nil {
+		if c.initErr != nil {
+			return nil, fmt.Errorf("gemini client not initialized: %w", c.initErr)
+		}
+		return nil, fmt.Errorf("gemini client not initialized: check API key")
+	}
+
+	prompt := buildEnhancedPrompt(ocrText, selectedText, entries)
+
+	cfg := &genai.GenerateContentConfig{
+		ResponseMIMEType: "application/json",
+		ResponseSchema: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"meaning":              {Type: genai.TypeString},
+				"usage_example":        {Type: genai.TypeString},
+				"when_to_use":          {Type: genai.TypeString},
+				"word_breakdown":       {Type: genai.TypeString},
+				"alternative_meanings": {Type: genai.TypeString},
+			},
+			Required: []string{
+				"meaning",
+				"usage_example",
+				"when_to_use",
+				"word_breakdown",
+				"alternative_meanings",
+			},
+			PropertyOrdering: []string{
+				"meaning",
+				"usage_example",
+				"when_to_use",
+				"word_breakdown",
+				"alternative_meanings",
+			},
+		},
+	}
+
+	var result *genai.GenerateContentResponse
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		result, err = c.genaiClient.Models.GenerateContent(
+			ctx,
+			c.modelName,
+			genai.Text(prompt),
+			cfg,
+		)
+		if err == nil {
+			break
+		}
+		if !isOverloadedError(err) || attempt == 2 {
+			return nil, fmt.Errorf("failed to generate annotation: %w", err)
+		}
+
+		backoff := time.Duration(500*(1<<attempt)) * time.Millisecond
+		jitter := time.Duration(rand.Intn(250)) * time.Millisecond
+		if !sleepWithContext(ctx, backoff+jitter) {
+			return nil, fmt.Errorf("failed to generate annotation: %w", err)
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate annotation: %w", err)
+	}
+
+	text := result.Text()
+	if text == "" {
+		return nil, fmt.Errorf("empty response from API")
+	}
+
+	var annotation AnnotationResponse
+	if err := json.Unmarshal([]byte(text), &annotation); err != nil {
+		normalized := normalizeJSONCandidate(text)
+		if normalized != text {
+			if err2 := json.Unmarshal([]byte(normalized), &annotation); err2 == nil {
+				return &annotation, nil
+			}
+		}
+		return nil, fmt.Errorf("failed to parse annotation JSON: %w", err)
+	}
+
+	return &annotation, nil
+}
+
+// buildEnhancedPrompt creates a prompt that includes reference knowledge from CSV.
+func buildEnhancedPrompt(ocrText string, selectedText string, entries []knowledge.Entry) string {
+	var sb strings.Builder
+
+	sb.WriteString("You are helping a Japanese language learner understand text in a professional/work context.\n\n")
+
+	// Add reference knowledge if available
+	if len(entries) > 0 {
+		sb.WriteString("## Reference Knowledge:\n")
+		for _, entry := range entries {
+			sb.WriteString(fmt.Sprintf("Term: %s (%s)\n", entry.Kosakata, entry.Kana))
+			sb.WriteString(fmt.Sprintf("Reading: %s\n", entry.CaraBaca))
+			sb.WriteString(fmt.Sprintf("Meaning: %s\n", entry.Arti))
+			if entry.Deskripsi != "" {
+				sb.WriteString(fmt.Sprintf("Description: %s\n", entry.Deskripsi))
+			}
+			if len(entry.BidangPekerjaan) > 0 {
+				sb.WriteString(fmt.Sprintf("Fields: %s\n", strings.Join(entry.BidangPekerjaan, ", ")))
+			}
+			if len(entry.Industri) > 0 {
+				sb.WriteString(fmt.Sprintf("Industry: %s\n", strings.Join(entry.Industri, ", ")))
+			}
+			if entry.Konteks != "" {
+				sb.WriteString(fmt.Sprintf("Context: %s\n", entry.Konteks))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	sb.WriteString("## Full OCR text:\n")
+	sb.WriteString(ocrText)
+	sb.WriteString("\n\n")
+
+	sb.WriteString("## Selected text to annotate:\n")
+	sb.WriteString(selectedText)
+	sb.WriteString("\n\n")
+
+	if len(entries) > 0 {
+		sb.WriteString("Using the reference knowledge above, provide a detailed annotation in JSON format with these exact fields:\n")
+	} else {
+		sb.WriteString("Provide a detailed annotation in JSON format with these exact fields:\n")
+	}
+	sb.WriteString("- meaning: Direct translation and explanation\n")
+	sb.WriteString("- usage_example: Example sentence showing how to use this in a professional/work context\n")
+	sb.WriteString("- when_to_use: When and in what situation this phrase is used\n")
+	sb.WriteString("- word_breakdown: Explanation of each word/component in the selected text\n")
+	sb.WriteString("- alternative_meanings: Alternative meanings in different fields or contexts\n\n")
+	sb.WriteString("Return only valid JSON, no markdown formatting.")
+
+	return sb.String()
 }
 
 func isOverloadedError(err error) bool {

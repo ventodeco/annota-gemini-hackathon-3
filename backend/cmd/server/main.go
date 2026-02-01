@@ -13,6 +13,7 @@ import (
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/gemini"
 	"github.com/gemini-hackathon/app/internal/handlers"
+	"github.com/gemini-hackathon/app/internal/knowledge"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/storage"
 )
@@ -51,6 +52,21 @@ func main() {
 
 	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)
 
+	// Load knowledge service for vocabulary lookup
+	var knowledgeSvc knowledge.Service
+	if cfg.KnowledgeCSVPath != "" {
+		var err error
+		knowledgeSvc, err = knowledge.NewService(cfg.KnowledgeCSVPath)
+		if err != nil {
+			log.Printf("Warning: Failed to load knowledge CSV from %s: %v. Continuing without knowledge context.", cfg.KnowledgeCSVPath, err)
+			knowledgeSvc = knowledge.NewEmptyService()
+		} else {
+			log.Printf("Loaded knowledge CSV from %s", cfg.KnowledgeCSVPath)
+		}
+	} else {
+		knowledgeSvc = knowledge.NewEmptyService()
+	}
+
 	tokenService := auth.NewTokenService(cfg.JWTSecret, cfg.TokenExpiryMinutes)
 
 	googleOAuth := auth.NewGoogleOAuthService(cfg, redisClient)
@@ -58,7 +74,7 @@ func main() {
 	authHandlers := handlers.NewAuthHandlers(googleOAuth, tokenService, storageDB, cfg)
 	userHandlers := handlers.NewUserHandlers(storageDB)
 	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, geminiClient, cfg)
-	aiHandlers := handlers.NewAIHandlers(storageDB, geminiClient)
+	aiHandlers := handlers.NewAIHandlers(storageDB, geminiClient, knowledgeSvc)
 	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg)
 
 	authMiddleware := middleware.NewAuthMiddleware(tokenService)

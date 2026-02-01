@@ -24,6 +24,7 @@ type Config struct {
 	JWTSecret               string
 	TokenExpiryMinutes      int
 	DefaultPageSize         int
+	KnowledgeCSVPath        string
 }
 
 func Load() (*Config, error) {
@@ -70,6 +71,7 @@ func Load() (*Config, error) {
 		JWTSecret:               os.Getenv("JWT_SECRET"),
 		TokenExpiryMinutes:      getEnvAsIntOrDefault("TOKEN_EXPIRY_MINUTES", 30),
 		DefaultPageSize:         getEnvAsIntOrDefault("DEFAULT_PAGE_SIZE", 20),
+		KnowledgeCSVPath:        getEnvOrDefault("KNOWLEDGE_CSV_PATH", "data/knowledge.csv"),
 	}
 
 	if err := cfg.Validate(); err != nil {
