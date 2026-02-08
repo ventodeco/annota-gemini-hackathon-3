@@ -117,7 +117,7 @@ func main() {
 		}
 	})
 
-	handler := middleware.LoggingMiddleware(mux)
+	handler := middleware.LoggingMiddleware(middleware.CORSMiddleware(mux))
 
 	log.Printf("Server starting on :%s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {

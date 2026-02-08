@@ -98,7 +98,12 @@ func (h *AuthHandlers) GoogleCallbackRedirect(w http.ResponseWriter, r *http.Req
 	}
 	log.Infof("Processing OAuth callback with state: %s...", statePreview)
 
-	redirectURL := fmt.Sprintf("%s/auth/callback?state=%s&code=%s", h.config.AppBaseURL, state, code)
+	frontendBaseURL := h.config.FrontendBaseURL
+	if frontendBaseURL == "" {
+		frontendBaseURL = h.config.AppBaseURL
+	}
+
+	redirectURL := fmt.Sprintf("%s/auth/callback?state=%s&code=%s", frontendBaseURL, state, code)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 

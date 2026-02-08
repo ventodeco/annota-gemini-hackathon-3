@@ -63,6 +63,13 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 
 Run backend and frontend separately for development:
 
+Set backend env for OAuth callback redirect to frontend dev server:
+```bash
+# backend/.env
+APP_BASE_URL=http://localhost:8080
+FRONTEND_BASE_URL=http://localhost:5173
+```
+
 **Terminal 1 - Backend:**
 ```bash
 cd backend
@@ -75,7 +82,8 @@ cd web
 bun run dev
 ```
 
-Then access the frontend dev server at `http://localhost:5173`
+Then access the frontend dev server at `http://localhost:5173`.
+In this split-dev mode, OAuth login does not require `bun run build`.
 
 ## Environment Variables
 
@@ -83,6 +91,7 @@ See `.env.example` for all available configuration options:
 
 - `GEMINI_API_KEY` (required): Your Gemini API key
 - `APP_BASE_URL`: Base URL for the application (default: `http://localhost:8080`)
+- `FRONTEND_BASE_URL`: Frontend callback URL for OAuth redirect (default: `APP_BASE_URL`)
 - `PORT`: Server port (default: `8080`)
 - `DB_PATH`: Path to SQLite database file (default: `data/app.db`)
 - `UPLOAD_DIR`: Directory for uploaded images (default: `data/uploads`)
@@ -109,7 +118,7 @@ go test -v ./...
 **Frontend tests:**
 ```bash
 cd web
-bun test
+bun run test
 
 # Run with coverage
 bun run test:coverage

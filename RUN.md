@@ -71,6 +71,13 @@ go run cmd/server/main.go
 
 ### Option 2: Development Mode (Separate servers)
 
+Set backend callback target for split dev OAuth flow:
+```bash
+# backend/.env
+APP_BASE_URL=http://localhost:8080
+FRONTEND_BASE_URL=http://localhost:5173
+```
+
 **Terminal 1 - Backend:**
 ```bash
 cd backend
@@ -85,7 +92,8 @@ bun run dev
 ```
 Frontend dev server runs on: `http://localhost:5173` (Vite default)
 
-**Note:** In dev mode, frontend proxies API calls to backend at `http://localhost:8080`
+**Note:** In dev mode, frontend proxies API calls to backend at `http://localhost:8080`.
+With `FRONTEND_BASE_URL=http://localhost:5173`, OAuth callback redirects to Vite without requiring `bun run build`.
 
 ## Quick Commands Reference
 
@@ -124,7 +132,7 @@ cd web && bun run dev
 cd web && bun run build
 
 # Run tests
-cd web && bun test
+cd web && bun run test
 
 # Run tests with coverage
 cd web && bun run test:coverage
@@ -170,6 +178,7 @@ PostgreSQL (when using Docker Compose):
 Optional:
 - `PORT` - Backend port (default: `8080`)
 - `APP_BASE_URL` - Base URL (default: `http://localhost:8080`)
+- `FRONTEND_BASE_URL` - Frontend callback URL for OAuth redirect (default: `APP_BASE_URL`)
 - `UPLOAD_DIR` - Upload directory (default: `data/uploads`)
 - `MAX_UPLOAD_SIZE` - Max upload size in bytes (default: `10485760` = 10MB)
 - `SESSION_COOKIE_NAME` - Session cookie name (default: `sid`)

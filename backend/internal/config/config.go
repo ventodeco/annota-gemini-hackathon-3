@@ -11,6 +11,7 @@ import (
 type Config struct {
 	GeminiAPIKey       string
 	AppBaseURL         string
+	FrontendBaseURL    string
 	Port               string
 	DBConnectionString string
 	UploadDir          string
@@ -56,9 +57,13 @@ func Load() (*Config, error) {
 		}
 	}
 
+	appBaseURL := getEnvOrDefault("APP_BASE_URL", "http://localhost:8080")
+	frontendBaseURL := getEnvOrDefault("FRONTEND_BASE_URL", appBaseURL)
+
 	cfg := &Config{
 		GeminiAPIKey:            geminiAPIKey,
-		AppBaseURL:              getEnvOrDefault("APP_BASE_URL", "http://localhost:8080"),
+		AppBaseURL:              appBaseURL,
+		FrontendBaseURL:         frontendBaseURL,
 		Port:                    getEnvOrDefault("PORT", "8080"),
 		DBConnectionString:      dbConnStr,
 		UploadDir:               getEnvOrDefault("UPLOAD_DIR", "data/uploads"),
@@ -93,6 +98,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxUploadSize <= 0 {
 		return fmt.Errorf("MAX_UPLOAD_SIZE must be positive")
+	}
+	if c.FrontendBaseURL == "" {
+		return fmt.Errorf("FRONTEND_BASE_URL cannot be empty")
 	}
 	if c.TokenExpiryMinutes <= 0 {
 		return fmt.Errorf("TOKEN_EXPIRY_MINUTES must be positive")
