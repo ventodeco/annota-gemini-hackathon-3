@@ -89,6 +89,13 @@ func (m *MockDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language
 	return nil
 }
 
+func (m *MockDB) UpdateScanImageURL(ctx context.Context, scanID int64, imageURL string) error {
+	if scan, ok := m.scans[scanID]; ok {
+		scan.ImageURL = imageURL
+	}
+	return nil
+}
+
 func (m *MockDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error) {
 	annotation.ID = m.nextAnnID
 	m.nextAnnID++

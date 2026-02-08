@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import { useState } from 'react'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
@@ -9,11 +9,24 @@ import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import type { Annotation } from '@/lib/types'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { getScanImageUrl, formatDate } from '@/lib/api'
+import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
+import type { Scan } from '@/lib/types'
+
+type ScanPageLocationState = {
+  preloadedScan?: Scan
+}
 
 export default function ScanPage() {
+  const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const scanId = id ? parseInt(id, 10) : 0
-  const { data: scan, isLoading, error } = useScan(scanId)
+  const preloadedScan = (location.state as ScanPageLocationState | null)?.preloadedScan
+  const hasReadyPreloadedScan =
+    preloadedScan?.id === scanId &&
+    !!preloadedScan.fullText &&
+    preloadedScan.fullText.length > 0
+  const { data: fetchedScan, isLoading, error } = useScan(scanId, !hasReadyPreloadedScan)
+  const scan = fetchedScan ?? (preloadedScan?.id === scanId ? preloadedScan : undefined)
   const analyzeText = useAnalyzeText()
   const createAnnotation = useCreateAnnotation()
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
@@ -109,6 +122,17 @@ export default function ScanPage() {
         <Header title="Scan Result" />
         <div className="flex-1 flex items-center justify-center p-6">
           <p className="text-gray-600">Scan not found</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!scan.fullText) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col">
+        <Header title="Scan Result" />
+        <div className="flex-1 flex items-center justify-center p-6">
+          <LoadingSpinner />
         </div>
       </div>
     )

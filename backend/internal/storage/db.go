@@ -20,6 +20,7 @@ type DB interface {
 	CreateScan(ctx context.Context, scan *models.Scan) (int64, error)
 	GetScanByID(ctx context.Context, scanID int64) (*models.Scan, error)
 	GetScansByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Scan, error)
+	UpdateScanImageURL(ctx context.Context, scanID int64, imageURL string) error
 	UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error
 
 	CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error)
@@ -235,6 +236,16 @@ func (s *postgresDB) UpdateScanOCR(ctx context.Context, scanID int64, text, lang
 		WHERE id = $3
 	`
 	_, err := s.db.ExecContext(ctx, query, text, language, scanID)
+	return err
+}
+
+func (s *postgresDB) UpdateScanImageURL(ctx context.Context, scanID int64, imageURL string) error {
+	query := `
+		UPDATE scans
+		SET image_url = $1
+		WHERE id = $2
+	`
+	_, err := s.db.ExecContext(ctx, query, imageURL, scanID)
 	return err
 }
 

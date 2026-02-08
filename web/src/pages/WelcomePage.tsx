@@ -16,7 +16,7 @@ export default function WelcomePage() {
   const uploadMutation = useMutation({
     mutationFn: createScan,
     onSuccess: (data) => {
-      navigate(`/scans/${data.scanId}`)
+      navigate(`/loading/${data.scanId}`)
     },
     onError: (error: Error) => {
       setUploadError(error.message || 'Failed to upload image')

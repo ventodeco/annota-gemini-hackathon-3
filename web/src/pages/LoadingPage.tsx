@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { Hourglass } from 'lucide-react'
 import { getScan } from '@/lib/api'
+import type { Scan } from '@/lib/types'
 
 export default function LoadingPage() {
   const navigate = useNavigate()
@@ -19,33 +21,59 @@ export default function LoadingPage() {
       return
     }
 
+    let isActive = true
+    let hasNavigated = false
     let attempts = 0
     const maxAttempts = 30 // 30 seconds max wait
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const navigateToScan = (scanData?: Scan) => {
+      if (!isActive || hasNavigated) return
+      hasNavigated = true
+      navigate(`/scans/${id}`, {
+        replace: true,
+        state: scanData ? { preloadedScan: scanData } : undefined,
+      })
+    }
 
     const checkScan = async () => {
+      if (!isActive || hasNavigated) return
+
       try {
         const scan = await getScan(scanId)
+        if (!isActive || hasNavigated) return
+
         // Check if OCR is complete (fullText exists)
         if (scan.fullText && scan.fullText.length > 0) {
-          navigate(`/scans/${id}`, { replace: true })
+          navigateToScan(scan)
           return
         }
 
         attempts++
         if (attempts >= maxAttempts) {
           // Timeout - navigate anyway, page will show what's available
-          navigate(`/scans/${id}`, { replace: true })
+          navigateToScan()
           return
         }
 
         // Poll again after 1 second
-        setTimeout(checkScan, 1000)
+        timer = setTimeout(() => {
+          void checkScan()
+        }, 1000)
       } catch {
+        if (!isActive) return
         setStatus('error')
       }
     }
 
-    checkScan()
+    void checkScan()
+
+    return () => {
+      isActive = false
+      if (timer) {
+        clearTimeout(timer)
+      }
+    }
   }, [id, navigate])
 
   if (status === 'error') {
@@ -67,9 +95,13 @@ export default function LoadingPage() {
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
-        <p className="mt-4 text-center text-gray-600 text-sm">Processing your image...</p>
-        <p className="mt-2 text-center text-gray-400 text-xs">This may take a few seconds</p>
+        <h1 className="text-[40px] font-semibold text-gray-900 text-center">Scanning in Progress..</h1>
+        <p className="mt-6 max-w-[420px] text-center text-[24px] text-gray-900 leading-relaxed">
+          Please stay on the page while
+          <br />
+          the scanning in progess
+        </p>
+        <Hourglass className="mt-10 h-14 w-14 text-slate-500" strokeWidth={1.6} />
       </div>
     </div>
   )

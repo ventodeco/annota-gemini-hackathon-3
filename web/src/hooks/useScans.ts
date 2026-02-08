@@ -9,11 +9,11 @@ export function useScans(page = 1, size = 20) {
   })
 }
 
-export function useScan(scanId: number) {
+export function useScan(scanId: number, enabled: boolean = true) {
   return useQuery({
     queryKey: ['scan', scanId],
     queryFn: () => getScan(scanId),
-    enabled: scanId > 0,
+    enabled: enabled && scanId > 0,
   })
 }
 

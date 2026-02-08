@@ -99,6 +99,7 @@ func main() {
 	authMux.HandleFunc("/v1/annotations/", annotationHandlers.GetAnnotationAPI)
 
 	mux.Handle("/v1/", authMiddleware.Handle(authMux))
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))
 
 	reactFS := http.FileServer(http.Dir("web/dist"))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

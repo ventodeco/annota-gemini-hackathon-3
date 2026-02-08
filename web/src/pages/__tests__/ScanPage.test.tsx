@@ -1,39 +1,118 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import React from 'react'
-import { BrowserRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ScanPage from '../ScanPage'
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom')
-  return {
-    ...actual,
-    useParams: () => ({ id: 'test-scan-id' }),
-  }
-})
+const useScanMock = vi.fn()
 
-vi.mock('@/lib/mockData', async () => {
-  const actual = await vi.importActual('@/lib/mockData')
-  return {
-    ...actual,
-    getMockScan: vi.fn(() => null),
-  }
-})
+vi.mock('@/hooks/useScans', () => ({
+  useScan: (...args: unknown[]) => useScanMock(...args),
+}))
+
+vi.mock('@/hooks/useAnnotations', () => ({
+  useAnalyzeText: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCreateAnnotation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
+
+vi.mock('@/hooks/useTextSelection', () => ({
+  useTextSelection: () => ({
+    selectedText: '',
+    handleSelection: vi.fn(),
+    clearSelection: vi.fn(),
+  }),
+}))
+
+vi.mock('@/components/layout/Header', () => ({
+  default: ({ title }: { title: string }) => <div>{title}</div>,
+}))
+
+vi.mock('@/components/layout/BottomActionBar', () => ({
+  default: () => <div>bottom-action</div>,
+}))
+
+vi.mock('@/components/scanpage/AnnotationDrawer', () => ({
+  AnnotationDrawer: () => null,
+}))
 
 describe('ScanPage', () => {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
   const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>{children}</BrowserRouter>
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter initialEntries={['/scans/5']}>
+        <Routes>
+          <Route path="/scans/:id" element={children} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>
   )
 
-  it('should show scan not found when mock data returns null', () => {
-    const { getByText } = render(<ScanPage />, { wrapper })
-    expect(getByText('Scan not found')).toBeInTheDocument()
+  it('shows loading spinner when OCR text is not ready yet', () => {
+    useScanMock.mockReturnValue({
+      data: {
+        id: 5,
+        imageUrl: '/uploads/5.jpg',
+        detectedLanguage: '',
+        fullText: '',
+        createdAt: '2026-02-08T20:30:41+07:00',
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    render(<ScanPage />, { wrapper })
+
+    expect(screen.getByText('Processing...')).toBeInTheDocument()
+  })
+
+  it('renders OCR text once available', () => {
+    useScanMock.mockReturnValue({
+      data: {
+        id: 5,
+        imageUrl: '/uploads/5.jpg',
+        detectedLanguage: 'JP',
+        fullText: 'これはテストです',
+        createdAt: '2026-02-08T20:30:41+07:00',
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    render(<ScanPage />, { wrapper })
+
+    expect(screen.getByText('これはテストです')).toBeInTheDocument()
+  })
+
+  it('skips fetching when preloaded scan with OCR text is provided from loading page', () => {
+    const preloadedScan = {
+      id: 5,
+      imageUrl: '/uploads/5.jpg',
+      detectedLanguage: 'JP',
+      fullText: 'preloaded OCR',
+      createdAt: '2026-02-08T20:30:41+07:00',
+    }
+
+    useScanMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    })
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={[{ pathname: '/scans/5', state: { preloadedScan } }]}>
+          <Routes>
+            <Route path="/scans/:id" element={<ScanPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(useScanMock).toHaveBeenCalledWith(5, false)
+    expect(screen.getByText('preloaded OCR')).toBeInTheDocument()
   })
 })

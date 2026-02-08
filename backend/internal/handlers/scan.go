@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -145,10 +146,9 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	imageURL := fmt.Sprintf("/uploads/%s", storagePath)
+	imageURL := fmt.Sprintf("/uploads/%s", filepath.Base(storagePath))
 
-	err = h.db.UpdateScanOCR(r.Context(), scanID, "", "")
-	if err != nil {
+	if err := h.db.UpdateScanImageURL(r.Context(), scanID, imageURL); err != nil {
 		log.ErrorWithErr(err, "Failed to update scan with image URL")
 	}
 
