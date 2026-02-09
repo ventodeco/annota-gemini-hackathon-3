@@ -1,4 +1,4 @@
-import { useLocation, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useState } from 'react'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
@@ -16,8 +16,11 @@ type ScanPageLocationState = {
   preloadedScan?: Scan
 }
 
+const MAX_ANNOTATION_VERSIONS = 2
+
 export default function ScanPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const scanId = id ? parseInt(id, 10) : 0
   const preloadedScan = (location.state as ScanPageLocationState | null)?.preloadedScan
@@ -33,6 +36,7 @@ export default function ScanPage() {
   const createAnnotation = useCreateAnnotation()
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
+  const [annotationVersion, setAnnotationVersion] = useState(1)
   const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
   const [contextText, setContextText] = useState('')
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
@@ -73,6 +77,7 @@ export default function ScanPage() {
       }
 
       setCurrentAnnotation(annotation)
+      setAnnotationVersion(1)
       setIsDrawerOpen(true)
     } catch (err) {
       console.error('Failed to analyze text:', err)
@@ -94,6 +99,7 @@ export default function ScanPage() {
       })
       setIsDrawerOpen(false)
       setCurrentAnnotation(null)
+      setAnnotationVersion(1)
       clearSelection()
     } catch (err) {
       console.error('Failed to save annotation:', err)
@@ -101,9 +107,33 @@ export default function ScanPage() {
     }
   }
 
+  const handleRegenerateAnnotation = async () => {
+    if (!currentAnnotation || analyzeText.isPending || annotationVersion >= MAX_ANNOTATION_VERSIONS) {
+      return
+    }
+
+    try {
+      const result = await analyzeText.mutateAsync({
+        textToAnalyze: currentAnnotation.highlighted_text,
+        context: currentAnnotation.context_text ?? '',
+      })
+
+      setCurrentAnnotation({
+        ...currentAnnotation,
+        nuance_data: result,
+        created_at: new Date().toISOString(),
+      })
+      setAnnotationVersion((prev) => Math.min(prev + 1, MAX_ANNOTATION_VERSIONS))
+    } catch (err) {
+      console.error('Failed to regenerate annotation:', err)
+      alert('Failed to regenerate annotation. Please try again.')
+    }
+  }
+
   const handleDrawerClose = () => {
     setIsDrawerOpen(false)
     setCurrentAnnotation(null)
+    setAnnotationVersion(1)
     clearSelection()
   }
 
@@ -173,13 +203,18 @@ export default function ScanPage() {
         disabled={!selectedText || isLoadingAnnotation}
         isLoading={isLoadingAnnotation || analyzeText.isPending}
         onExplain={handleExplain}
+        onBookmark={() => navigate('/history')}
       />
       <AnnotationDrawer
         isOpen={isDrawerOpen}
         onClose={handleDrawerClose}
         annotation={currentAnnotation}
+        onRegenerate={handleRegenerateAnnotation}
         onSave={handleSaveAnnotation}
+        isRegenerating={analyzeText.isPending}
         isSaving={createAnnotation.isPending}
+        version={annotationVersion}
+        maxVersions={MAX_ANNOTATION_VERSIONS}
       />
     </div>
   )

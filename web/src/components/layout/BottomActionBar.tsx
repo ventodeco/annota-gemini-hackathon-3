@@ -3,6 +3,7 @@ import { Sparkles, Bookmark, Loader2 } from 'lucide-react'
 
 interface BottomActionBarProps {
   disabled?: boolean
+  bookmarkDisabled?: boolean
   isLoading?: boolean
   onExplain?: () => void
   onBookmark?: () => void
@@ -10,6 +11,7 @@ interface BottomActionBarProps {
 
 export default function BottomActionBar({
   disabled = false,
+  bookmarkDisabled = false,
   isLoading = false,
   onExplain,
   onBookmark,
@@ -37,7 +39,7 @@ export default function BottomActionBar({
 
       <button
         onClick={onBookmark}
-        disabled={disabled || isLoading}
+        disabled={bookmarkDisabled}
         className="w-10 h-10 rounded-[12px] flex items-center justify-center bg-white text-[#0F172A] border border-[#F1F5F9] disabled:opacity-50 transition-colors"
         aria-label="Bookmark"
       >

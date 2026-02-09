@@ -3,9 +3,16 @@ import { X } from 'lucide-react'
 interface DrawerHeaderProps {
   onClose: () => void
   onCollapse?: () => void
+  version?: number
+  maxVersions?: number
 }
 
-export function DrawerHeader({ onClose, onCollapse }: DrawerHeaderProps) {
+export function DrawerHeader({
+  onClose,
+  onCollapse,
+  version = 1,
+  maxVersions = 2,
+}: DrawerHeaderProps) {
   const handleTitleClick = () => {
     if (onCollapse) {
       onCollapse()
@@ -48,6 +55,9 @@ export function DrawerHeader({ onClose, onCollapse }: DrawerHeaderProps) {
           />
         </svg>
         <span className="font-semibold text-lg leading-6 text-gray-900">Annotation</span>
+        <span className="font-normal text-base leading-6 text-gray-700">
+          {`Version ${version}/${maxVersions}`}
+        </span>
       </div>
       <button
         onClick={onClose}
