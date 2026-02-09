@@ -1,6 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { createAnnotation, getAnnotations, analyzeText } from '@/lib/api'
-import type { CreateAnnotationRequest, AnalyzeRequest, NuanceData } from '@/lib/types'
+import { createAnnotation, getAnnotations, analyzeText, synthesizeSpeech } from '@/lib/api'
+import type {
+  CreateAnnotationRequest,
+  AnalyzeRequest,
+  NuanceData,
+  SynthesizeSpeechRequest,
+} from '@/lib/types'
 
 export function useAnnotations(page = 1, size = 20, scanId?: number) {
   return useQuery({
@@ -23,6 +28,12 @@ export function useCreateAnnotation() {
 export function useAnalyzeText() {
   return useMutation({
     mutationFn: (data: AnalyzeRequest) => analyzeText(data),
+  })
+}
+
+export function useSynthesizeSpeech() {
+  return useMutation({
+    mutationFn: (data: SynthesizeSpeechRequest) => synthesizeSpeech(data),
   })
 }
 

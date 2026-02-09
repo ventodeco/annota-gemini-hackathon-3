@@ -113,6 +113,12 @@ export interface AnalyzeRequest {
 
 export type AnalyzeResponse = NuanceData
 
+export interface SynthesizeSpeechRequest {
+  highlightedText: string
+  contextText?: string
+  tone?: string
+}
+
 // Language Types
 export interface Language {
   caption: string

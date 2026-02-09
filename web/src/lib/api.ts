@@ -12,6 +12,7 @@ import type {
   // AI types
   AnalyzeRequest,
   AnalyzeResponse,
+  SynthesizeSpeechRequest,
   // Annotation types
   CreateAnnotationRequest,
   CreateAnnotationResponse,
@@ -192,6 +193,32 @@ export async function analyzeText(request: AnalyzeRequest): Promise<AnalyzeRespo
     body: JSON.stringify(request),
   })
   return handleResponse(response, 'POST', url)
+}
+
+export async function synthesizeSpeech(request: SynthesizeSpeechRequest): Promise<Blob> {
+  const url = `${API_BASE_URL}/v1/ai/speech`
+  const startTime = Date.now()
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    if (isAuthError(response.status)) {
+      clearAuthToken()
+      window.location.href = '/login'
+    }
+    const error = await response.text().catch(() => 'An error occurred')
+    logger.apiCall('POST', url, response.status, Date.now() - startTime, new Error(error))
+    throw new Error(error)
+  }
+
+  logger.apiCall('POST', url, response.status, Date.now() - startTime)
+  return response.blob()
 }
 
 // ============================================================================

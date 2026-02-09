@@ -51,6 +51,10 @@ func (m *mockGeminiClient) AnnotateWithKnowledge(ctx context.Context, ocrText st
 	return nil, nil
 }
 
+func (m *mockGeminiClient) SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*gemini.SpeechResponse, error) {
+	return nil, nil
+}
+
 func buildUploadRequest(t *testing.T, path string) *http.Request {
 	t.Helper()
 

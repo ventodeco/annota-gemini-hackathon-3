@@ -1,22 +1,30 @@
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useScan, isScanOcrReady } from '@/hooks/useScans'
-import { useAnalyzeText, useCreateAnnotation } from '@/hooks/useAnnotations'
+import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import type { Annotation } from '@/lib/types'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { getScanImageUrl, formatDate } from '@/lib/api'
 import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
 import type { Scan } from '@/lib/types'
+import { SelectionSpeechButton } from '@/components/scanpage/SelectionSpeechButton'
 
 type ScanPageLocationState = {
   preloadedScan?: Scan
 }
 
 const MAX_ANNOTATION_VERSIONS = 2
+
+type SelectionRect = {
+  top: number
+  left: number
+  width: number
+  height: number
+}
 
 export default function ScanPage() {
   const location = useLocation()
@@ -34,17 +42,51 @@ export default function ScanPage() {
   const scan = fetchedScan ?? (preloadedScan?.id === scanId ? preloadedScan : undefined)
   const analyzeText = useAnalyzeText()
   const createAnnotation = useCreateAnnotation()
+  const synthesizeSpeech = useSynthesizeSpeech()
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
   const [annotationVersion, setAnnotationVersion] = useState(1)
   const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
+  const [isPlayingSpeech, setIsPlayingSpeech] = useState(false)
   const [contextText, setContextText] = useState('')
+  const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioUrlRef = useRef<string | null>(null)
+  const speechRequestIdRef = useRef(0)
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
+
+  const stopSpeechPlayback = useCallback(() => {
+    speechRequestIdRef.current += 1
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.onended = null
+      audioRef.current = null
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current)
+      audioUrlRef.current = null
+    }
+    setIsPlayingSpeech(false)
+  }, [])
+
+  useEffect(() => {
+    return () => stopSpeechPlayback()
+  }, [stopSpeechPlayback])
+
+  useEffect(() => {
+    if (!selectedText) {
+      setSelectionRect(null)
+      stopSpeechPlayback()
+    }
+  }, [selectedText, stopSpeechPlayback])
 
   const handleTextSelect = () => {
     const selection = window.getSelection()
     if (!selection || selection.toString().trim() === '') {
       clearSelection()
+      setContextText('')
+      setSelectionRect(null)
+      stopSpeechPlayback()
       return
     }
     handleSelection(selection.toString())
@@ -52,6 +94,13 @@ export default function ScanPage() {
     const range = selection.getRangeAt(0)
     const context = range.endContainer.textContent || ''
     setContextText(context)
+    const rect = range.getBoundingClientRect()
+    setSelectionRect({
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+    })
   }
 
   const handleExplain = async () => {
@@ -101,6 +150,8 @@ export default function ScanPage() {
       setCurrentAnnotation(null)
       setAnnotationVersion(1)
       clearSelection()
+      setSelectionRect(null)
+      stopSpeechPlayback()
     } catch (err) {
       console.error('Failed to save annotation:', err)
       alert('Failed to save annotation. Please try again.')
@@ -135,6 +186,54 @@ export default function ScanPage() {
     setCurrentAnnotation(null)
     setAnnotationVersion(1)
     clearSelection()
+    setSelectionRect(null)
+    stopSpeechPlayback()
+  }
+
+  const handleSpeechToggle = async () => {
+    if (!selectedText) {
+      return
+    }
+    if (isPlayingSpeech || synthesizeSpeech.isPending) {
+      stopSpeechPlayback()
+      return
+    }
+
+    const requestId = speechRequestIdRef.current + 1
+    speechRequestIdRef.current = requestId
+    setIsPlayingSpeech(true)
+
+    try {
+      const audioBlob = await synthesizeSpeech.mutateAsync({
+        highlightedText: selectedText,
+        contextText,
+      })
+
+      if (speechRequestIdRef.current != requestId) {
+        setIsPlayingSpeech(false)
+        return
+      }
+
+      const audioUrl = URL.createObjectURL(audioBlob)
+      const audio = new Audio(audioUrl)
+      audioUrlRef.current = audioUrl
+      audioRef.current = audio
+      audio.onended = () => {
+        if (audioRef.current) {
+          audioRef.current = null
+        }
+        if (audioUrlRef.current) {
+          URL.revokeObjectURL(audioUrlRef.current)
+          audioUrlRef.current = null
+        }
+        setIsPlayingSpeech(false)
+      }
+      await audio.play()
+    } catch (err) {
+      stopSpeechPlayback()
+      console.error('Failed to synthesize speech:', err)
+      alert('Failed to synthesize speech. Please try again.')
+    }
   }
 
   if (isLoading) {
@@ -205,6 +304,14 @@ export default function ScanPage() {
         onExplain={handleExplain}
         onBookmark={() => navigate(`/history?scanId=${scan.id}`)}
       />
+      {selectedText && (
+        <SelectionSpeechButton
+          selectionRect={selectionRect}
+          isLoading={synthesizeSpeech.isPending}
+          isPlaying={isPlayingSpeech}
+          onClick={handleSpeechToggle}
+        />
+      )}
       <AnnotationDrawer
         isOpen={isDrawerOpen}
         onClose={handleDrawerClose}

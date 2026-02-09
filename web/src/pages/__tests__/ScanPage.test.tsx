@@ -9,6 +9,7 @@ import ScanPage from '../ScanPage'
 const useScanMock = vi.fn()
 const analyzeMutateAsyncMock = vi.fn()
 const createMutateAsyncMock = vi.fn()
+const synthesizeMutateAsyncMock = vi.fn()
 const clearSelectionMock = vi.fn()
 
 vi.mock('@/hooks/useScans', () => ({
@@ -20,6 +21,7 @@ vi.mock('@/hooks/useScans', () => ({
 vi.mock('@/hooks/useAnnotations', () => ({
   useAnalyzeText: () => ({ mutateAsync: analyzeMutateAsyncMock, isPending: false }),
   useCreateAnnotation: () => ({ mutateAsync: createMutateAsyncMock, isPending: false }),
+  useSynthesizeSpeech: () => ({ mutateAsync: synthesizeMutateAsyncMock, isPending: false }),
 }))
 
 vi.mock('@/hooks/useTextSelection', () => ({
@@ -76,6 +78,7 @@ describe('ScanPage', () => {
     vi.clearAllMocks()
     analyzeMutateAsyncMock.mockReset()
     createMutateAsyncMock.mockReset()
+    synthesizeMutateAsyncMock.mockReset()
   })
 
   const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -219,6 +222,64 @@ describe('ScanPage', () => {
       )
       expect(clearSelectionMock).toHaveBeenCalled()
     })
+  })
+
+  it('toggles speech playback from floating button', async () => {
+    const user = userEvent.setup()
+
+    useScanMock.mockReturnValue({
+      data: {
+        id: 5,
+        imageUrl: '/uploads/5.jpg',
+        detectedLanguage: 'JP',
+        fullText: 'これはテストです',
+        createdAt: '2026-02-08T20:30:41+07:00',
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    const playMock = vi.fn().mockResolvedValue(undefined)
+    const pauseMock = vi.fn()
+    const revokeObjectURLMock = vi.fn()
+    const createObjectURLMock = vi.fn(() => 'blob:tts-audio')
+
+    class MockAudio {
+      src = ''
+      onended: (() => void) | null = null
+      play = playMock
+      pause = pauseMock
+    }
+
+    vi.stubGlobal('Audio', MockAudio as unknown as typeof Audio)
+    vi.stubGlobal('URL', {
+      createObjectURL: createObjectURLMock,
+      revokeObjectURL: revokeObjectURLMock,
+    })
+
+    try {
+      synthesizeMutateAsyncMock.mockResolvedValueOnce(new Blob(['audio'], { type: 'audio/wav' }))
+
+      render(<ScanPage />, { wrapper })
+
+      const speechButton = screen.getByRole('button', { name: 'Play selected text' })
+      await user.click(speechButton)
+
+      await waitFor(() => {
+        expect(synthesizeMutateAsyncMock).toHaveBeenCalledWith({
+          highlightedText: '今月はCVRが前月比+1.2pt',
+          contextText: '',
+        })
+        expect(playMock).toHaveBeenCalledTimes(1)
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Stop playback' }))
+
+      expect(pauseMock).toHaveBeenCalled()
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:tts-audio')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('navigates to per-scan history when bookmark is clicked', async () => {

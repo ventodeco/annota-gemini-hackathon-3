@@ -44,6 +44,12 @@ type NuanceSummary struct {
 	Meaning string `json:"meaning"`
 }
 
+type SpeakRequest struct {
+	HighlightedText string `json:"highlightedText"`
+	ContextText     string `json:"contextText,omitempty"`
+	Tone            string `json:"tone,omitempty"`
+}
+
 func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -150,6 +156,45 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (h *AIHandlers) SpeakAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == 0 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req SpeakRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.HighlightedText == "" {
+		http.Error(w, "highlightedText is required", http.StatusBadRequest)
+		return
+	}
+
+	resp, err := h.geminiClient.SynthesizeSpeech(r.Context(), req.HighlightedText, req.ContextText)
+	if err != nil {
+		log.Printf("Failed to synthesize speech: %v", err)
+		http.Error(w, "Failed to synthesize speech", http.StatusInternalServerError)
+		return
+	}
+
+	contentType := resp.MIMEType
+	if contentType == "" {
+		contentType = "audio/wav"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resp.Audio)
 }
 
 type AnnotationAnnotation struct {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { createScan, getScan, analyzeText, getScanImageUrl, getAnnotations } from '../api'
+import { createScan, getScan, analyzeText, getScanImageUrl, getAnnotations, synthesizeSpeech } from '../api'
 
 describe('API Client', () => {
   beforeEach(() => {
@@ -119,6 +119,48 @@ describe('API Client', () => {
       await expect(analyzeText({ textToAnalyze: '', context: 'test' })).rejects.toThrow(
         'Invalid selection'
       )
+    })
+  })
+
+  describe('synthesizeSpeech', () => {
+    it('should synthesize speech as audio blob', async () => {
+      ;(global.fetch as Mock).mockResolvedValueOnce({
+        ok: true,
+        blob: async () => new Blob(['audio-bytes'], { type: 'audio/wav' }),
+      })
+
+      const result = await synthesizeSpeech({
+        highlightedText: 'おはようございます',
+        contextText: '丁寧な挨拶',
+      })
+
+      expect(result).toBeInstanceOf(Blob)
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/ai/speech'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            highlightedText: 'おはようございます',
+            contextText: '丁寧な挨拶',
+          }),
+        })
+      )
+    })
+
+    it('should throw on synthesis error', async () => {
+      ;(global.fetch as Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'Failed to synthesize speech',
+      })
+
+      await expect(
+        synthesizeSpeech({
+          highlightedText: 'テスト',
+          contextText: '',
+        }),
+      ).rejects.toThrow('Failed to synthesize speech')
     })
   })
 

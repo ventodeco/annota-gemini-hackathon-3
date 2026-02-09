@@ -1,7 +1,9 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -16,6 +18,7 @@ type Client interface {
 	OCR(ctx context.Context, imageData []byte, mimeType string) (*OCRResponse, error)
 	Annotate(ctx context.Context, ocrText string, selectedText string) (*AnnotationResponse, error)
 	AnnotateWithKnowledge(ctx context.Context, ocrText string, selectedText string, entries []knowledge.Entry) (*AnnotationResponse, error)
+	SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*SpeechResponse, error)
 }
 
 type client struct {
@@ -57,6 +60,11 @@ type AnnotationResponse struct {
 	WhenToUse           string `json:"when_to_use"`
 	WordBreakdown       string `json:"word_breakdown"`
 	AlternativeMeanings string `json:"alternative_meanings"`
+}
+
+type SpeechResponse struct {
+	Audio    []byte
+	MIMEType string
 }
 
 func (c *client) OCR(ctx context.Context, imageData []byte, mimeType string) (*OCRResponse, error) {
@@ -338,6 +346,61 @@ func (c *client) AnnotateWithKnowledge(ctx context.Context, ocrText string, sele
 	return &annotation, nil
 }
 
+func (c *client) SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*SpeechResponse, error) {
+	if c.genaiClient == nil {
+		if c.initErr != nil {
+			return nil, fmt.Errorf("gemini client not initialized: %w", c.initErr)
+		}
+		return nil, fmt.Errorf("gemini client not initialized: check API key")
+	}
+
+	prompt := buildSpeechPrompt(highlightedText, contextText)
+	cfg := &genai.GenerateContentConfig{
+		ResponseModalities: []string{"AUDIO"},
+		SpeechConfig: &genai.SpeechConfig{
+			VoiceConfig: &genai.VoiceConfig{
+				PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+					VoiceName: "Kore",
+				},
+			},
+			LanguageCode: "ja-JP",
+		},
+	}
+
+	result, err := c.genaiClient.Models.GenerateContent(
+		ctx,
+		"gemini-2.5-flash-preview-tts",
+		genai.Text(prompt),
+		cfg,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to synthesize speech: %w", err)
+	}
+
+	for _, candidate := range result.Candidates {
+		if candidate == nil || candidate.Content == nil {
+			continue
+		}
+		for _, part := range candidate.Content.Parts {
+			if part == nil || part.InlineData == nil || len(part.InlineData.Data) == 0 {
+				continue
+			}
+			mimeType := strings.ToLower(strings.TrimSpace(part.InlineData.MIMEType))
+			audio := part.InlineData.Data
+			if mimeType == "" || strings.Contains(mimeType, "pcm") {
+				audio = wrapPCMAsWAV(audio, 24000, 1, 16)
+				mimeType = "audio/wav"
+			}
+			return &SpeechResponse{
+				Audio:    audio,
+				MIMEType: mimeType,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no audio data in Gemini response")
+}
+
 // buildEnhancedPrompt creates a prompt that includes reference knowledge from CSV.
 func buildEnhancedPrompt(ocrText string, selectedText string, entries []knowledge.Entry) string {
 	var sb strings.Builder
@@ -425,4 +488,52 @@ func normalizeJSONCandidate(s string) string {
 		return strings.TrimSpace(trimmed[start : end+1])
 	}
 	return strings.TrimSpace(s)
+}
+
+func buildSpeechPrompt(highlightedText string, contextText string) string {
+	context := strings.TrimSpace(contextText)
+	if len(context) > 400 {
+		context = context[:400]
+	}
+
+	return fmt.Sprintf(
+		`You are a Japanese text-to-speech assistant.
+Speak only the "Selected text" exactly as written.
+Use "Context" only to infer subtle, natural tone and pacing.
+Do not read context out loud.
+Avoid exaggerated acting; keep delivery clear and realistic.
+
+Selected text:
+%s
+
+Context:
+%s`,
+		highlightedText,
+		context,
+	)
+}
+
+func wrapPCMAsWAV(pcm []byte, sampleRate, channels, bitsPerSample int) []byte {
+	dataLen := len(pcm)
+	byteRate := sampleRate * channels * bitsPerSample / 8
+	blockAlign := channels * bitsPerSample / 8
+	chunkSize := 36 + dataLen
+
+	buf := bytes.NewBuffer(make([]byte, 0, 44+dataLen))
+	buf.WriteString("RIFF")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(chunkSize))
+	buf.WriteString("WAVE")
+	buf.WriteString("fmt ")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(16))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(1))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(channels))
+	_ = binary.Write(buf, binary.LittleEndian, uint32(sampleRate))
+	_ = binary.Write(buf, binary.LittleEndian, uint32(byteRate))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(blockAlign))
+	_ = binary.Write(buf, binary.LittleEndian, uint16(bitsPerSample))
+	buf.WriteString("data")
+	_ = binary.Write(buf, binary.LittleEndian, uint32(dataLen))
+	buf.Write(pcm)
+
+	return buf.Bytes()
 }
