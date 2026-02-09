@@ -4,6 +4,7 @@ interface UseCameraReturn {
   stream: MediaStream | null
   error: string | null
   isSupported: boolean
+  facingMode: 'user' | 'environment'
   videoRef: React.RefObject<HTMLVideoElement | null>
   startCamera: () => Promise<void>
   stopCamera: () => void
@@ -121,6 +122,7 @@ export function useCamera(): UseCameraReturn {
     stream,
     error,
     isSupported,
+    facingMode,
     videoRef,
     startCamera,
     stopCamera,

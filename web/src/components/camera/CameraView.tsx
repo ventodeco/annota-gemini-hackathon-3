@@ -3,9 +3,10 @@ import { useEffect } from 'react'
 interface CameraViewProps {
   videoRef: React.RefObject<HTMLVideoElement | null>
   stream: MediaStream | null
+  facingMode: 'user' | 'environment'
 }
 
-export default function CameraView({ videoRef, stream }: CameraViewProps) {
+export default function CameraView({ videoRef, stream, facingMode }: CameraViewProps) {
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream
@@ -22,7 +23,7 @@ export default function CameraView({ videoRef, stream }: CameraViewProps) {
       playsInline
       muted
       className="w-full h-full object-cover"
-      style={{ transform: 'scaleX(-1)' }}
+      style={facingMode === 'user' ? { transform: 'scaleX(-1)' } : undefined}
     />
   )
 }

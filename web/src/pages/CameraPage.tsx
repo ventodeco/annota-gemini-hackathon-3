@@ -8,7 +8,7 @@ import { useCreateScan } from '@/hooks/useScans'
 
 export default function CameraPage() {
   const navigate = useNavigate()
-  const { stream, error, isSupported, videoRef, startCamera, stopCamera, switchCamera, capturePhoto } = useCamera()
+  const { stream, error, isSupported, facingMode, videoRef, startCamera, stopCamera, switchCamera, capturePhoto } = useCamera()
   const createScan = useCreateScan()
   const [isCapturing, setIsCapturing] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -112,10 +112,10 @@ export default function CameraPage() {
             src={previewUrl}
             alt="Preview"
             className="w-full h-full object-cover"
-            style={{ transform: 'scaleX(-1)' }}
+            style={facingMode === 'user' ? { transform: 'scaleX(-1)' } : undefined}
           />
         ) : (
-          <CameraView videoRef={videoRef} stream={stream} />
+          <CameraView videoRef={videoRef} stream={stream} facingMode={facingMode} />
         )}
       </div>
       <CameraControls
