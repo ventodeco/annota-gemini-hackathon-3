@@ -22,17 +22,18 @@ vi.mock('@/components/ui/sheet', () => ({
 
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({
-      children,
-      drag,
-      dragConstraints,
-      dragElastic,
-      ...props
-    }: React.ComponentProps<'div'> & {
+    div: (props: React.ComponentProps<'div'> & {
       drag?: unknown
       dragConstraints?: unknown
       dragElastic?: unknown
-    }) => <div {...props}>{children}</div>,
+    }) => {
+      const { children, ...rest } = props
+      const sanitizedProps = { ...rest }
+      delete sanitizedProps.drag
+      delete sanitizedProps.dragConstraints
+      delete sanitizedProps.dragElastic
+      return <div {...sanitizedProps}>{children}</div>
+    },
   },
 }))
 

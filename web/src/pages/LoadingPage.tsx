@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Hourglass } from 'lucide-react'
@@ -9,9 +9,8 @@ import type { Scan } from '@/lib/types'
 export default function LoadingPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
-  const [status, setStatus] = useState<'processing' | 'error'>('processing')
-  const [hasTimedOut, setHasTimedOut] = useState(false)
   const hasNavigatedRef = useRef(false)
+  const latestScanRef = useRef<Scan | undefined>(undefined)
   const scanId = id ? parseInt(id, 10) : NaN
 
   const navigateToScan = useCallback((scanData?: Scan) => {
@@ -26,10 +25,9 @@ export default function LoadingPage() {
   const { data: scan, error } = useQuery({
     queryKey: ['scan', scanId],
     queryFn: () => getScan(scanId),
-    enabled: Number.isInteger(scanId) && scanId > 0 && !hasTimedOut,
+    enabled: Number.isInteger(scanId) && scanId > 0,
     retry: false,
     refetchInterval: (query) => {
-      if (hasTimedOut) return false
       const currentScan = query.state.data as Scan | undefined
       if (!currentScan) return false
       if (isScanOcrReady(currentScan)) return false
@@ -47,18 +45,17 @@ export default function LoadingPage() {
     if (!id || !Number.isInteger(scanId) || scanId <= 0) {
       return
     }
-    setHasTimedOut(false)
     const timeoutId = setTimeout(() => {
-      setHasTimedOut(true)
+      const currentScan = latestScanRef.current
+      if (currentScan && isScanOcrReady(currentScan)) return
+      navigateToScan()
     }, 30000)
     return () => clearTimeout(timeoutId)
-  }, [id, scanId])
+  }, [id, scanId, navigateToScan])
 
   useEffect(() => {
-    if (error) {
-      setStatus('error')
-    }
-  }, [error])
+    latestScanRef.current = scan
+  }, [scan])
 
   useEffect(() => {
     if (scan && isScanOcrReady(scan)) {
@@ -66,11 +63,7 @@ export default function LoadingPage() {
     }
   }, [navigateToScan, scan])
 
-  useEffect(() => {
-    if (!hasTimedOut) return
-    if (scan && isScanOcrReady(scan)) return
-    navigateToScan()
-  }, [hasTimedOut, navigateToScan, scan])
+  const status: 'processing' | 'error' = error ? 'error' : 'processing'
 
   if (status === 'error') {
     return (

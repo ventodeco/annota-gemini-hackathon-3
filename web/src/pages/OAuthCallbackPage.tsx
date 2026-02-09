@@ -9,6 +9,10 @@ export default function OAuthCallbackPage() {
   const { mutateAsync } = useLogin()
   const hasCalledRef = useRef(false)
   const isMountedRef = useRef(false)
+  const code = searchParams.get('code')
+  const oauthState = searchParams.get('state')
+  const oauthError = searchParams.get('error')
+  const hasRequestError = Boolean(oauthError || !code || !oauthState)
 
   useEffect(() => {
     isMountedRef.current = true
@@ -20,21 +24,7 @@ export default function OAuthCallbackPage() {
 
   useEffect(() => {
     // Prevent duplicate calls
-    if (hasCalledRef.current) {
-      return
-    }
-
-    const code = searchParams.get('code')
-    const state = searchParams.get('state')
-    const error = searchParams.get('error')
-
-    if (error) {
-      setStatus('error')
-      return
-    }
-
-    if (!code || !state) {
-      setStatus('error')
+    if (hasCalledRef.current || hasRequestError || !code || !oauthState) {
       return
     }
 
@@ -42,7 +32,7 @@ export default function OAuthCallbackPage() {
 
     const handleOAuthCallback = async () => {
       try {
-        await mutateAsync({ code, state })
+        await mutateAsync({ code, state: oauthState })
 
         if (isMountedRef.current) {
           setStatus('success')
@@ -56,19 +46,21 @@ export default function OAuthCallbackPage() {
     }
 
     void handleOAuthCallback()
-  }, [searchParams, mutateAsync, navigate])
+  }, [code, hasRequestError, mutateAsync, navigate, oauthState])
+
+  const displayStatus = hasRequestError ? 'error' : status
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6">
       <div className="flex flex-col items-center gap-8 max-w-md w-full">
-        {status === 'processing' && (
+        {displayStatus === 'processing' && (
           <>
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900" />
             <p className="text-center text-gray-700 text-base">Processing your login...</p>
           </>
         )}
 
-        {status === 'success' && (
+        {displayStatus === 'success' && (
           <>
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
               <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -79,7 +71,7 @@ export default function OAuthCallbackPage() {
           </>
         )}
 
-        {status === 'error' && (
+        {displayStatus === 'error' && (
           <>
             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
               <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
