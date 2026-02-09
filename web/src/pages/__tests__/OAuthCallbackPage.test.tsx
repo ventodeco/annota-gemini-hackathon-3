@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
 import OAuthCallbackPage from '../OAuthCallbackPage'
 import { useLogin } from '@/hooks/useAuthApi'
 
@@ -14,6 +15,8 @@ function renderCallbackRoute(entry: string) {
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+        <Route path="/welcome" element={<div>Welcome Route</div>} />
+        <Route path="/login" element={<div>Login Route</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -22,29 +25,13 @@ function renderCallbackRoute(entry: string) {
 describe('OAuthCallbackPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    Object.defineProperty(window, 'opener', {
-      value: null,
-      configurable: true,
-      writable: true,
-    })
   })
 
   afterEach(() => {
-    Object.defineProperty(window, 'opener', {
-      value: null,
-      configurable: true,
-      writable: true,
-    })
+    vi.useRealTimers()
   })
 
-  it('calls exchange mutation and reaches success state', async () => {
-    const postMessage = vi.fn()
-    Object.defineProperty(window, 'opener', {
-      value: { postMessage },
-      configurable: true,
-      writable: true,
-    })
-
+  it('calls exchange mutation, shows success, and navigates to welcome', async () => {
     const mutate = vi.fn((_: unknown, options?: { onSuccess?: () => void }) => {
       options?.onSuccess?.()
     })
@@ -57,7 +44,9 @@ describe('OAuthCallbackPage', () => {
     })
 
     expect(await screen.findByText('Login successful! Redirecting...')).toBeInTheDocument()
-    expect(postMessage).toHaveBeenCalledWith({ type: 'oauth-success' }, window.location.origin)
+    await waitFor(() => {
+      expect(screen.getByText('Welcome Route')).toBeInTheDocument()
+    }, { timeout: 2500 })
   })
 
   it('shows error state when callback contains OAuth error', async () => {
@@ -80,14 +69,8 @@ describe('OAuthCallbackPage', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 
-  it('posts oauth-error when exchange fails in popup mode', async () => {
-    const postMessage = vi.fn()
-    Object.defineProperty(window, 'opener', {
-      value: { postMessage },
-      configurable: true,
-      writable: true,
-    })
-
+  it('shows error state when exchange fails and can navigate back to login', async () => {
+    const user = userEvent.setup()
     const mutate = vi.fn((_: unknown, options?: { onError?: () => void }) => {
       options?.onError?.()
     })
@@ -96,6 +79,7 @@ describe('OAuthCallbackPage', () => {
     renderCallbackRoute('/auth/callback?state=test-state&code=test-code')
 
     expect(await screen.findByText('Login failed. Please try again.')).toBeInTheDocument()
-    expect(postMessage).toHaveBeenCalledWith({ type: 'oauth-error' }, window.location.origin)
+    await user.click(screen.getByRole('button', { name: 'Back to Login' }))
+    expect(screen.getByText('Login Route')).toBeInTheDocument()
   })
 })

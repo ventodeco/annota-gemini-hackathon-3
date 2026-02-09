@@ -10,7 +10,6 @@ import {
 import { useAuth } from '@/contexts/useAuth'
 
 export function useLogin() {
-  const navigate = useNavigate()
   const { refreshUser } = useAuth()
   const queryClient = useQueryClient()
 
@@ -23,7 +22,6 @@ export function useLogin() {
     onSuccess: async () => {
       await refreshUser()
       queryClient.invalidateQueries({ queryKey: ['user'] })
-      navigate('/welcome')
     },
     onError: () => {
       clearAuthToken()
@@ -50,8 +48,6 @@ export function useLogout() {
 
 export function useInitiateLogin() {
   const [isOpening, setIsOpening] = useState(false)
-  const { refreshUser } = useAuth()
-  const navigate = useNavigate()
 
   const initiateLogin = useCallback(async () => {
     if (isOpening) return
@@ -59,49 +55,11 @@ export function useInitiateLogin() {
     setIsOpening(true)
     try {
       const { ssoRedirection } = await getGoogleAuthUrl()
-
-      const width = 500
-      const height = 700
-      const left = (window.innerWidth - width) / 2
-      const top = (window.innerHeight - height) / 2
-
-      const popup = window.open(
-        ssoRedirection,
-        'google-login',
-        `width=${width},height=${height},left=${left},top=${top}`
-      )
-
-      if (popup) {
-        // Listen for message from popup
-        const handleMessage = async (event: MessageEvent) => {
-          if (event.origin !== window.location.origin) return
-
-          if (event.data?.type === 'oauth-success') {
-            window.removeEventListener('message', handleMessage)
-            setIsOpening(false)
-            await refreshUser()
-            navigate('/welcome')
-          } else if (event.data?.type === 'oauth-error') {
-            window.removeEventListener('message', handleMessage)
-            setIsOpening(false)
-          }
-        }
-        window.addEventListener('message', handleMessage)
-
-        const checkClosed = setInterval(() => {
-          if (popup.closed) {
-            clearInterval(checkClosed)
-            window.removeEventListener('message', handleMessage)
-            setIsOpening(false)
-          }
-        }, 500)
-      } else {
-        setIsOpening(false)
-      }
+      window.location.assign(ssoRedirection)
     } catch {
       setIsOpening(false)
     }
-  }, [isOpening, refreshUser, navigate])
+  }, [isOpening])
 
   return { initiateLogin, isOpening }
 }
