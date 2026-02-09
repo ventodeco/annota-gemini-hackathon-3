@@ -188,7 +188,19 @@ func (h *AnnotationHandlers) GetAnnotationsAPI(w http.ResponseWriter, r *http.Re
 		size = 100
 	}
 
-	annotations, err := h.db.GetAnnotationsByUserID(r.Context(), userID, page, size)
+	scanIDParam := r.URL.Query().Get("scanId")
+	var annotations []*models.Annotation
+	var err error
+	if scanIDParam == "" {
+		annotations, err = h.db.GetAnnotationsByUserID(r.Context(), userID, page, size)
+	} else {
+		scanID, parseErr := strconv.ParseInt(scanIDParam, 10, 64)
+		if parseErr != nil || scanID <= 0 {
+			h.writeJSONError(w, http.StatusBadRequest, "scanId must be a positive integer")
+			return
+		}
+		annotations, err = h.db.GetAnnotationsByUserIDAndScanID(r.Context(), userID, scanID, page, size)
+	}
 	if err != nil {
 		log.Printf("Failed to get annotations: %v", err)
 		h.writeJSONError(w, http.StatusInternalServerError, "Failed to get annotations")

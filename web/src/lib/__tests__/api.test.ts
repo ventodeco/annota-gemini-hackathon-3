@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { createScan, getScan, analyzeText, getScanImageUrl } from '../api'
+import { createScan, getScan, analyzeText, getScanImageUrl, getAnnotations } from '../api'
 
 describe('API Client', () => {
   beforeEach(() => {
@@ -131,6 +131,25 @@ describe('API Client', () => {
     it('should return original URL for absolute URLs', () => {
       const url = getScanImageUrl('http://example.com/image.jpg')
       expect(url).toBe('http://example.com/image.jpg')
+    })
+  })
+
+  describe('getAnnotations', () => {
+    it('includes scanId in query string when provided', async () => {
+      ;(global.fetch as Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [], meta: { currentPage: 1, pageSize: 20 } }),
+      })
+
+      await getAnnotations(1, 20, 5)
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/annotations?page=1&size=20&scanId=5'),
+        expect.objectContaining({
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
     })
   })
 })

@@ -8,6 +8,7 @@ import WelcomePage from '@/pages/WelcomePage'
 import CameraPage from '@/pages/CameraPage'
 import LoadingPage from '@/pages/LoadingPage'
 import HistoryPage from '@/pages/HistoryPage'
+import OCRHistoryPage from '@/pages/OCRHistoryPage'
 import ScanPage from '@/pages/ScanPage'
 import AnnotationDetailPage from '@/pages/AnnotationDetailPage'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -87,6 +88,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <HistoryPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/scans-history"
+              element={
+                <ProtectedRoute>
+                  <OCRHistoryPage />
                 </ProtectedRoute>
               }
             />

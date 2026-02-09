@@ -2,10 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createAnnotation, getAnnotations, analyzeText } from '@/lib/api'
 import type { CreateAnnotationRequest, AnalyzeRequest, NuanceData } from '@/lib/types'
 
-export function useAnnotations(page = 1, size = 20) {
+export function useAnnotations(page = 1, size = 20, scanId?: number) {
   return useQuery({
-    queryKey: ['annotations', page, size],
-    queryFn: () => getAnnotations(page, size),
+    queryKey: ['annotations', page, size, scanId],
+    queryFn: () => getAnnotations(page, size, scanId),
   })
 }
 

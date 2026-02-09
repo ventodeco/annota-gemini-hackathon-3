@@ -203,7 +203,7 @@ export default function ScanPage() {
         disabled={!selectedText || isLoadingAnnotation}
         isLoading={isLoadingAnnotation || analyzeText.isPending}
         onExplain={handleExplain}
-        onBookmark={() => navigate('/history')}
+        onBookmark={() => navigate(`/history?scanId=${scan.id}`)}
       />
       <AnnotationDrawer
         isOpen={isDrawerOpen}

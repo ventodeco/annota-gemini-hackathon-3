@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import Header from '@/components/layout/Header'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { formatDate } from '@/lib/api'
@@ -6,15 +6,18 @@ import { useAnnotationById } from '@/hooks/useAnnotationById'
 
 export default function AnnotationDetailPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { id } = useParams<{ id: string }>()
   const annotationId = id ? parseInt(id, 10) : undefined
+  const scanIdParam = searchParams.get('scanId')
+  const historyPath = scanIdParam ? `/history?scanId=${scanIdParam}` : '/history'
 
   const { data: annotation, isLoading, error } = useAnnotationById(annotationId)
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 pb-28">
-        <Header title="Annotation" onBack={() => navigate('/history')} />
+        <Header title="Annotation" onBack={() => navigate(historyPath)} />
         <main className="pt-4 px-4">
           <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
@@ -28,13 +31,13 @@ export default function AnnotationDetailPage() {
   if (error || !annotation) {
     return (
       <div className="min-h-screen bg-gray-50 pb-28">
-        <Header title="Annotation" onBack={() => navigate('/history')} />
+        <Header title="Annotation" onBack={() => navigate(historyPath)} />
         <main className="pt-4 px-4">
           <div className="text-center py-8 text-gray-500">
             Annotation not found. Please go back to history.
           </div>
           <button
-            onClick={() => navigate('/history')}
+            onClick={() => navigate(historyPath)}
             className="w-full mt-4 px-4 py-3 bg-gray-900 text-white rounded-lg font-medium"
           >
             Go to History
@@ -47,7 +50,7 @@ export default function AnnotationDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
-      <Header title="Annotation" onBack={() => navigate('/history')} />
+      <Header title="Annotation" onBack={() => navigate(historyPath)} />
       <main className="pt-4 px-4 space-y-4">
         {/* Highlighted Text */}
         <div className="bg-white rounded-lg p-4 shadow-sm">

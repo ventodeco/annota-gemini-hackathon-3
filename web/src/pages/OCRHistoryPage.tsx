@@ -1,34 +1,25 @@
 import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Header from '@/components/layout/Header'
 import BottomNavigation from '@/components/layout/BottomNavigation'
-import { useAnnotations } from '@/hooks/useAnnotations'
+import { useScans } from '@/hooks/useScans'
 import { formatDate } from '@/lib/api'
 
-interface AnnotationItem {
+interface ScanHistoryItem {
   id: number
-  highlightedText: string
-  nuanceSummary: string
+  imageUrl: string
+  detectedLanguage?: string
   createdAt: string
 }
 
-export default function HistoryPage() {
+export default function OCRHistoryPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const scanIdParam = searchParams.get('scanId')
-  const parsedScanId = scanIdParam ? Number.parseInt(scanIdParam, 10) : undefined
-  const scanId = Number.isInteger(parsedScanId) && parsedScanId! > 0 ? parsedScanId : undefined
   const [page, setPage] = useState(1)
-  const { data, isLoading, error } = useAnnotations(page, 20, scanId)
-
-  const handleAnnotationClick = (item: AnnotationItem) => {
-    const detailPath = scanId ? `/annotations/${item.id}?scanId=${scanId}` : `/annotations/${item.id}`
-    navigate(detailPath, { state: item })
-  }
+  const { data, isLoading, error } = useScans(page, 20)
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
-      <Header title={scanId ? `Annotations for OCR #${scanId}` : 'History'} />
+      <Header title="OCR History" />
       <main className="pt-4 px-4">
         {isLoading && (
           <div className="flex justify-center py-8">
@@ -38,32 +29,39 @@ export default function HistoryPage() {
 
         {error && (
           <div className="text-center py-8 text-red-600">
-            Failed to load history. Please try again.
+            Failed to load OCR history. Please try again.
           </div>
         )}
 
         {!isLoading && !error && data?.data.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
-            No annotations yet. Start scanning to create some!
+          <div className="text-center py-8">
+            <p className="text-gray-500 mb-4">No OCR scans yet.</p>
+            <Link
+              to="/welcome"
+              className="inline-flex items-center justify-center px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium"
+            >
+              Start scanning
+            </Link>
           </div>
         )}
 
         {!isLoading && !error && data?.data.length !== undefined && data.data.length > 0 && (
           <div className="space-y-4">
-            {data.data.map((item: AnnotationItem) => (
-              <div
-                key={item.id}
-                className="bg-white rounded-lg p-4 shadow-sm cursor-pointer"
-                onClick={() => handleAnnotationClick(item)}
+            {data.data.map((scan: ScanHistoryItem) => (
+              <button
+                key={scan.id}
+                onClick={() => navigate(`/scans/${scan.id}`)}
+                aria-label={`Open OCR #${scan.id}`}
+                className="w-full text-left bg-white rounded-lg p-4 shadow-sm"
               >
-                <p className="font-medium text-gray-900">{item.highlightedText}</p>
-                <p className="text-sm text-gray-500 mt-1 line-clamp-2">
-                  {item.nuanceSummary}
+                <p className="font-medium text-gray-900">{`OCR #${scan.id}`}</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Language: {scan.detectedLanguage || 'Unknown'}
                 </p>
                 <p className="text-xs text-gray-400 mt-2">
-                  {formatDate(item.createdAt)}
+                  {formatDate(scan.createdAt)}
                 </p>
-              </div>
+              </button>
             ))}
           </div>
         )}

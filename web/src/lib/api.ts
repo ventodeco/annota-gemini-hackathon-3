@@ -213,8 +213,20 @@ export async function createAnnotation(
   return handleResponse(response, 'POST', url)
 }
 
-export async function getAnnotations(page = 1, size = 20): Promise<GetAnnotationsResponse> {
-  const url = `${API_BASE_URL}/v1/annotations?page=${page}&size=${size}`
+export async function getAnnotations(
+  page = 1,
+  size = 20,
+  scanId?: number,
+): Promise<GetAnnotationsResponse> {
+  const params = new URLSearchParams({
+    page: String(page),
+    size: String(size),
+  })
+  if (scanId !== undefined) {
+    params.set('scanId', String(scanId))
+  }
+
+  const url = `${API_BASE_URL}/v1/annotations?${params.toString()}`
   const response = await fetch(url, {
     method: 'GET',
     headers: {

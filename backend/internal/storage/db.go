@@ -26,6 +26,7 @@ type DB interface {
 	CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error)
 	GetAnnotationByID(ctx context.Context, annotationID int64) (*models.Annotation, error)
 	GetAnnotationsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Annotation, error)
+	GetAnnotationsByUserIDAndScanID(ctx context.Context, userID, scanID int64, page, size int) ([]*models.Annotation, error)
 }
 
 type postgresDB struct {
@@ -351,6 +352,64 @@ func (s *postgresDB) GetAnnotationsByUserID(ctx context.Context, userID int64, p
 
 		if scanID.Valid {
 			annotation.ScanID = &scanID.Int64
+		}
+		if contextText.Valid {
+			annotation.ContextText = &contextText.String
+		}
+		if err := json.Unmarshal(nuanceData, &annotation.NuanceData); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal nuance_data: %w", err)
+		}
+		annotation.CreatedAt = createdAt
+
+		annotations = append(annotations, &annotation)
+	}
+
+	return annotations, rows.Err()
+}
+
+func (s *postgresDB) GetAnnotationsByUserIDAndScanID(
+	ctx context.Context,
+	userID, scanID int64,
+	page, size int,
+) ([]*models.Annotation, error) {
+	offset := (page - 1) * size
+	query := `
+		SELECT id, user_id, scan_id, highlighted_text, context_text, nuance_data, is_bookmarked, created_at
+		FROM annotations
+		WHERE user_id = $1 AND scan_id = $2
+		ORDER BY created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+	rows, err := s.db.QueryContext(ctx, query, userID, scanID, size, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var annotations []*models.Annotation
+	for rows.Next() {
+		var annotation models.Annotation
+		var currentScanID sql.NullInt64
+		var contextText sql.NullString
+		var nuanceData []byte
+		var createdAt time.Time
+
+		err := rows.Scan(
+			&annotation.ID,
+			&annotation.UserID,
+			&currentScanID,
+			&annotation.HighlightedText,
+			&contextText,
+			&nuanceData,
+			&annotation.IsBookmarked,
+			&createdAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if currentScanID.Valid {
+			annotation.ScanID = &currentScanID.Int64
 		}
 		if contextText.Valid {
 			annotation.ContextText = &contextText.String

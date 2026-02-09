@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -370,6 +371,80 @@ func TestAnnotationHandlers(t *testing.T) {
 		body := rec.Body.String()
 		if !strings.Contains(body, "data") {
 			t.Error("Response should contain 'data' field")
+		}
+	})
+
+	t.Run("GetAnnotationsAPI_WithValidScanID", func(t *testing.T) {
+		scanIDOne := int64(1)
+		scanIDTwo := int64(2)
+		mockDB.CreateAnnotation(context.Background(), &models.Annotation{
+			UserID:          1,
+			ScanID:          &scanIDOne,
+			HighlightedText: "first",
+			NuanceData:      models.NuanceData{Meaning: "one"},
+			IsBookmarked:    true,
+			CreatedAt:       time.Now(),
+		})
+		mockDB.CreateAnnotation(context.Background(), &models.Annotation{
+			UserID:          1,
+			ScanID:          &scanIDTwo,
+			HighlightedText: "second",
+			NuanceData:      models.NuanceData{Meaning: "two"},
+			IsBookmarked:    true,
+			CreatedAt:       time.Now(),
+		})
+
+		req := httptest.NewRequest("GET", "/v1/annotations?page=1&size=10&scanId=2", nil)
+		ctx := middleware.WithUserID(req.Context(), 1)
+		req = req.WithContext(ctx)
+
+		rec := httptest.NewRecorder()
+		annotationHandlers.GetAnnotationsAPI(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Expected status 200, got %d", rec.Code)
+		}
+
+		var response struct {
+			Data []struct {
+				ID int64 `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatalf("Failed to parse JSON response: %v", err)
+		}
+
+		if len(response.Data) != 1 {
+			t.Fatalf("Expected exactly 1 filtered annotation, got %d", len(response.Data))
+		}
+		if response.Data[0].ID != 2 {
+			t.Fatalf("Expected annotation ID 2, got %d", response.Data[0].ID)
+		}
+	})
+
+	t.Run("GetAnnotationsAPI_InvalidScanID", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/v1/annotations?page=1&size=10&scanId=abc", nil)
+		ctx := middleware.WithUserID(req.Context(), 1)
+		req = req.WithContext(ctx)
+
+		rec := httptest.NewRecorder()
+		annotationHandlers.GetAnnotationsAPI(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("GetAnnotationsAPI_ScanIDMustBePositive", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/v1/annotations?page=1&size=10&scanId=0", nil)
+		ctx := middleware.WithUserID(req.Context(), 1)
+		req = req.WithContext(ctx)
+
+		rec := httptest.NewRecorder()
+		annotationHandlers.GetAnnotationsAPI(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", rec.Code)
 		}
 	})
 

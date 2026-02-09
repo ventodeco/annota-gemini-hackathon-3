@@ -116,3 +116,20 @@ func (m *MockDB) GetAnnotationsByUserID(ctx context.Context, userID int64, page,
 	}
 	return result, nil
 }
+
+func (m *MockDB) GetAnnotationsByUserIDAndScanID(
+	ctx context.Context,
+	userID, scanID int64,
+	page, size int,
+) ([]*models.Annotation, error) {
+	var result []*models.Annotation
+	for _, ann := range m.annotations {
+		if ann.UserID != userID || ann.ScanID == nil {
+			continue
+		}
+		if *ann.ScanID == scanID {
+			result = append(result, ann)
+		}
+	}
+	return result, nil
+}
