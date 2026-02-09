@@ -103,7 +103,7 @@ func (h *AuthHandlers) GoogleCallbackRedirect(w http.ResponseWriter, r *http.Req
 		frontendBaseURL = h.config.AppBaseURL
 	}
 
-	redirectURL := fmt.Sprintf("%s/auth/callback?state=%s&code=%s", frontendBaseURL, state, code)
+	redirectURL := buildCallbackURL(frontendBaseURL, state, code)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 

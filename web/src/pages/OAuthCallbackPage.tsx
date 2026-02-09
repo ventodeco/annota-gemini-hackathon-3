@@ -6,8 +6,17 @@ export default function OAuthCallbackPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing')
-  const loginMutation = useLogin()
+  const { mutateAsync } = useLogin()
   const hasCalledRef = useRef(false)
+  const isMountedRef = useRef(false)
+
+  useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     // Prevent duplicate calls
@@ -25,24 +34,29 @@ export default function OAuthCallbackPage() {
     }
 
     if (!code || !state) {
+      setStatus('error')
       return
     }
 
     hasCalledRef.current = true
 
-    loginMutation.mutate({ code, state }, {
-      onSuccess: () => {
-        setStatus('success')
-        setTimeout(() => {
-          navigate('/welcome')
-        }, 1500)
-      },
-      onError: () => {
-        setStatus('error')
-      },
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams])
+    const handleOAuthCallback = async () => {
+      try {
+        await mutateAsync({ code, state })
+
+        if (isMountedRef.current) {
+          setStatus('success')
+          navigate('/welcome', { replace: true })
+        }
+      } catch {
+        if (isMountedRef.current) {
+          setStatus('error')
+        }
+      }
+    }
+
+    void handleOAuthCallback()
+  }, [searchParams, mutateAsync, navigate])
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6">

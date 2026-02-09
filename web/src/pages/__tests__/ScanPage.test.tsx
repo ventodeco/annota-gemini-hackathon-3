@@ -9,6 +9,8 @@ const useScanMock = vi.fn()
 
 vi.mock('@/hooks/useScans', () => ({
   useScan: (...args: unknown[]) => useScanMock(...args),
+  isScanOcrReady: (scan: { fullText?: string } | undefined) =>
+    Boolean(scan?.fullText && scan.fullText.trim().length > 0),
 }))
 
 vi.mock('@/hooks/useAnnotations', () => ({
@@ -112,7 +114,7 @@ describe('ScanPage', () => {
       </QueryClientProvider>,
     )
 
-    expect(useScanMock).toHaveBeenCalledWith(5, false)
+    expect(useScanMock).toHaveBeenCalledWith(5, { enabled: false, pollIntervalMs: 0 })
     expect(screen.getByText('preloaded OCR')).toBeInTheDocument()
   })
 })

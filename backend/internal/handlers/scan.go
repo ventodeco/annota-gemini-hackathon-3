@@ -292,7 +292,11 @@ func (h *ScanHandlers) GetScanAPI(w http.ResponseWriter, r *http.Request) {
 		fullText = *scan.FullOCRText
 	}
 
-	log.Infof("Successfully retrieved scan: id=%d, has_ocr=%v", scanID, fullText != "")
+	log.WithFields(map[string]any{
+		"has_ocr":         fullText != "",
+		"ocr_text_length": len(fullText),
+		"language":        scan.DetectedLanguage,
+	}).Infof("Successfully retrieved scan: id=%d", scanID)
 
 	response := GetScanResponse{
 		ID:               scan.ID,

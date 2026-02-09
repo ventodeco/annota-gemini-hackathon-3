@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useScan } from '@/hooks/useScans'
+import { useScan, isScanOcrReady } from '@/hooks/useScans'
 import { useAnalyzeText, useCreateAnnotation } from '@/hooks/useAnnotations'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import type { Annotation } from '@/lib/types'
@@ -23,9 +23,11 @@ export default function ScanPage() {
   const preloadedScan = (location.state as ScanPageLocationState | null)?.preloadedScan
   const hasReadyPreloadedScan =
     preloadedScan?.id === scanId &&
-    !!preloadedScan.fullText &&
-    preloadedScan.fullText.length > 0
-  const { data: fetchedScan, isLoading, error } = useScan(scanId, !hasReadyPreloadedScan)
+    isScanOcrReady(preloadedScan)
+  const { data: fetchedScan, isLoading, error } = useScan(scanId, {
+    enabled: !hasReadyPreloadedScan,
+    pollIntervalMs: 0,
+  })
   const scan = fetchedScan ?? (preloadedScan?.id === scanId ? preloadedScan : undefined)
   const analyzeText = useAnalyzeText()
   const createAnnotation = useCreateAnnotation()

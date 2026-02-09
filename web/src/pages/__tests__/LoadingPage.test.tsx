@@ -1,25 +1,36 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import React from 'react'
+import { render, screen, waitFor, act } from '@testing-library/react'
+import React, { StrictMode } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import LoadingPage from '../LoadingPage'
 
 const navigateMock = vi.fn()
 const getScanMock = vi.fn()
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
-  return {
-    ...actual,
-    useNavigate: () => navigateMock,
-    useParams: () => ({ id: '5' }),
-  }
-})
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => navigateMock,
+  useParams: () => ({ id: '5' }),
+}))
 
 vi.mock('@/lib/api', () => ({
   getScan: (...args: unknown[]) => getScanMock(...args),
 }))
 
 describe('LoadingPage', () => {
+  const renderPage = (element: React.ReactElement = <LoadingPage />) => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    })
+
+    return render(
+      <QueryClientProvider client={queryClient}>
+        {element}
+      </QueryClientProvider>,
+    )
+  }
+
   beforeEach(() => {
     vi.resetAllMocks()
   })
@@ -33,7 +44,7 @@ describe('LoadingPage', () => {
       () => new Promise(() => {}),
     )
 
-    render(<LoadingPage />)
+    renderPage()
 
     expect(screen.getByText('Scanning in Progress..')).toBeInTheDocument()
   })
@@ -48,7 +59,7 @@ describe('LoadingPage', () => {
     }
     getScanMock.mockResolvedValueOnce(readyScan)
 
-    render(<LoadingPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(navigateMock).toHaveBeenCalledWith('/scans/5', {
@@ -58,8 +69,9 @@ describe('LoadingPage', () => {
     })
   })
 
-  it('schedules next polling cycle when OCR is not ready', async () => {
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+  it('schedules periodic polling when OCR is not ready', async () => {
+    vi.useFakeTimers()
+
     getScanMock.mockResolvedValueOnce({
       id: 5,
       imageUrl: '/uploads/5.jpg',
@@ -67,47 +79,76 @@ describe('LoadingPage', () => {
       fullText: '',
       createdAt: '2026-02-08T20:30:41+07:00',
     })
-
-    render(<LoadingPage />)
-
-    await waitFor(() => {
-      expect(getScanMock).toHaveBeenCalledTimes(1)
-      expect(setTimeoutSpy).toHaveBeenCalled()
-    })
-
-    setTimeoutSpy.mockRestore()
-  })
-
-  it('shows error state when polling fails', async () => {
-    getScanMock.mockRejectedValueOnce(new Error('boom'))
-
-    render(<LoadingPage />)
-
-    expect(await screen.findByText('Failed to load scan')).toBeInTheDocument()
-  })
-
-  it('does not schedule polling after component unmounts', async () => {
-    let resolveRequest: ((value: unknown) => void) | null = null
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-    getScanMock.mockImplementationOnce(
-      () => new Promise((resolve) => {
-        resolveRequest = resolve
-      }),
-    )
-
-    const { unmount } = render(<LoadingPage />)
-    unmount()
-
-    resolveRequest?.({
+    getScanMock.mockResolvedValue({
       id: 5,
       imageUrl: '/uploads/5.jpg',
       detectedLanguage: '',
       fullText: '',
       createdAt: '2026-02-08T20:30:41+07:00',
     })
-    await Promise.resolve()
 
-    expect(setTimeoutSpy).not.toHaveBeenCalled()
-    setTimeoutSpy.mockRestore()
+    renderPage()
+
+    await act(async () => {
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(2100)
+    })
+    expect(getScanMock.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('shows error state when polling fails', async () => {
+    getScanMock.mockRejectedValueOnce(new Error('boom'))
+
+    renderPage()
+
+    expect(await screen.findByText('Failed to load scan')).toBeInTheDocument()
+  })
+
+  it('navigates to scan page when timeout is reached', async () => {
+    vi.useFakeTimers()
+
+    getScanMock.mockResolvedValue({
+      id: 5,
+      imageUrl: '/uploads/5.jpg',
+      detectedLanguage: '',
+      fullText: '',
+      createdAt: '2026-02-08T20:30:41+07:00',
+    })
+    renderPage()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000)
+      await vi.runOnlyPendingTimersAsync()
+    })
+
+    expect(navigateMock).toHaveBeenCalledWith('/scans/5', {
+      replace: true,
+      state: undefined,
+    })
+  })
+
+  it('navigates once under StrictMode when OCR is already ready', async () => {
+    const readyScan = {
+      id: 5,
+      imageUrl: '/uploads/5.jpg',
+      detectedLanguage: 'JP',
+      fullText: 'OCR text',
+      createdAt: '2026-02-08T20:30:41+07:00',
+    }
+    getScanMock.mockResolvedValue(readyScan)
+
+    renderPage(
+      <StrictMode>
+        <LoadingPage />
+      </StrictMode>,
+    )
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith('/scans/5', {
+        replace: true,
+        state: { preloadedScan: readyScan },
+      })
+    })
+    expect(navigateMock).toHaveBeenCalledTimes(1)
   })
 })

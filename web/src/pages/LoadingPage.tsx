@@ -1,80 +1,76 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Hourglass } from 'lucide-react'
 import { getScan } from '@/lib/api'
+import { isScanOcrReady } from '@/hooks/useScan'
 import type { Scan } from '@/lib/types'
 
 export default function LoadingPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const [status, setStatus] = useState<'processing' | 'error'>('processing')
+  const [hasTimedOut, setHasTimedOut] = useState(false)
+  const hasNavigatedRef = useRef(false)
+  const scanId = id ? parseInt(id, 10) : NaN
+
+  const navigateToScan = useCallback((scanData?: Scan) => {
+    if (!id || hasNavigatedRef.current) return
+    hasNavigatedRef.current = true
+    navigate(`/scans/${id}`, {
+      replace: true,
+      state: scanData ? { preloadedScan: scanData } : undefined,
+    })
+  }, [id, navigate])
+
+  const { data: scan, error } = useQuery({
+    queryKey: ['scan', scanId],
+    queryFn: () => getScan(scanId),
+    enabled: Number.isInteger(scanId) && scanId > 0 && !hasTimedOut,
+    retry: false,
+    refetchInterval: (query) => {
+      if (hasTimedOut) return false
+      const currentScan = query.state.data as Scan | undefined
+      if (!currentScan) return false
+      if (isScanOcrReady(currentScan)) return false
+      return 1000
+    },
+  })
 
   useEffect(() => {
-    if (!id) {
+    if (!id || !Number.isInteger(scanId) || scanId <= 0) {
       navigate('/welcome', { replace: true })
+    }
+  }, [id, navigate, scanId])
+
+  useEffect(() => {
+    if (!id || !Number.isInteger(scanId) || scanId <= 0) {
       return
     }
+    setHasTimedOut(false)
+    const timeoutId = setTimeout(() => {
+      setHasTimedOut(true)
+    }, 30000)
+    return () => clearTimeout(timeoutId)
+  }, [id, scanId])
 
-    const scanId = parseInt(id, 10)
-    if (isNaN(scanId)) {
-      navigate('/welcome', { replace: true })
-      return
+  useEffect(() => {
+    if (error) {
+      setStatus('error')
     }
+  }, [error])
 
-    let isActive = true
-    let hasNavigated = false
-    let attempts = 0
-    const maxAttempts = 30 // 30 seconds max wait
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    const navigateToScan = (scanData?: Scan) => {
-      if (!isActive || hasNavigated) return
-      hasNavigated = true
-      navigate(`/scans/${id}`, {
-        replace: true,
-        state: scanData ? { preloadedScan: scanData } : undefined,
-      })
+  useEffect(() => {
+    if (scan && isScanOcrReady(scan)) {
+      navigateToScan(scan)
     }
+  }, [navigateToScan, scan])
 
-    const checkScan = async () => {
-      if (!isActive || hasNavigated) return
-
-      try {
-        const scan = await getScan(scanId)
-        if (!isActive || hasNavigated) return
-
-        // Check if OCR is complete (fullText exists)
-        if (scan.fullText && scan.fullText.length > 0) {
-          navigateToScan(scan)
-          return
-        }
-
-        attempts++
-        if (attempts >= maxAttempts) {
-          // Timeout - navigate anyway, page will show what's available
-          navigateToScan()
-          return
-        }
-
-        // Poll again after 1 second
-        timer = setTimeout(() => {
-          void checkScan()
-        }, 1000)
-      } catch {
-        if (!isActive) return
-        setStatus('error')
-      }
-    }
-
-    void checkScan()
-
-    return () => {
-      isActive = false
-      if (timer) {
-        clearTimeout(timer)
-      }
-    }
-  }, [id, navigate])
+  useEffect(() => {
+    if (!hasTimedOut) return
+    if (scan && isScanOcrReady(scan)) return
+    navigateToScan()
+  }, [hasTimedOut, navigateToScan, scan])
 
   if (status === 'error') {
     return (
@@ -114,9 +110,11 @@ export default function LoadingPage() {
             lineHeight: '24px',
           }}
         >
-          Please stay on the page while
+          Processing your image and checking OCR status.
           <br />
-          the scanning in progess
+          Please stay on this page while
+          <br />
+          scanning is in progress.
         </p>
         <Hourglass className="mt-8 text-slate-500" size={32} strokeWidth={1.6} />
       </div>
