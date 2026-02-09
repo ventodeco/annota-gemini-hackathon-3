@@ -95,13 +95,30 @@ export default function LoadingPage() {
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <h1 className="text-[40px] font-semibold text-gray-900 text-center">Scanning in Progress..</h1>
-        <p className="mt-6 max-w-[420px] text-center text-[24px] text-gray-900 leading-relaxed">
+        <h1
+          className="text-center text-gray-900"
+          style={{
+            fontWeight: 600,
+            fontStyle: 'normal',
+            fontSize: 'var(--paragraph-regular-font-size, 16px)',
+            lineHeight: '24px',
+          }}
+        >
+          Scanning in Progress..
+        </h1>
+        <p
+          className="mt-6 max-w-[320px] text-center text-gray-900"
+          style={{
+            fontSize: '16px',
+            fontWeight: 400,
+            lineHeight: '24px',
+          }}
+        >
           Please stay on the page while
           <br />
           the scanning in progess
         </p>
-        <Hourglass className="mt-10 h-14 w-14 text-slate-500" strokeWidth={1.6} />
+        <Hourglass className="mt-8 text-slate-500" size={32} strokeWidth={1.6} />
       </div>
     </div>
   )
