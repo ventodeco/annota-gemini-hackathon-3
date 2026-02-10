@@ -31,6 +31,7 @@ export default function ScanPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const scanId = id ? parseInt(id, 10) : 0
+  const scanHistoryPath = scanId > 0 ? `/history?scanId=${scanId}` : '/history'
   const preloadedScan = (location.state as ScanPageLocationState | null)?.preloadedScan
   const hasReadyPreloadedScan =
     preloadedScan?.id === scanId &&
@@ -239,7 +240,7 @@ export default function ScanPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
-        <Header title="Scan Result" />
+        <Header title="Scan Result" rightAction="bookmark" rightActionTo={scanHistoryPath} />
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
         </div>
@@ -250,7 +251,7 @@ export default function ScanPage() {
   if (error || !scan) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
-        <Header title="Scan Result" />
+        <Header title="Scan Result" rightAction="bookmark" rightActionTo={scanHistoryPath} />
         <div className="flex-1 flex items-center justify-center p-6">
           <p className="text-gray-600">Scan not found</p>
         </div>
@@ -261,7 +262,7 @@ export default function ScanPage() {
   if (!scan.fullText) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
-        <Header title="Scan Result" />
+        <Header title="Scan Result" rightAction="bookmark" rightActionTo={scanHistoryPath} />
         <div className="flex-1 flex items-center justify-center p-6">
           <LoadingSpinner />
         </div>
@@ -273,7 +274,7 @@ export default function ScanPage() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
-      <Header title="Scan Result" />
+      <Header title="Scan Result" rightAction="bookmark" rightActionTo={scanHistoryPath} />
       <ScrollArea className="flex-1">
         <div className="p-6">
           {imageUrl && (

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { PackageOpen } from 'lucide-react'
 import Header from '@/components/layout/Header'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { useAnnotations } from '@/hooks/useAnnotations'
@@ -43,8 +44,13 @@ export default function HistoryPage() {
         )}
 
         {!isLoading && !error && data?.data.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
-            No annotations yet. Start scanning to create some!
+          <div className="flex min-h-[60vh] flex-col items-center justify-center text-center text-gray-500">
+            <PackageOpen className="mb-5 h-16 w-16 text-slate-400" aria-label="empty history" />
+            <p className="max-w-[260px] text-base font-normal leading-relaxed text-slate-500">
+              {scanId
+                ? "Looks like this scan doesn't have saved annotations yet!"
+                : "Looks like you haven't saved any annotations yet!"}
+            </p>
           </div>
         )}
 

@@ -1,25 +1,49 @@
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Home } from 'lucide-react'
+import { Bookmark, ChevronLeft, Home } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface HeaderProps {
   title: string
   onBack?: () => void
+  rightAction?: 'home' | 'bookmark'
+  rightActionTo?: string
+  backFallbackTo?: string
 }
 
-export default function Header({ title, onBack }: HeaderProps) {
+export default function Header({
+  title,
+  onBack,
+  rightAction = 'home',
+  rightActionTo,
+  backFallbackTo = '/welcome',
+}: HeaderProps) {
   const navigate = useNavigate()
 
   const handleBack = () => {
     if (onBack) {
       onBack()
-    } else {
-      navigate(-1)
+      return
     }
+
+    const historyState = window.history.state as { idx?: number } | null
+    const canGoBack =
+      typeof historyState?.idx === 'number' ? historyState.idx > 0 : window.history.length > 1
+
+    if (canGoBack) {
+      navigate(-1)
+      return
+    }
+
+    navigate(backFallbackTo, { replace: true })
   }
 
-  const handleHome = () => {
-    navigate('/welcome')
+  const handleRightAction = () => {
+    if (rightAction === 'bookmark') {
+      navigate(rightActionTo ?? '/history')
+      return
+    }
+
+    navigate(rightActionTo ?? '/welcome')
   }
 
   return (
@@ -29,7 +53,7 @@ export default function Header({ title, onBack }: HeaderProps) {
           variant="ghost"
           size="icon"
           onClick={handleBack}
-          className="h-10 w-10 text-gray-900"
+          className="h-10 w-10 rounded-full border border-gray-200 text-gray-900"
           aria-label="Go back"
         >
           <ChevronLeft className="w-6 h-6" />
@@ -38,11 +62,15 @@ export default function Header({ title, onBack }: HeaderProps) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={handleHome}
+          onClick={handleRightAction}
           className="h-10 w-10 text-gray-900"
-          aria-label="Go home"
+          aria-label={rightAction === 'bookmark' ? 'Go to bookmarks' : 'Go home'}
         >
-          <Home className="w-6 h-6" />
+          {rightAction === 'bookmark' ? (
+            <Bookmark className="w-6 h-6" />
+          ) : (
+            <Home className="w-6 h-6" />
+          )}
         </Button>
       </div>
     </header>

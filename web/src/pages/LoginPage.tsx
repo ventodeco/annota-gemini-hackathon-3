@@ -11,7 +11,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6">
       <div className="flex flex-col items-center gap-8 max-w-md w-full">
-        <h1 className="text-5xl font-bold text-gray-900 tracking-tight">ANNOTA</h1>
+        <img src="/logo-anota.png" alt="ANNOTA" className="h-16 w-auto" />
         <p className="text-center text-gray-700 text-base leading-relaxed">
           You no longer need to worry about learning a new language!
         </p>

@@ -17,7 +17,7 @@ export default function AnnotationDetailPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 pb-28">
-        <Header title="Annotation" onBack={() => navigate(historyPath)} />
+        <Header title="Annotation" />
         <main className="pt-4 px-4">
           <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
@@ -31,7 +31,7 @@ export default function AnnotationDetailPage() {
   if (error || !annotation) {
     return (
       <div className="min-h-screen bg-gray-50 pb-28">
-        <Header title="Annotation" onBack={() => navigate(historyPath)} />
+        <Header title="Annotation" />
         <main className="pt-4 px-4">
           <div className="text-center py-8 text-gray-500">
             Annotation not found. Please go back to history.
@@ -50,7 +50,7 @@ export default function AnnotationDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
-      <Header title="Annotation" onBack={() => navigate(historyPath)} />
+      <Header title="Annotation" />
       <main className="pt-4 px-4 space-y-4">
         {/* Highlighted Text */}
         <div className="bg-white rounded-lg p-4 shadow-sm">
