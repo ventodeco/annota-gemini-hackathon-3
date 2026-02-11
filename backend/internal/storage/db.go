@@ -22,11 +22,13 @@ type DB interface {
 	GetScansByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Scan, error)
 	UpdateScanImageURL(ctx context.Context, scanID int64, imageURL string) error
 	UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error
+	DeleteScan(ctx context.Context, scanID, userID int64) error
 
 	CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error)
 	GetAnnotationByID(ctx context.Context, annotationID int64) (*models.Annotation, error)
 	GetAnnotationsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Annotation, error)
 	GetAnnotationsByUserIDAndScanID(ctx context.Context, userID, scanID int64, page, size int) ([]*models.Annotation, error)
+	DeleteAnnotation(ctx context.Context, annotationID, userID int64) error
 }
 
 type postgresDB struct {
@@ -250,6 +252,19 @@ func (s *postgresDB) UpdateScanImageURL(ctx context.Context, scanID int64, image
 	return err
 }
 
+func (s *postgresDB) DeleteScan(ctx context.Context, scanID, userID int64) error {
+	query := `DELETE FROM scans WHERE id = $1 AND user_id = $2`
+	result, err := s.db.ExecContext(ctx, query, scanID, userID)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *postgresDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error) {
 	nuanceJSON, err := json.Marshal(annotation.NuanceData)
 	if err != nil {
@@ -365,6 +380,19 @@ func (s *postgresDB) GetAnnotationsByUserID(ctx context.Context, userID int64, p
 	}
 
 	return annotations, rows.Err()
+}
+
+func (s *postgresDB) DeleteAnnotation(ctx context.Context, annotationID, userID int64) error {
+	query := `DELETE FROM annotations WHERE id = $1 AND user_id = $2`
+	result, err := s.db.ExecContext(ctx, query, annotationID, userID)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *postgresDB) GetAnnotationsByUserIDAndScanID(

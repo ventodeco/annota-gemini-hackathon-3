@@ -1,8 +1,23 @@
+import { useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { Trash2 } from 'lucide-react'
 import Header from '@/components/layout/Header'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { formatDate } from '@/lib/api'
 import { useAnnotationById } from '@/hooks/useAnnotationById'
+import { useDeleteAnnotation } from '@/hooks/useAnnotations'
+import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { toast } from 'sonner'
 
 export default function AnnotationDetailPage() {
   const navigate = useNavigate()
@@ -11,8 +26,10 @@ export default function AnnotationDetailPage() {
   const annotationId = id ? parseInt(id, 10) : undefined
   const scanIdParam = searchParams.get('scanId')
   const historyPath = scanIdParam ? `/history?scanId=${scanIdParam}` : '/history'
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   const { data: annotation, isLoading, error } = useAnnotationById(annotationId)
+  const deleteAnnotation = useDeleteAnnotation()
 
   if (isLoading) {
     return (
@@ -110,6 +127,46 @@ export default function AnnotationDetailPage() {
             Created: {formatDate(annotation.createdAt)}
           </p>
         </div>
+
+        <Button
+          variant="outline"
+          className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+          onClick={() => setShowDeleteDialog(true)}
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          Remove annotation
+        </Button>
+
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove annotation?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Remove this annotation? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={async () => {
+                  if (!annotation) return
+                  try {
+                    await deleteAnnotation.mutateAsync(annotation.id)
+                    setShowDeleteDialog(false)
+                    toast.success('Annotation removed')
+                    navigate(historyPath)
+                  } catch (err) {
+                    toast.error('Failed to remove annotation')
+                  }
+                }}
+                disabled={deleteAnnotation.isPending}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {deleteAnnotation.isPending ? 'Removing...' : 'Remove'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </main>
       <BottomNavigation />
     </div>

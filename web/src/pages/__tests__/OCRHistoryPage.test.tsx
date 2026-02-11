@@ -8,6 +8,7 @@ const useScansMock = vi.fn()
 
 vi.mock('@/hooks/useScans', () => ({
   useScans: (...args: unknown[]) => useScansMock(...args),
+  useDeleteScan: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 vi.mock('@/components/layout/Header', () => ({

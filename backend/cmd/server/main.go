@@ -97,7 +97,7 @@ func main() {
 	authMux.HandleFunc("/v1/ai/analyze", aiHandlers.AnalyzeAPI)
 	authMux.HandleFunc("/v1/ai/speech", aiHandlers.SpeakAPI)
 	authMux.HandleFunc("/v1/annotations", annotationHandlers.AnnotationsAPI)
-	authMux.HandleFunc("/v1/annotations/", annotationHandlers.GetAnnotationAPI)
+	authMux.HandleFunc("/v1/annotations/", annotationHandlers.AnnotationByIDAPI)
 
 	mux.Handle("/v1/", authMiddleware.Handle(authMux))
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))

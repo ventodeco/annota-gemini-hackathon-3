@@ -51,7 +51,7 @@ function isAuthError(status: number): boolean {
 
 async function handleResponse<T>(response: Response, method: string, url: string): Promise<T> {
   const startTime = Date.now()
-  
+
   if (!response.ok) {
     if (isAuthError(response.status)) {
       clearAuthToken()
@@ -61,8 +61,11 @@ async function handleResponse<T>(response: Response, method: string, url: string
     logger.apiCall(method, url, response.status, Date.now() - startTime, new Error(error))
     throw new Error(error)
   }
-  
+
   logger.apiCall(method, url, response.status, Date.now() - startTime)
+  if (response.status === 204) {
+    return undefined as T
+  }
   return response.json()
 }
 
@@ -178,6 +181,15 @@ export async function getScan(scanId: number): Promise<Scan> {
   return handleResponse(response, 'GET', url)
 }
 
+export async function deleteScan(scanId: number): Promise<void> {
+  const url = `${API_BASE_URL}/v1/scans/${scanId}`
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  })
+  return handleResponse(response, 'DELETE', url)
+}
+
 // ============================================================================
 // AI API
 // ============================================================================
@@ -274,6 +286,15 @@ export async function getAnnotation(annotationId: number): Promise<AnnotationDet
     },
   })
   return handleResponse(response, 'GET', url)
+}
+
+export async function deleteAnnotation(annotationId: number): Promise<void> {
+  const url = `${API_BASE_URL}/v1/annotations/${annotationId}`
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  })
+  return handleResponse(response, 'DELETE', url)
 }
 
 // ============================================================================

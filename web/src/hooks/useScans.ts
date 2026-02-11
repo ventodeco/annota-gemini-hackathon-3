@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { createScan, getScans } from '@/lib/api'
+import { createScan, deleteScan, getScans } from '@/lib/api'
 import type { Scan } from '@/lib/types'
 export { useScan, isScanOcrReady } from './useScan'
 
@@ -15,6 +15,17 @@ export function useCreateScan() {
 
   return useMutation({
     mutationFn: (image: File) => createScan(image),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scans'] })
+    },
+  })
+}
+
+export function useDeleteScan() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (scanId: number) => deleteScan(scanId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scans'] })
     },

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gemini-hackathon/app/internal/config"
@@ -112,21 +113,50 @@ func (h *AnnotationHandlers) CreateAnnotationAPI(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(response)
 }
 
-func (h *AnnotationHandlers) GetAnnotationAPI(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		h.writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
+func (h *AnnotationHandlers) AnnotationByIDAPI(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.getAnnotationHandler(w, r)
+	case http.MethodDelete:
+		h.deleteAnnotationHandler(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
 
+func (h *AnnotationHandlers) deleteAnnotationHandler(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
 		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	// Extract annotation ID from path: /v1/annotations/{id}
 	path := r.URL.Path
-	idStr := path[len("/v1/annotations/"):]
+	idStr := strings.TrimSuffix(path[len("/v1/annotations/"):], "/")
+	annotationID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || annotationID <= 0 {
+		h.writeJSONError(w, http.StatusBadRequest, "Invalid annotation ID")
+		return
+	}
+
+	if err := h.db.DeleteAnnotation(r.Context(), annotationID, userID); err != nil {
+		log.Printf("Failed to delete annotation: %v", err)
+		h.writeJSONError(w, http.StatusNotFound, "Annotation not found")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *AnnotationHandlers) getAnnotationHandler(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == 0 {
+		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	path := r.URL.Path
+	idStr := strings.TrimSuffix(path[len("/v1/annotations/"):], "/")
 	annotationID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		h.writeJSONError(w, http.StatusBadRequest, "Invalid annotation ID")
@@ -140,7 +170,6 @@ func (h *AnnotationHandlers) GetAnnotationAPI(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Verify the annotation belongs to the user
 	if annotation.UserID != userID {
 		h.writeJSONError(w, http.StatusForbidden, "Access denied")
 		return

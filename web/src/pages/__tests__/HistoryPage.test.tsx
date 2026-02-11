@@ -7,6 +7,7 @@ const useAnnotationsMock = vi.fn()
 
 vi.mock('@/hooks/useAnnotations', () => ({
   useAnnotations: (...args: unknown[]) => useAnnotationsMock(...args),
+  useDeleteAnnotation: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 vi.mock('@/components/layout/Header', () => ({

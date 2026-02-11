@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/gemini-hackathon/app/internal/models"
@@ -96,6 +97,14 @@ func (m *MockDB) UpdateScanImageURL(ctx context.Context, scanID int64, imageURL 
 	return nil
 }
 
+func (m *MockDB) DeleteScan(ctx context.Context, scanID, userID int64) error {
+	if scan, ok := m.scans[scanID]; ok && scan.UserID == userID {
+		delete(m.scans, scanID)
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
 func (m *MockDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error) {
 	annotation.ID = m.nextAnnID
 	m.nextAnnID++
@@ -115,6 +124,14 @@ func (m *MockDB) GetAnnotationsByUserID(ctx context.Context, userID int64, page,
 		}
 	}
 	return result, nil
+}
+
+func (m *MockDB) DeleteAnnotation(ctx context.Context, annotationID, userID int64) error {
+	if ann, ok := m.annotations[annotationID]; ok && ann.UserID == userID {
+		delete(m.annotations, annotationID)
+		return nil
+	}
+	return sql.ErrNoRows
 }
 
 func (m *MockDB) GetAnnotationsByUserIDAndScanID(

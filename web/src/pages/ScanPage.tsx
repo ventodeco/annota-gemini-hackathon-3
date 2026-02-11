@@ -1,9 +1,10 @@
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { MoreVertical, Bookmark, Trash2 } from 'lucide-react'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useScan, isScanOcrReady } from '@/hooks/useScans'
+import { useScan, isScanOcrReady, useDeleteScan } from '@/hooks/useScans'
 import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import type { Annotation } from '@/lib/types'
@@ -12,6 +13,24 @@ import { getScanImageUrl, formatDate } from '@/lib/api'
 import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
 import type { Scan } from '@/lib/types'
 import { SelectionSpeechButton } from '@/components/scanpage/SelectionSpeechButton'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { toast } from 'sonner'
 
 type ScanPageLocationState = {
   preloadedScan?: Scan
@@ -44,7 +63,9 @@ export default function ScanPage() {
   const analyzeText = useAnalyzeText()
   const createAnnotation = useCreateAnnotation()
   const synthesizeSpeech = useSynthesizeSpeech()
+  const deleteScan = useDeleteScan()
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
   const [annotationVersion, setAnnotationVersion] = useState(1)
   const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
@@ -191,6 +212,46 @@ export default function ScanPage() {
     stopSpeechPlayback()
   }
 
+  const handleDeleteScan = async () => {
+    if (!scanId || !scan) return
+    try {
+      await deleteScan.mutateAsync(scanId)
+      setShowDeleteDialog(false)
+      toast.success('Scan removed')
+      navigate('/scans-history')
+    } catch (err) {
+      toast.error('Failed to remove scan')
+    }
+  }
+
+  const scanHeaderRightSlot = scan ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-10 w-10 text-gray-900"
+          aria-label="More options"
+        >
+          <MoreVertical className="w-6 h-6" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => navigate(scanHistoryPath)}>
+          <Bookmark className="w-4 h-4 mr-2" />
+          Annotations
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          variant="destructive"
+          onClick={() => setShowDeleteDialog(true)}
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete scan
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : undefined
+
   const handleSpeechToggle = async () => {
     if (!selectedText) {
       return
@@ -240,7 +301,12 @@ export default function ScanPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
-        <Header title="Scan Result" rightAction="bookmark" rightActionTo={scanHistoryPath} />
+        <Header
+          title="Scan Result"
+          rightSlot={scanHeaderRightSlot}
+          rightAction="bookmark"
+          rightActionTo={scanHistoryPath}
+        />
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
         </div>
@@ -251,7 +317,12 @@ export default function ScanPage() {
   if (error || !scan) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
-        <Header title="Scan Result" rightAction="bookmark" rightActionTo={scanHistoryPath} />
+        <Header
+          title="Scan Result"
+          rightSlot={scanHeaderRightSlot}
+          rightAction="bookmark"
+          rightActionTo={scanHistoryPath}
+        />
         <div className="flex-1 flex items-center justify-center p-6">
           <p className="text-gray-600">Scan not found</p>
         </div>
@@ -262,7 +333,12 @@ export default function ScanPage() {
   if (!scan.fullText) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
-        <Header title="Scan Result" rightAction="bookmark" rightActionTo={scanHistoryPath} />
+        <Header
+          title="Scan Result"
+          rightSlot={scanHeaderRightSlot}
+          rightAction="bookmark"
+          rightActionTo={scanHistoryPath}
+        />
         <div className="flex-1 flex items-center justify-center p-6">
           <LoadingSpinner />
         </div>
@@ -274,7 +350,7 @@ export default function ScanPage() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
-      <Header title="Scan Result" rightAction="bookmark" rightActionTo={scanHistoryPath} />
+      <Header title="Scan Result" rightSlot={scanHeaderRightSlot} />
       <ScrollArea className="flex-1">
         <div className="p-6">
           {imageUrl && (
@@ -323,6 +399,27 @@ export default function ScanPage() {
         version={annotationVersion}
         maxVersions={MAX_ANNOTATION_VERSIONS}
       />
+
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove scan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove this scan and its image? Annotations will remain in History.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteScan}
+              disabled={deleteScan.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteScan.isPending ? 'Removing...' : 'Remove'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

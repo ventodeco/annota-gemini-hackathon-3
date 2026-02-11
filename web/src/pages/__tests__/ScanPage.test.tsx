@@ -16,6 +16,7 @@ vi.mock('@/hooks/useScans', () => ({
   useScan: (...args: unknown[]) => useScanMock(...args),
   isScanOcrReady: (scan: { fullText?: string } | undefined) =>
     Boolean(scan?.fullText && scan.fullText.trim().length > 0),
+  useDeleteScan: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 vi.mock('@/hooks/useAnnotations', () => ({

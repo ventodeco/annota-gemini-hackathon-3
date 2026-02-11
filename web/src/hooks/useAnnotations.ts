@@ -1,5 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { createAnnotation, getAnnotations, analyzeText, synthesizeSpeech } from '@/lib/api'
+import {
+  createAnnotation,
+  deleteAnnotation,
+  getAnnotations,
+  analyzeText,
+  synthesizeSpeech,
+} from '@/lib/api'
 import type {
   CreateAnnotationRequest,
   AnalyzeRequest,
@@ -19,6 +25,17 @@ export function useCreateAnnotation() {
 
   return useMutation({
     mutationFn: (data: CreateAnnotationRequest) => createAnnotation(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['annotations'] })
+    },
+  })
+}
+
+export function useDeleteAnnotation() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (annotationId: number) => deleteAnnotation(annotationId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['annotations'] })
     },

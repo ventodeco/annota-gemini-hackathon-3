@@ -242,13 +242,74 @@ func (h *ScanHandlers) GetScansAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ScanHandlers) GetScanAPI(w http.ResponseWriter, r *http.Request) {
+	h.ScanByIDAPI(w, r)
+}
+
+func (h *ScanHandlers) ScanByIDAPI(w http.ResponseWriter, r *http.Request) {
 	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context()))
 
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		h.getScanHandler(w, r, log)
+	case http.MethodDelete:
+		h.deleteScanHandler(w, r, log)
+	default:
 		h.writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+func (h *ScanHandlers) deleteScanHandler(w http.ResponseWriter, r *http.Request, log *logger.Logger) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == 0 {
+		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
+	log = log.WithUserID(userID)
+
+	path := strings.TrimPrefix(r.URL.Path, "/v1/scans/")
+	scanIDStr := strings.TrimSuffix(path, "/")
+	scanID, err := strconv.ParseInt(scanIDStr, 10, 64)
+	if err != nil || scanID <= 0 {
+		log.Warnf("Invalid scan ID format: %s", scanIDStr)
+		h.writeJSONError(w, http.StatusBadRequest, "Invalid scan ID")
+		return
+	}
+
+	log = log.WithField("scan_id", scanID)
+
+	scan, err := h.db.GetScanByID(r.Context(), scanID)
+	if err != nil {
+		log.ErrorWithErr(err, "Failed to get scan by ID")
+		h.writeJSONError(w, http.StatusNotFound, "Scan not found")
+		return
+	}
+	if scan == nil {
+		h.writeJSONError(w, http.StatusNotFound, "Scan not found")
+		return
+	}
+	if scan.UserID != userID {
+		log.Warn("User attempted to delete scan belonging to another user")
+		h.writeJSONError(w, http.StatusForbidden, "Access denied")
+		return
+	}
+
+	imagePath := filepath.Join(h.config.UploadDir, filepath.Base(scan.ImageURL))
+	if err := h.fileStorage.DeleteImage(imagePath); err != nil {
+		log.Warnf("Failed to delete image file (continuing with DB delete): %v", err)
+	}
+
+	if err := h.db.DeleteScan(r.Context(), scanID, userID); err != nil {
+		log.ErrorWithErr(err, "Failed to delete scan")
+		h.writeJSONError(w, http.StatusInternalServerError, "Failed to delete scan")
+		return
+	}
+
+	log.Infof("Scan deleted successfully: id=%d", scanID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, log *logger.Logger) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
 		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
@@ -293,9 +354,9 @@ func (h *ScanHandlers) GetScanAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.WithFields(map[string]any{
-		"has_ocr":         fullText != "",
-		"ocr_text_length": len(fullText),
-		"language":        scan.DetectedLanguage,
+		"has_ocr":          fullText != "",
+		"ocr_text_length":  len(fullText),
+		"language":         scan.DetectedLanguage,
 	}).Infof("Successfully retrieved scan: id=%d", scanID)
 
 	response := GetScanResponse{
