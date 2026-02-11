@@ -4,19 +4,22 @@ import userEvent from '@testing-library/user-event'
 import BottomActionBar from '../BottomActionBar'
 
 describe('BottomActionBar', () => {
-  it('keeps bookmark enabled when explain is disabled', async () => {
-    const user = userEvent.setup()
-    const onBookmark = vi.fn()
-
-    render(<BottomActionBar disabled onBookmark={onBookmark} />)
+  it('renders explain button and disables it when disabled is true', () => {
+    const onExplain = vi.fn()
+    render(<BottomActionBar disabled onExplain={onExplain} />)
 
     const explainButton = screen.getByRole('button', { name: /explain this/i })
-    const bookmarkButton = screen.getByRole('button', { name: /bookmark/i })
-
+    expect(explainButton).toBeInTheDocument()
     expect(explainButton).toBeDisabled()
-    expect(bookmarkButton).toBeEnabled()
+  })
 
-    await user.click(bookmarkButton)
-    expect(onBookmark).toHaveBeenCalledTimes(1)
+  it('calls onExplain when explain button is clicked', async () => {
+    const user = userEvent.setup()
+    const onExplain = vi.fn()
+    render(<BottomActionBar onExplain={onExplain} />)
+
+    const explainButton = screen.getByRole('button', { name: /explain this/i })
+    await user.click(explainButton)
+    expect(onExplain).toHaveBeenCalledTimes(1)
   })
 })

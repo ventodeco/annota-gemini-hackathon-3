@@ -303,7 +303,6 @@ export default function ScanPage() {
         disabled={!selectedText || isLoadingAnnotation}
         isLoading={isLoadingAnnotation || analyzeText.isPending}
         onExplain={handleExplain}
-        onBookmark={() => navigate(`/history?scanId=${scan.id}`)}
       />
       {selectedText && (
         <SelectionSpeechButton
