@@ -12,18 +12,15 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'robots.txt'],
+      includeAssets: ['favicon.svg', 'pwa-icon.svg', 'robots.txt'],
       manifest: {
         name: 'Gemini OCR+Annotation PWA',
-        short_name: 'OCR PWA',
+        short_name: 'ANOTA',
         description: 'Mobile-first PWA for OCR and annotation of Japanese book pages',
         theme_color: '#3b82f6',
         icons: [
-          {
-            src: '/vite.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-          },
+          { src: '/pwa-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: '/pwa-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
       },
       workbox: {
