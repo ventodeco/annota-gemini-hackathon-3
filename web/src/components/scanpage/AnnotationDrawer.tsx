@@ -68,7 +68,7 @@ export function AnnotationDrawer({
         className="bg-white border-t border-gray-200 rounded-t-2xl p-6 overflow-hidden"
         showCloseButton={false}
         style={{
-          height: drawerState === 'closed' ? '0%' : drawerState === 'collapsed' ? '35vh' : '75vh',
+          height: drawerState === 'closed' ? '35vh' : drawerState === 'collapsed' ? '35vh' : '75vh',
           transition: 'height 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
         aria-label="Annotation drawer"

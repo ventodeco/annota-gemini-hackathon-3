@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Bookmark, ChevronLeft, Home } from 'lucide-react'
+import { ArrowLeft, Bookmark, Home } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface HeaderProps {
@@ -55,10 +55,10 @@ export default function Header({
           variant="ghost"
           size="icon"
           onClick={handleBack}
-          className="h-10 w-10 rounded-full border border-gray-200 text-gray-900"
+          className="h-10 w-10 text-gray-900"
           aria-label="Go back"
         >
-          <ChevronLeft className="w-6 h-6" />
+          <ArrowLeft className="w-6 h-6" />
         </Button>
         <h1 className="flex-1 text-center font-semibold text-gray-900">{title}</h1>
         {rightSlot != null ? rightSlot : (
