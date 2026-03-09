@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Project documentation
+    url: https://github.com/yourorg/yourrepo/tree/main/docs
+    about: Check the documentation before creating an issue

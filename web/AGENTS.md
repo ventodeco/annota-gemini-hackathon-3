@@ -176,3 +176,38 @@ web/
   package.json       # Frontend dependencies
   vite.config.ts     # Vite configuration
 ```
+
+## Issue Tracking Workflow
+
+All work must be tracked via GitHub Issues using the GitHub CLI (`gh`).
+
+See the complete workflow documentation: [`../docs/github-workflow.md`](../docs/github-workflow.md)
+
+### Quick Start
+
+```bash
+# Create issue for your work
+gh issue create --label frontend --title "[FEATURE] Description"
+
+# Work on main (or create feature branch - see workflow doc)
+git checkout main
+git pull origin main
+
+# Commit with issue reference
+git commit -m "feat: description (#23)"
+
+# Push
+git push origin main
+
+# Close issue when done
+gh issue close #23
+```
+
+### Frontend-Specific Labels
+
+- `frontend` - Frontend related
+- `ui` - UI component changes
+- `camera` - Camera-related features
+- `performance` - Performance optimization
+- `pwa` - PWA-related changes
+- `mobile` - Mobile-specific changes
