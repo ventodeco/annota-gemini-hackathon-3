@@ -1,14 +1,31 @@
 package middleware
 
-import "net/http"
+import (
+	"net/http"
 
-// CORSMiddleware adds CORS headers to allow frontend access from localhost:5173
-func CORSMiddleware(next http.Handler) http.Handler {
+	"github.com/gemini-hackathon/app/internal/config"
+)
+
+// CORSMiddleware adds CORS headers to allow frontend access from configured origins
+type CORSMiddleware struct {
+	cfg *config.Config
+}
+
+// NewCORSMiddleware creates a new CORS middleware with the given config
+func NewCORSMiddleware(cfg *config.Config) *CORSMiddleware {
+	return &CORSMiddleware{cfg: cfg}
+}
+
+// Handle wraps an HTTP handler with CORS functionality
+func (m *CORSMiddleware) Handle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Allow requests from Vite dev server
 		origin := r.Header.Get("Origin")
-		if origin == "http://localhost:5173" || origin == "http://localhost:3000" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
+		if m.cfg.IsOriginAllowed(origin) {
+			if m.cfg.AllowedOrigins == "*" {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+			}
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, x-token, Authorization")

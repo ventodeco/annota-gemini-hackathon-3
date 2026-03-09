@@ -26,6 +26,7 @@ type Config struct {
 	TokenExpiryMinutes      int
 	DefaultPageSize         int
 	KnowledgeCSVPath        string
+	AllowedOrigins          string // comma-separated list, * for wildcard
 }
 
 func Load() (*Config, error) {
@@ -77,6 +78,7 @@ func Load() (*Config, error) {
 		TokenExpiryMinutes:      getEnvAsIntOrDefault("TOKEN_EXPIRY_MINUTES", 30),
 		DefaultPageSize:         getEnvAsIntOrDefault("DEFAULT_PAGE_SIZE", 20),
 		KnowledgeCSVPath:        getEnvOrDefault("KNOWLEDGE_CSV_PATH", "data/knowledge.csv"),
+		AllowedOrigins:          getEnvOrDefault("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -143,6 +145,37 @@ func getEnvAsBoolOrDefault(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+// GetAllowedOriginsList parses the AllowedOrigins config into a slice
+// Handles comma-separated values, trims whitespace, and supports wildcard
+func (c *Config) GetAllowedOriginsList() []string {
+	if c.AllowedOrigins == "" {
+		return []string{"http://localhost:5173", "http://localhost:3000"}
+	}
+	if c.AllowedOrigins == "*" {
+		return []string{"*"}
+	}
+	origins := strings.Split(c.AllowedOrigins, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
+	}
+	return origins
+}
+
+// IsOriginAllowed checks if a given origin is allowed based on config
+// Supports wildcard (*) to allow any origin
+func (c *Config) IsOriginAllowed(origin string) bool {
+	if c.AllowedOrigins == "*" {
+		return true
+	}
+	allowed := c.GetAllowedOriginsList()
+	for _, allowedOrigin := range allowed {
+		if allowedOrigin == origin {
+			return true
+		}
+	}
+	return false
 }
 
 func loadEnvFile(filename string) {
