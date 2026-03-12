@@ -11,5 +11,14 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=password
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - "redis-data:/data"
+    command: redis-server --appendonly yes
+
 volumes:
   pg-data: {}
+  redis-data: {}

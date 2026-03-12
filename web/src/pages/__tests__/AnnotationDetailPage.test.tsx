@@ -26,18 +26,20 @@ vi.mock('@/hooks/useAnnotationById', () => ({
   }),
 }))
 
+function MockHeader({ title, onBack }: { title: string; onBack?: () => void }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const handleBack = onBack ?? (() => navigate(`/history${location.search}`))
+  return (
+    <div>
+      <span>{title}</span>
+      <button onClick={handleBack}>Back</button>
+    </div>
+  )
+}
+
 vi.mock('@/components/layout/Header', () => ({
-  default: ({ title, onBack }: { title: string; onBack?: () => void }) => {
-    const navigate = useNavigate()
-    const location = useLocation()
-    const handleBack = onBack ?? (() => navigate(`/history${location.search}`))
-    return (
-      <div>
-        <span>{title}</span>
-        <button onClick={handleBack}>Back</button>
-      </div>
-    )
-  },
+  default: MockHeader,
 }))
 
 vi.mock('@/components/layout/BottomNavigation', () => ({

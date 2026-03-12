@@ -54,7 +54,7 @@ export default function HistoryPage() {
       toast.success('Annotation removed', {
         description: 'The annotation has been removed from your history.',
       })
-    } catch (err) {
+    } catch {
       toast.error('Failed to remove annotation', {
         description: 'Please try again.',
       })

@@ -18,4 +18,31 @@ This project uses specialized agent files for each part of the codebase:
 - [`docs/prd.md`](docs/prd.md) - Product requirements document
 - [`docs/rfc.md`](docs/rfc.md) - Technical architecture document
 - [`docs/task.md`](docs/task.md) - Implementation tasks
+- [`docs/github-workflow.md`](docs/github-workflow.md) - GitHub issue tracking workflow with `gh` CLI
+
+## Issue Tracking
+
+All work must be tracked via GitHub Issues using GitHub CLI (`gh`).
+
+See [`docs/github-workflow.md`](docs/github-workflow.md) for the complete workflow documentation.
+
+### Quick Start
+
+```bash
+# Create issue
+gh issue create --title "[TASK] Description"
+
+# Work on main (or feature branch - see workflow doc)
+git checkout main
+git pull origin main
+
+# Commit with reference
+git commit -m "feat: description (#42)"
+
+# Push
+git push origin main
+
+# Close issue
+gh issue close #42
+```
 
