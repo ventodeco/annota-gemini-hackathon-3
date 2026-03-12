@@ -1,0 +1,788 @@
+openapi: 3.0.3
+info:
+  title: Gemini OCR Annotation API
+  version: 1.0.0
+  description: REST API for OAuth auth, scans, AI analysis, and annotations.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Auth
+  - name: User
+  - name: Scans
+  - name: AI
+  - name: Annotations
+paths:
+  /v1/auth/google/state:
+    get:
+      tags: [Auth]
+      summary: Create Google OAuth redirect URL
+      responses:
+        '200':
+          description: Redirect URL generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleStateResponse'
+              examples:
+                success:
+                  value:
+                    ssoRedirection: https://accounts.google.com/o/oauth2/v2/auth?client_id=xxx
+        '500':
+          description: Redis unavailable or internal error
+  /v1/auth/google/callback:
+    get:
+      tags: [Auth]
+      summary: Handle OAuth provider redirect
+      description: Redirects browser to frontend callback URL with `state` and `code` query parameters.
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to frontend callback page
+        '400':
+          description: Missing state or code
+    post:
+      tags: [Auth]
+      summary: Exchange OAuth code and issue JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleCallbackRequest'
+            examples:
+              request:
+                value:
+                  code: oauth_code_here
+                  state: oauth_state_here
+      responses:
+        '200':
+          description: JWT issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleCallbackResponse'
+        '400':
+          description: Invalid request body, missing fields, or invalid state
+        '500':
+          description: OAuth exchange or database failure
+  /v1/users/me/languages:
+    get:
+      tags: [User]
+      summary: Get supported UI languages
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Supported language list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetLanguagesResponse'
+        '401':
+          description: Missing or invalid token
+  /v1/users/me:
+    get:
+      tags: [User]
+      summary: Get current user preferences
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile preference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUserProfileResponse'
+        '401':
+          description: Missing or invalid token
+        '404':
+          description: User not found
+    patch:
+      tags: [User]
+      summary: Update current user preferences
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserPreferencesRequest'
+      responses:
+        '200':
+          description: Preferences updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateUserPreferencesResponse'
+        '400':
+          description: Invalid request body or language
+        '401':
+          description: Missing or invalid token
+        '500':
+          description: Database update failed
+  /v1/scans:
+    get:
+      tags: [Scans]
+      summary: List scans for authenticated user
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Paginated scans
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetScansResponse'
+        '401':
+          description: Missing or invalid token
+        '500':
+          description: Database error
+    post:
+      tags: [Scans]
+      summary: Upload an image and create scan
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Scan created and OCR started asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateScanResponse'
+        '400':
+          description: Invalid form payload or image type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: File exceeds max upload size
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Storage or database failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/scans/{id}:
+    get:
+      tags: [Scans]
+      summary: Get scan detail by ID
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetScanResponse'
+        '400':
+          description: Invalid scan ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Scan belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Scan not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Scans]
+      summary: Delete scan by ID
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '204':
+          description: Scan deleted
+        '400':
+          description: Invalid scan ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Scan belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Scan not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Delete failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/ai/analyze:
+    post:
+      tags: [AI]
+      summary: Analyze selected text with context
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+      responses:
+        '200':
+          description: Annotation analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+        '400':
+          description: Invalid payload or missing text
+        '401':
+          description: Missing or invalid token
+        '404':
+          description: User not found
+        '500':
+          description: Gemini or database failure
+  /v1/ai/speech:
+    post:
+      tags: [AI]
+      summary: Generate speech audio for highlighted text
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpeakRequest'
+      responses:
+        '200':
+          description: Audio bytes
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid payload or missing highlighted text
+        '401':
+          description: Missing or invalid token
+        '500':
+          description: Gemini speech synthesis failure
+  /v1/annotations:
+    get:
+      tags: [Annotations]
+      summary: List annotations for authenticated user
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - in: query
+          name: scanId
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Paginated annotations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAnnotationsResponse'
+        '400':
+          description: Invalid scanId query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Annotations]
+      summary: Create and bookmark annotation
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAnnotationRequest'
+      responses:
+        '201':
+          description: Annotation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAnnotationResponse'
+        '400':
+          description: Invalid payload or missing highlightedText
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/annotations/{id}:
+    get:
+      tags: [Annotations]
+      summary: Get annotation detail by ID
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Annotation detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAnnotationResponse'
+        '400':
+          description: Invalid annotation ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Annotation belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Annotation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Annotations]
+      summary: Delete annotation by ID
+      security:
+        - XTokenAuth: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '204':
+          description: Annotation deleted
+        '400':
+          description: Invalid annotation ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Annotation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    XTokenAuth:
+      type: apiKey
+      in: header
+      name: x-token
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+    GoogleStateResponse:
+      type: object
+      required: [ssoRedirection]
+      properties:
+        ssoRedirection:
+          type: string
+    GoogleCallbackRequest:
+      type: object
+      required: [code, state]
+      properties:
+        code:
+          type: string
+        state:
+          type: string
+    GoogleCallbackResponse:
+      type: object
+      required: [token, expirySeconds, expiresAt]
+      properties:
+        token:
+          type: string
+        expirySeconds:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+    Language:
+      type: object
+      required: [caption, imageUrl]
+      properties:
+        caption:
+          type: string
+          enum: [ID, JP, EN]
+        imageUrl:
+          type: string
+    GetLanguagesResponse:
+      type: object
+      required: [languages]
+      properties:
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Language'
+    GetUserProfileResponse:
+      type: object
+      required: [preferredLanguage]
+      properties:
+        preferredLanguage:
+          type: string
+          enum: [ID, JP, EN]
+    UpdateUserPreferencesRequest:
+      type: object
+      required: [preferredLanguage]
+      properties:
+        preferredLanguage:
+          type: string
+          enum: [ID, JP, EN]
+    UpdateUserPreferencesResponse:
+      type: object
+      required: [preferredLanguage]
+      properties:
+        preferredLanguage:
+          type: string
+          enum: [ID, JP, EN]
+    CreateScanResponse:
+      type: object
+      required: [scanId, imageUrl]
+      properties:
+        scanId:
+          type: integer
+          format: int64
+        fullText:
+          type: string
+        imageUrl:
+          type: string
+    ScanListItem:
+      type: object
+      required: [id, imageUrl, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        imageUrl:
+          type: string
+        detectedLanguage:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    PaginationMeta:
+      type: object
+      required: [currentPage, pageSize]
+      properties:
+        currentPage:
+          type: integer
+        pageSize:
+          type: integer
+        nextPage:
+          type: integer
+          nullable: true
+        previousPage:
+          type: integer
+          nullable: true
+    GetScansResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScanListItem'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+    GetScanResponse:
+      type: object
+      required: [id, imageUrl, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        fullText:
+          type: string
+        imageUrl:
+          type: string
+        detectedLanguage:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    AnalyzeRequest:
+      type: object
+      required: [textToAnalyze]
+      properties:
+        textToAnalyze:
+          type: string
+        context:
+          type: string
+    AnalyzeResponse:
+      type: object
+      required: [meaning, usageExample, usageTiming, wordBreakdown, alternativeMeaning]
+      properties:
+        meaning:
+          type: string
+        usageExample:
+          type: string
+        usageTiming:
+          type: string
+        wordBreakdown:
+          type: string
+        alternativeMeaning:
+          type: string
+    SpeakRequest:
+      type: object
+      required: [highlightedText]
+      properties:
+        highlightedText:
+          type: string
+        contextText:
+          type: string
+        tone:
+          type: string
+    NuanceData:
+      type: object
+      required: [meaning, usageExample, usageTiming, wordBreakdown, alternativeMeaning]
+      properties:
+        meaning:
+          type: string
+        usageExample:
+          type: string
+        usageTiming:
+          type: string
+        wordBreakdown:
+          type: string
+        alternativeMeaning:
+          type: string
+    CreateAnnotationRequest:
+      type: object
+      required: [scanId, highlightedText, contextText, nuanceData]
+      properties:
+        scanId:
+          type: integer
+          format: int64
+        highlightedText:
+          type: string
+        contextText:
+          type: string
+        nuanceData:
+          $ref: '#/components/schemas/NuanceData'
+    CreateAnnotationResponse:
+      type: object
+      required: [annotationId, status]
+      properties:
+        annotationId:
+          type: integer
+          format: int64
+        status:
+          type: string
+    AnnotationListItem:
+      type: object
+      required: [id, highlightedText, nuanceSummary, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        highlightedText:
+          type: string
+        nuanceSummary:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    GetAnnotationResponse:
+      type: object
+      required: [id, highlightedText, nuanceData, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        highlightedText:
+          type: string
+        contextText:
+          type: string
+        nuanceData:
+          $ref: '#/components/schemas/NuanceData'
+        createdAt:
+          type: string
+          format: date-time
+    GetAnnotationsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnnotationListItem'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
