@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -163,5 +164,16 @@ func TestGetExtensionFromMimeType(t *testing.T) {
 				t.Errorf("getExtensionFromMimeType(%q) = %q, want %q", tt.mimeType, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCalculateSHA256(t *testing.T) {
+	hash, err := CalculateSHA256(bytes.NewBufferString("hello"))
+	if err != nil {
+		t.Fatalf("CalculateSHA256() error = %v", err)
+	}
+	const expected = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	if hash != expected {
+		t.Fatalf("CalculateSHA256() = %q, want %q", hash, expected)
 	}
 }
