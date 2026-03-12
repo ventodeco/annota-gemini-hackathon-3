@@ -28,18 +28,15 @@ func TestSaveImage_CreatesFileAndHash(t *testing.T) {
 		t.Fatalf("SaveImage returned error: %v", err)
 	}
 
-	// Verify file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Fatalf("expected file to exist at %s", path)
 	}
 
-	// Verify path format
 	expectedPath := filepath.Join(tmpDir, "scan_001.jpg")
 	if path != expectedPath {
 		t.Errorf("path = %q, want %q", path, expectedPath)
 	}
 
-	// Verify hash correctness
 	if hashPtr == nil {
 		t.Fatal("expected non-nil hash pointer")
 	}
@@ -49,7 +46,6 @@ func TestSaveImage_CreatesFileAndHash(t *testing.T) {
 		t.Errorf("hash = %q, want %q", *hashPtr, expectedHashStr)
 	}
 
-	// Verify content written correctly
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("failed to read saved file: %v", err)

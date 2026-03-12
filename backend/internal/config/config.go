@@ -147,8 +147,7 @@ func getEnvAsBoolOrDefault(key string, defaultValue bool) bool {
 	return defaultValue
 }
 
-// GetAllowedOriginsList parses the AllowedOrigins config into a slice
-// Handles comma-separated values, trims whitespace, and supports wildcard
+// GetAllowedOriginsList parses the AllowedOrigins config into a slice.
 func (c *Config) GetAllowedOriginsList() []string {
 	if c.AllowedOrigins == "" {
 		return []string{"http://localhost:5173", "http://localhost:3000"}
@@ -163,8 +162,7 @@ func (c *Config) GetAllowedOriginsList() []string {
 	return origins
 }
 
-// IsOriginAllowed checks if a given origin is allowed based on config
-// Supports wildcard (*) to allow any origin
+// IsOriginAllowed checks if a given origin is allowed based on config.
 func (c *Config) IsOriginAllowed(origin string) bool {
 	if c.AllowedOrigins == "*" {
 		return true

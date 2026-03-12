@@ -9,13 +9,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// createTestMigrationsDir writes a SQLite-compatible migration file to a temp directory
-// and returns the directory path.
 func createTestMigrationsDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Use SQLite-compatible syntax (no BIGSERIAL, no JSONB, no WITH TIME ZONE)
 	migration := `
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +70,6 @@ func TestRunMigrations_CreatesTablesFromSQLFiles(t *testing.T) {
 		t.Fatal("expected error from RunMigrations due to NOW() incompatibility with SQLite")
 	}
 
-	// Verify the migration DDL was committed despite the recording failure.
 	_, err = db.Exec("INSERT INTO users (email, provider, provider_id) VALUES ('a@b.com', 'google', 'g1')")
 	if err != nil {
 		t.Fatalf("users table should exist after migration: %v", err)
@@ -104,7 +100,6 @@ func TestRunMigrations_IdempotentRerun(t *testing.T) {
 	// with SQLite-compatible SQL so the second run can test the idempotency path.
 	_ = RunMigrations(db, migrationsDir)
 
-	// Manually record the migration so isMigrationApplied returns true on rerun.
 	_, err = db.Exec(
 		"INSERT INTO schema_migrations (name, applied_at) VALUES ($1, CURRENT_TIMESTAMP)",
 		"001_schema.sql",
@@ -113,7 +108,6 @@ func TestRunMigrations_IdempotentRerun(t *testing.T) {
 		t.Fatalf("failed to manually record migration: %v", err)
 	}
 
-	// Second run should skip the already-applied migration and succeed.
 	err = RunMigrations(db, migrationsDir)
 	if err != nil {
 		t.Errorf("second RunMigrations should succeed (migration already recorded), got: %v", err)
@@ -134,7 +128,6 @@ func TestRunMigrations_EmptyDirectory(t *testing.T) {
 		t.Fatalf("RunMigrations with empty dir should not error, got: %v", err)
 	}
 
-	// Verify schema_migrations table was created even with no migration files
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 	if err != nil {
@@ -148,7 +141,6 @@ func TestRunMigrations_EmptyDirectory(t *testing.T) {
 func TestReadMigrationFiles_SortsAlphabetically(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create files in reverse order
 	files := []string{"003_third.sql", "001_first.sql", "002_second.sql"}
 	for _, f := range files {
 		if err := os.WriteFile(filepath.Join(dir, f), []byte("SELECT 1;"), 0644); err != nil {

@@ -101,8 +101,6 @@ func createTestScan(t *testing.T, store DB, userID int64, imageURL string) *mode
 	return scan
 }
 
-// --- User Tests ---
-
 func TestCreateUser(t *testing.T) {
 	store := setupTestDB(t)
 	ctx := context.Background()
@@ -182,7 +180,6 @@ func TestGetUserByProvider(t *testing.T) {
 		t.Errorf("ID mismatch: got %d, want %d", fetched.ID, created.ID)
 	}
 
-	// Not found case
 	fetched, err = store.GetUserByProvider(ctx, "github", "unknown_id")
 	if err != nil {
 		t.Fatalf("GetUserByProvider returned error: %v", err)
@@ -209,7 +206,6 @@ func TestGetUserByID(t *testing.T) {
 		t.Errorf("Email mismatch: got %q, want %q", fetched.Email, created.Email)
 	}
 
-	// Not found
 	fetched, err = store.GetUserByID(ctx, 99999)
 	if err != nil {
 		t.Fatalf("GetUserByID returned error: %v", err)
@@ -266,9 +262,6 @@ func TestCreateUser_AvatarNil(t *testing.T) {
 		t.Errorf("expected nil AvatarURL, got %v", *fetched.AvatarURL)
 	}
 }
-
-// --- Scan Tests ---
-
 func TestCreateScan(t *testing.T) {
 	store := setupTestDB(t)
 	ctx := context.Background()
@@ -326,7 +319,6 @@ func TestGetScansByUserID_PaginationAndOrdering(t *testing.T) {
 
 	user := createTestUser(t, store, "scan_list")
 
-	// Create 5 scans with different timestamps
 	for i := 0; i < 5; i++ {
 		ts := time.Date(2025, 1, 1, i, 0, 0, 0, time.UTC)
 		scan := &models.Scan{
@@ -339,7 +331,6 @@ func TestGetScansByUserID_PaginationAndOrdering(t *testing.T) {
 		}
 	}
 
-	// Page 1, size 3 - should get 3 most recent
 	scans, err := store.GetScansByUserID(ctx, user.ID, 1, 3)
 	if err != nil {
 		t.Fatalf("GetScansByUserID page 1 returned error: %v", err)
@@ -347,12 +338,10 @@ func TestGetScansByUserID_PaginationAndOrdering(t *testing.T) {
 	if len(scans) != 3 {
 		t.Fatalf("expected 3 scans on page 1, got %d", len(scans))
 	}
-	// Verify DESC ordering
 	if !scans[0].CreatedAt.After(scans[1].CreatedAt) {
 		t.Error("scans should be ordered by created_at DESC")
 	}
 
-	// Page 2, size 3 - should get remaining 2
 	scans, err = store.GetScansByUserID(ctx, user.ID, 2, 3)
 	if err != nil {
 		t.Fatalf("GetScansByUserID page 2 returned error: %v", err)
@@ -361,7 +350,6 @@ func TestGetScansByUserID_PaginationAndOrdering(t *testing.T) {
 		t.Fatalf("expected 2 scans on page 2, got %d", len(scans))
 	}
 
-	// Empty result for different user
 	scans, err = store.GetScansByUserID(ctx, 99999, 1, 10)
 	if err != nil {
 		t.Fatalf("GetScansByUserID for other user returned error: %v", err)
@@ -423,13 +411,11 @@ func TestDeleteScan(t *testing.T) {
 	user := createTestUser(t, store, "scan_del")
 	scan := createTestScan(t, store, user.ID, "/uploads/del.jpg")
 
-	// Delete with correct owner
 	err := store.DeleteScan(ctx, scan.ID, user.ID)
 	if err != nil {
 		t.Fatalf("DeleteScan returned error: %v", err)
 	}
 
-	// Verify deleted
 	_, err = store.GetScanByID(ctx, scan.ID)
 	if err != sql.ErrNoRows {
 		t.Errorf("expected sql.ErrNoRows after delete, got: %v", err)
@@ -443,13 +429,11 @@ func TestDeleteScan_WrongUser(t *testing.T) {
 	user := createTestUser(t, store, "scan_del_wrong")
 	scan := createTestScan(t, store, user.ID, "/uploads/wrong.jpg")
 
-	// Delete with wrong user ID
 	err := store.DeleteScan(ctx, scan.ID, 99999)
 	if err != sql.ErrNoRows {
 		t.Errorf("expected sql.ErrNoRows for wrong user, got: %v", err)
 	}
 
-	// Verify scan still exists
 	fetched, err := store.GetScanByID(ctx, scan.ID)
 	if err != nil {
 		t.Fatalf("scan should still exist, GetScanByID returned error: %v", err)
@@ -458,9 +442,6 @@ func TestDeleteScan_WrongUser(t *testing.T) {
 		t.Error("scan should still exist after failed delete")
 	}
 }
-
-// --- Annotation Tests ---
-
 func TestCreateAnnotation_WithNuanceDataRoundTrip(t *testing.T) {
 	store := setupTestDB(t)
 	ctx := context.Background()
@@ -495,7 +476,6 @@ func TestCreateAnnotation_WithNuanceDataRoundTrip(t *testing.T) {
 		t.Error("expected non-zero annotation ID")
 	}
 
-	// Round-trip: fetch and verify NuanceData
 	fetched, err := store.GetAnnotationByID(ctx, id)
 	if err != nil {
 		t.Fatalf("GetAnnotationByID returned error: %v", err)
@@ -549,7 +529,6 @@ func TestGetAnnotationsByUserID_Pagination(t *testing.T) {
 
 	scanID := scan.ID
 
-	// Create 5 annotations with different timestamps
 	for i := 0; i < 5; i++ {
 		ts := time.Date(2025, 1, 1, i, 0, 0, 0, time.UTC)
 		ann := &models.Annotation{
@@ -565,7 +544,6 @@ func TestGetAnnotationsByUserID_Pagination(t *testing.T) {
 		}
 	}
 
-	// Page 1, size 3
 	anns, err := store.GetAnnotationsByUserID(ctx, user.ID, 1, 3)
 	if err != nil {
 		t.Fatalf("GetAnnotationsByUserID page 1 returned error: %v", err)
@@ -573,12 +551,10 @@ func TestGetAnnotationsByUserID_Pagination(t *testing.T) {
 	if len(anns) != 3 {
 		t.Fatalf("expected 3 annotations on page 1, got %d", len(anns))
 	}
-	// Verify DESC ordering
 	if !anns[0].CreatedAt.After(anns[1].CreatedAt) {
 		t.Error("annotations should be ordered by created_at DESC")
 	}
 
-	// Page 2, size 3
 	anns, err = store.GetAnnotationsByUserID(ctx, user.ID, 2, 3)
 	if err != nil {
 		t.Fatalf("GetAnnotationsByUserID page 2 returned error: %v", err)
@@ -599,7 +575,6 @@ func TestGetAnnotationsByUserIDAndScanID(t *testing.T) {
 	scan1ID := scan1.ID
 	scan2ID := scan2.ID
 
-	// Create 3 annotations for scan1, 2 for scan2
 	for i := 0; i < 3; i++ {
 		ann := &models.Annotation{
 			UserID:          user.ID,
@@ -662,13 +637,11 @@ func TestDeleteAnnotation(t *testing.T) {
 		t.Fatalf("CreateAnnotation failed: %v", err)
 	}
 
-	// Delete with correct owner
 	err = store.DeleteAnnotation(ctx, id, user.ID)
 	if err != nil {
 		t.Fatalf("DeleteAnnotation returned error: %v", err)
 	}
 
-	// Verify deleted
 	_, err = store.GetAnnotationByID(ctx, id)
 	if err != sql.ErrNoRows {
 		t.Errorf("expected sql.ErrNoRows after delete, got: %v", err)
@@ -695,13 +668,11 @@ func TestDeleteAnnotation_WrongUser(t *testing.T) {
 		t.Fatalf("CreateAnnotation failed: %v", err)
 	}
 
-	// Delete with wrong user
 	err = store.DeleteAnnotation(ctx, id, 99999)
 	if err != sql.ErrNoRows {
 		t.Errorf("expected sql.ErrNoRows for wrong user, got: %v", err)
 	}
 
-	// Verify still exists
 	fetched, err := store.GetAnnotationByID(ctx, id)
 	if err != nil {
 		t.Fatalf("annotation should still exist, got error: %v", err)
