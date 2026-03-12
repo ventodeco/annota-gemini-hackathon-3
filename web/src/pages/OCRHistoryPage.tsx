@@ -45,7 +45,7 @@ export default function OCRHistoryPage() {
       toast.success('Scan removed', {
         description: 'The scan has been removed from your history.',
       })
-    } catch (err) {
+    } catch {
       toast.error('Failed to remove scan', {
         description: 'Please try again.',
       })

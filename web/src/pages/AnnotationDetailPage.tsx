@@ -155,7 +155,7 @@ export default function AnnotationDetailPage() {
                     setShowDeleteDialog(false)
                     toast.success('Annotation removed')
                     navigate(historyPath)
-                  } catch (err) {
+                  } catch {
                     toast.error('Failed to remove annotation')
                   }
                 }}
