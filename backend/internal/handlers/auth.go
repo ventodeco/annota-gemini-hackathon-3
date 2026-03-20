@@ -11,6 +11,7 @@ import (
 
 	"github.com/gemini-hackathon/app/internal/auth"
 	"github.com/gemini-hackathon/app/internal/config"
+	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
@@ -53,7 +54,7 @@ func (h *AuthHandlers) GoogleStateAPI(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodGet {
 		log.Warnf("Method not allowed: %s", r.Method)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -62,7 +63,7 @@ func (h *AuthHandlers) GoogleStateAPI(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.googleOAuth.RedisClient().SetState(r.Context(), state, "", 10*time.Minute); err != nil {
 		log.ErrorWithErr(err, "Failed to store state in Redis")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -79,7 +80,7 @@ func (h *AuthHandlers) GoogleCallbackRedirect(w http.ResponseWriter, r *http.Req
 
 	if r.Method != http.MethodGet {
 		log.Warnf("Method not allowed: %s", r.Method)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -88,7 +89,7 @@ func (h *AuthHandlers) GoogleCallbackRedirect(w http.ResponseWriter, r *http.Req
 
 	if state == "" || code == "" {
 		log.Warn("Missing state or code in OAuth callback")
-		http.Error(w, "Missing state or code", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Missing state or code")
 		return
 	}
 
@@ -112,26 +113,26 @@ func (h *AuthHandlers) GoogleCallbackAPI(w http.ResponseWriter, r *http.Request)
 
 	if r.Method != http.MethodPost {
 		log.Warnf("Method not allowed: %s", r.Method)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	var req GoogleCallbackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Warnf("Failed to decode request body: %v", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if req.Code == "" {
 		log.Warn("Empty authorization code received")
-		http.Error(w, "Code is required", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Code is required")
 		return
 	}
 
 	if req.State == "" {
 		log.Warn("Empty state received")
-		http.Error(w, "State is required", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "State is required")
 		return
 	}
 
@@ -140,21 +141,21 @@ func (h *AuthHandlers) GoogleCallbackAPI(w http.ResponseWriter, r *http.Request)
 	_, err := h.googleOAuth.RedisClient().GetState(r.Context(), req.State)
 	if err != nil {
 		log.ErrorWithErr(err, "State validation failed")
-		http.Error(w, "Invalid state", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid state")
 		return
 	}
 
 	oauthToken, err := h.googleOAuth.ExchangeCode(r.Context(), req.Code)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to exchange code with Google")
-		http.Error(w, "Failed to exchange code", http.StatusInternalServerError)
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to exchange code")
 		return
 	}
 
 	userInfo, err := h.googleOAuth.GetUserInfo(r.Context(), oauthToken)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to get user info from Google")
-		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to get user info")
 		return
 	}
 
@@ -163,7 +164,7 @@ func (h *AuthHandlers) GoogleCallbackAPI(w http.ResponseWriter, r *http.Request)
 	user, err := h.db.GetUserByProvider(r.Context(), "google", userInfo.ID)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to get user by provider from database")
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
 
@@ -183,7 +184,7 @@ func (h *AuthHandlers) GoogleCallbackAPI(w http.ResponseWriter, r *http.Request)
 
 		if err := h.db.CreateUser(r.Context(), user); err != nil {
 			log.ErrorWithErr(err, "Failed to create new user in database")
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create user")
 			return
 		}
 		isNewUser = true
@@ -195,7 +196,7 @@ func (h *AuthHandlers) GoogleCallbackAPI(w http.ResponseWriter, r *http.Request)
 	token, expiresAt, err := h.tokenService.GenerateToken(user.ID)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to generate JWT token")
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to generate token")
 		return
 	}
 
@@ -220,7 +221,7 @@ func (h *AuthHandlers) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		h.GoogleCallbackAPI(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 

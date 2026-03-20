@@ -156,6 +156,13 @@ describe('Button', () => {
 });
 ```
 
+## Hook Naming Convention
+
+- Custom hooks: `camelCase` (e.g., `useCamera.ts`, `useSpeechPlayback.ts`)
+- shadcn/ui hooks: `kebab-case` is acceptable (e.g., `use-toast.ts`)
+- Collection hooks: plural form (e.g., `useScans.ts` for list operations)
+- Single-item hooks: singular form (e.g., `useScan.ts` for fetching one item)
+
 ## Project Structure
 
 ```

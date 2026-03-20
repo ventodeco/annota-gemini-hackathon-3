@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/storage"
 )
@@ -45,7 +46,7 @@ var supportedLanguages = []Language{
 
 func (h *UserHandlers) GetLanguagesAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -57,24 +58,24 @@ func (h *UserHandlers) GetLanguagesAPI(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandlers) GetUserProfileAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	user, err := h.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
 
 	if user == nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
 		return
 	}
 
@@ -86,29 +87,29 @@ func (h *UserHandlers) GetUserProfileAPI(w http.ResponseWriter, r *http.Request)
 
 func (h *UserHandlers) UpdateUserPreferencesAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPatch {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req UpdateUserPreferencesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if !isValidLanguage(req.PreferredLanguage) {
-		http.Error(w, "Invalid language", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid language")
 		return
 	}
 
 	if err := h.db.UpdateUserLanguage(r.Context(), userID, req.PreferredLanguage); err != nil {
-		http.Error(w, "Failed to update user language", http.StatusInternalServerError)
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to update user language")
 		return
 	}
 
@@ -125,7 +126,7 @@ func (h *UserHandlers) UsersMeAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPatch:
 		h.UpdateUserPreferencesAPI(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 

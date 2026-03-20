@@ -69,6 +69,15 @@ async function handleResponse<T>(response: Response, method: string, url: string
   return response.json()
 }
 
+function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  const headers: HeadersInit = {
+    ...getAuthHeaders(),
+    'Content-Type': 'application/json',
+    ...options.headers,
+  }
+  return fetch(url, { ...options, headers })
+}
+
 // ============================================================================
 // Auth API
 // ============================================================================
@@ -102,13 +111,7 @@ export async function exchangeGoogleCode(code: string, state: string): Promise<T
 
 export async function getUserProfile(): Promise<GetUserProfileResponse> {
   const url = `${API_BASE_URL}/v1/users/me`
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-  })
+  const response = await fetchWithAuth(url)
   return handleResponse(response, 'GET', url)
 }
 
@@ -116,12 +119,8 @@ export async function updateUserPreferences(
   preferences: UpdateUserPreferencesRequest,
 ): Promise<GetUserProfileResponse> {
   const url = `${API_BASE_URL}/v1/users/me`
-  const response = await fetch(url, {
+  const response = await fetchWithAuth(url, {
     method: 'PATCH',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(preferences),
   })
   return handleResponse(response, 'PATCH', url)
@@ -129,13 +128,7 @@ export async function updateUserPreferences(
 
 export async function getLanguages(): Promise<GetLanguagesResponse> {
   const url = `${API_BASE_URL}/v1/users/me/languages`
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-  })
+  const response = await fetchWithAuth(url)
   return handleResponse(response, 'GET', url)
 }
 
@@ -159,34 +152,19 @@ export async function createScan(imageFile: File): Promise<CreateScanResponse> {
 
 export async function getScans(page = 1, size = 20): Promise<GetScansResponse> {
   const url = `${API_BASE_URL}/v1/scans?page=${page}&size=${size}`
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-  })
+  const response = await fetchWithAuth(url)
   return handleResponse(response, 'GET', url)
 }
 
 export async function getScan(scanId: number): Promise<Scan> {
   const url = `${API_BASE_URL}/v1/scans/${scanId}`
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-  })
+  const response = await fetchWithAuth(url)
   return handleResponse(response, 'GET', url)
 }
 
 export async function deleteScan(scanId: number): Promise<void> {
   const url = `${API_BASE_URL}/v1/scans/${scanId}`
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers: getAuthHeaders(),
-  })
+  const response = await fetchWithAuth(url, { method: 'DELETE' })
   return handleResponse(response, 'DELETE', url)
 }
 
@@ -196,12 +174,8 @@ export async function deleteScan(scanId: number): Promise<void> {
 
 export async function analyzeText(request: AnalyzeRequest): Promise<AnalyzeResponse> {
   const url = `${API_BASE_URL}/v1/ai/analyze`
-  const response = await fetch(url, {
+  const response = await fetchWithAuth(url, {
     method: 'POST',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(request),
   })
   return handleResponse(response, 'POST', url)
@@ -210,12 +184,8 @@ export async function analyzeText(request: AnalyzeRequest): Promise<AnalyzeRespo
 export async function synthesizeSpeech(request: SynthesizeSpeechRequest): Promise<Blob> {
   const url = `${API_BASE_URL}/v1/ai/speech`
   const startTime = Date.now()
-  const response = await fetch(url, {
+  const response = await fetchWithAuth(url, {
     method: 'POST',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(request),
   })
 
@@ -241,12 +211,8 @@ export async function createAnnotation(
   request: CreateAnnotationRequest,
 ): Promise<CreateAnnotationResponse> {
   const url = `${API_BASE_URL}/v1/annotations`
-  const response = await fetch(url, {
+  const response = await fetchWithAuth(url, {
     method: 'POST',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify(request),
   })
   return handleResponse(response, 'POST', url)
@@ -266,34 +232,19 @@ export async function getAnnotations(
   }
 
   const url = `${API_BASE_URL}/v1/annotations?${params.toString()}`
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-  })
+  const response = await fetchWithAuth(url)
   return handleResponse(response, 'GET', url)
 }
 
 export async function getAnnotation(annotationId: number): Promise<AnnotationDetail> {
   const url = `${API_BASE_URL}/v1/annotations/${annotationId}`
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders(),
-      'Content-Type': 'application/json',
-    },
-  })
+  const response = await fetchWithAuth(url)
   return handleResponse(response, 'GET', url)
 }
 
 export async function deleteAnnotation(annotationId: number): Promise<void> {
   const url = `${API_BASE_URL}/v1/annotations/${annotationId}`
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers: getAuthHeaders(),
-  })
+  const response = await fetchWithAuth(url, { method: 'DELETE' })
   return handleResponse(response, 'DELETE', url)
 }
 

@@ -3,11 +3,12 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/gemini-hackathon/app/internal/gemini"
+	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/knowledge"
+	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/storage"
@@ -52,36 +53,36 @@ type SpeakRequest struct {
 
 func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req AnalyzeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if req.TextToAnalyze == "" {
-		http.Error(w, "textToAnalyze is required", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "textToAnalyze is required")
 		return
 	}
 
 	user, err := h.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		log.Printf("Failed to get user: %v", err)
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to get user")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database error")
 		return
 	}
 
 	if user == nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
 		return
 	}
 
@@ -96,8 +97,8 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 	// Call Gemini with knowledge context
 	resp, err := h.geminiClient.AnnotateWithKnowledge(r.Context(), req.Context, req.TextToAnalyze, entries)
 	if err != nil {
-		log.Printf("Failed to generate annotation: %v", err)
-		http.Error(w, "Failed to analyze text", http.StatusInternalServerError)
+		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to generate annotation")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to analyze text")
 		return
 	}
 
@@ -115,24 +116,24 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 
 func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req AnalyzeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if req.TextToAnalyze == "" {
-		http.Error(w, "textToAnalyze is required", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "textToAnalyze is required")
 		return
 	}
 
@@ -141,8 +142,8 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 
 	resp, err := h.geminiClient.AnnotateWithKnowledge(r.Context(), req.Context, req.TextToAnalyze, entries)
 	if err != nil {
-		log.Printf("Failed to generate annotation with language: %v", err)
-		http.Error(w, "Failed to analyze text", http.StatusInternalServerError)
+		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to generate annotation with language")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to analyze text")
 		return
 	}
 
@@ -160,31 +161,31 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 
 func (h *AIHandlers) SpeakAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req SpeakRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if req.HighlightedText == "" {
-		http.Error(w, "highlightedText is required", http.StatusBadRequest)
+		httputil.WriteJSONError(w, http.StatusBadRequest, "highlightedText is required")
 		return
 	}
 
 	resp, err := h.geminiClient.SynthesizeSpeech(r.Context(), req.HighlightedText, req.ContextText)
 	if err != nil {
-		log.Printf("Failed to synthesize speech: %v", err)
-		http.Error(w, "Failed to synthesize speech", http.StatusInternalServerError)
+		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to synthesize speech")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to synthesize speech")
 		return
 	}
 
