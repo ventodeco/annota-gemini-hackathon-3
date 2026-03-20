@@ -2,13 +2,14 @@ package handlers
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gemini-hackathon/app/internal/config"
+	"github.com/gemini-hackathon/app/internal/httputil"
+	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/storage"
@@ -60,24 +61,24 @@ type GetAnnotationsResponse struct {
 
 func (h *AnnotationHandlers) CreateAnnotationAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		h.writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req CreateAnnotationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeJSONError(w, http.StatusBadRequest, "Invalid request body")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if req.HighlightedText == "" {
-		h.writeJSONError(w, http.StatusBadRequest, "highlightedText is required")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "highlightedText is required")
 		return
 	}
 
@@ -98,8 +99,8 @@ func (h *AnnotationHandlers) CreateAnnotationAPI(w http.ResponseWriter, r *http.
 
 	annotationID, err := h.db.CreateAnnotation(r.Context(), annotation)
 	if err != nil {
-		log.Printf("Failed to create annotation: %v", err)
-		h.writeJSONError(w, http.StatusInternalServerError, "Failed to create annotation")
+		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to create annotation")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create annotation")
 		return
 	}
 
@@ -120,14 +121,14 @@ func (h *AnnotationHandlers) AnnotationByIDAPI(w http.ResponseWriter, r *http.Re
 	case http.MethodDelete:
 		h.deleteAnnotationHandler(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
 func (h *AnnotationHandlers) deleteAnnotationHandler(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
@@ -135,13 +136,13 @@ func (h *AnnotationHandlers) deleteAnnotationHandler(w http.ResponseWriter, r *h
 	idStr := strings.TrimSuffix(path[len("/v1/annotations/"):], "/")
 	annotationID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || annotationID <= 0 {
-		h.writeJSONError(w, http.StatusBadRequest, "Invalid annotation ID")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid annotation ID")
 		return
 	}
 
 	if err := h.db.DeleteAnnotation(r.Context(), annotationID, userID); err != nil {
-		log.Printf("Failed to delete annotation: %v", err)
-		h.writeJSONError(w, http.StatusNotFound, "Annotation not found")
+		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to delete annotation")
+		httputil.WriteJSONError(w, http.StatusNotFound, "Annotation not found")
 		return
 	}
 
@@ -151,7 +152,7 @@ func (h *AnnotationHandlers) deleteAnnotationHandler(w http.ResponseWriter, r *h
 func (h *AnnotationHandlers) getAnnotationHandler(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
@@ -159,19 +160,19 @@ func (h *AnnotationHandlers) getAnnotationHandler(w http.ResponseWriter, r *http
 	idStr := strings.TrimSuffix(path[len("/v1/annotations/"):], "/")
 	annotationID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		h.writeJSONError(w, http.StatusBadRequest, "Invalid annotation ID")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid annotation ID")
 		return
 	}
 
 	annotation, err := h.db.GetAnnotationByID(r.Context(), annotationID)
 	if err != nil {
-		log.Printf("Failed to get annotation: %v", err)
-		h.writeJSONError(w, http.StatusNotFound, "Annotation not found")
+		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to get annotation")
+		httputil.WriteJSONError(w, http.StatusNotFound, "Annotation not found")
 		return
 	}
 
 	if annotation.UserID != userID {
-		h.writeJSONError(w, http.StatusForbidden, "Access denied")
+		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
 		return
 	}
 
@@ -194,28 +195,17 @@ func (h *AnnotationHandlers) getAnnotationHandler(w http.ResponseWriter, r *http
 
 func (h *AnnotationHandlers) GetAnnotationsAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		h.writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 {
-		size = h.config.DefaultPageSize
-	}
-	if size > 100 {
-		size = 100
-	}
+	page, size := httputil.ParsePagination(r, h.config.DefaultPageSize)
 
 	scanIDParam := r.URL.Query().Get("scanId")
 	var annotations []*models.Annotation
@@ -225,14 +215,14 @@ func (h *AnnotationHandlers) GetAnnotationsAPI(w http.ResponseWriter, r *http.Re
 	} else {
 		scanID, parseErr := strconv.ParseInt(scanIDParam, 10, 64)
 		if parseErr != nil || scanID <= 0 {
-			h.writeJSONError(w, http.StatusBadRequest, "scanId must be a positive integer")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "scanId must be a positive integer")
 			return
 		}
 		annotations, err = h.db.GetAnnotationsByUserIDAndScanID(r.Context(), userID, scanID, page, size)
 	}
 	if err != nil {
-		log.Printf("Failed to get annotations: %v", err)
-		h.writeJSONError(w, http.StatusInternalServerError, "Failed to get annotations")
+		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to get annotations")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to get annotations")
 		return
 	}
 
@@ -271,14 +261,6 @@ func (h *AnnotationHandlers) GetAnnotationsAPI(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(response)
 }
 
-func (h *AnnotationHandlers) writeJSONError(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   http.StatusText(statusCode),
-		Message: message,
-	})
-}
 
 func (h *AnnotationHandlers) AnnotationsAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -287,6 +269,6 @@ func (h *AnnotationHandlers) AnnotationsAPI(w http.ResponseWriter, r *http.Reque
 	case http.MethodGet:
 		h.GetAnnotationsAPI(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }

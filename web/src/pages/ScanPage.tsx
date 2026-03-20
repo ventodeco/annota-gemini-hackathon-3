@@ -1,5 +1,5 @@
 import { useLocation, useParams } from 'react-router-dom'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -8,6 +8,7 @@ import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hook
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import type { Annotation } from '@/lib/types'
 import { useTextSelection } from '@/hooks/useTextSelection'
+import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { getScanImageUrl, formatDate } from '@/lib/api'
 import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
 import type { Scan } from '@/lib/types'
@@ -47,38 +48,17 @@ export default function ScanPage() {
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
   const [annotationVersion, setAnnotationVersion] = useState(1)
   const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
-  const [isPlayingSpeech, setIsPlayingSpeech] = useState(false)
   const [contextText, setContextText] = useState('')
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const audioUrlRef = useRef<string | null>(null)
-  const speechRequestIdRef = useRef(0)
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
-
-  const stopSpeechPlayback = useCallback(() => {
-    speechRequestIdRef.current += 1
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.onended = null
-      audioRef.current = null
-    }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current)
-      audioUrlRef.current = null
-    }
-    setIsPlayingSpeech(false)
-  }, [])
-
-  useEffect(() => {
-    return () => stopSpeechPlayback()
-  }, [stopSpeechPlayback])
+  const speech = useSpeechPlayback()
 
   useEffect(() => {
     if (!selectedText) {
       setSelectionRect(null)
-      stopSpeechPlayback()
+      speech.stop()
     }
-  }, [selectedText, stopSpeechPlayback])
+  }, [selectedText, speech.stop])
 
   const handleTextSelect = () => {
     const selection = window.getSelection()
@@ -86,7 +66,7 @@ export default function ScanPage() {
       clearSelection()
       setContextText('')
       setSelectionRect(null)
-      stopSpeechPlayback()
+      speech.stop()
       return
     }
     handleSelection(selection.toString())
@@ -151,7 +131,7 @@ export default function ScanPage() {
       setAnnotationVersion(1)
       clearSelection()
       setSelectionRect(null)
-      stopSpeechPlayback()
+      speech.stop()
     } catch (err) {
       console.error('Failed to save annotation:', err)
       alert('Failed to save annotation. Please try again.')
@@ -187,21 +167,17 @@ export default function ScanPage() {
     setAnnotationVersion(1)
     clearSelection()
     setSelectionRect(null)
-    stopSpeechPlayback()
+    speech.stop()
   }
 
   const handleSpeechToggle = async () => {
     if (!selectedText) {
       return
     }
-    if (isPlayingSpeech || synthesizeSpeech.isPending) {
-      stopSpeechPlayback()
+    if (speech.isPlaying || synthesizeSpeech.isPending) {
+      speech.stop()
       return
     }
-
-    const requestId = speechRequestIdRef.current + 1
-    speechRequestIdRef.current = requestId
-    setIsPlayingSpeech(true)
 
     try {
       const audioBlob = await synthesizeSpeech.mutateAsync({
@@ -209,28 +185,9 @@ export default function ScanPage() {
         contextText,
       })
 
-      if (speechRequestIdRef.current != requestId) {
-        setIsPlayingSpeech(false)
-        return
-      }
-
-      const audioUrl = URL.createObjectURL(audioBlob)
-      const audio = new Audio(audioUrl)
-      audioUrlRef.current = audioUrl
-      audioRef.current = audio
-      audio.onended = () => {
-        if (audioRef.current) {
-          audioRef.current = null
-        }
-        if (audioUrlRef.current) {
-          URL.revokeObjectURL(audioUrlRef.current)
-          audioUrlRef.current = null
-        }
-        setIsPlayingSpeech(false)
-      }
-      await audio.play()
+      await speech.play(audioBlob)
     } catch (err) {
-      stopSpeechPlayback()
+      speech.stop()
       console.error('Failed to synthesize speech:', err)
       alert('Failed to synthesize speech. Please try again.')
     }
@@ -323,7 +280,7 @@ export default function ScanPage() {
         <SelectionSpeechButton
           selectionRect={selectionRect}
           isLoading={synthesizeSpeech.isPending}
-          isPlaying={isPlayingSpeech}
+          isPlaying={speech.isPlaying}
           onClick={handleSpeechToggle}
         />
       )}
