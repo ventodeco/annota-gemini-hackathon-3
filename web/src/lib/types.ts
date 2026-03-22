@@ -146,6 +146,30 @@ export interface PaginationMeta {
   previousPage?: number
 }
 
+// Document Types
+export interface Document {
+  id: number
+  filename: string
+  pageCount: number
+  createdAt: string
+}
+
+export interface UploadDocumentResponse {
+  documentId: number
+  pageCount: number
+  filename: string
+}
+
+export interface DocumentPageResponse {
+  pageNumber: number
+  text: string
+  totalPages: number
+}
+
+export interface CreateScanFromPageResponse {
+  scanId: number
+}
+
 // Legacy Types (for reference during migration)
 export interface LegacyScan {
   id: string
