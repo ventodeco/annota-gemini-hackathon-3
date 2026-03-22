@@ -1,5 +1,6 @@
 import { useParams } from 'react-router-dom'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import PageList from '@/components/documentpage/PageList'
@@ -115,7 +116,7 @@ export default function DocumentPage() {
       setIsDrawerOpen(true)
     } catch (err) {
       console.error('Failed to analyze text:', err)
-      alert('Failed to analyze text. Please try again.')
+      toast.error('Failed to analyze text. Please try again.')
     } finally {
       setIsLoadingAnnotation(false)
     }
@@ -137,7 +138,7 @@ export default function DocumentPage() {
       clearSelection()
     } catch (err) {
       console.error('Failed to save annotation:', err)
-      alert('Failed to save annotation. Please try again.')
+      toast.error('Failed to save annotation. Please try again.')
     }
   }
 
@@ -160,7 +161,7 @@ export default function DocumentPage() {
       setAnnotationVersion((prev) => Math.min(prev + 1, MAX_ANNOTATION_VERSIONS))
     } catch (err) {
       console.error('Failed to regenerate annotation:', err)
-      alert('Failed to regenerate annotation. Please try again.')
+      toast.error('Failed to regenerate annotation. Please try again.')
     }
   }
 
