@@ -241,3 +241,88 @@ func TestGetPageTextOutOfRange(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateScanFromPageSuccess(t *testing.T) {
+	mockDB := testutil.NewMockDB()
+	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024}
+	pdfExtractor := &mockPDFExtractor{
+		pages:     3,
+		pageTexts: map[int]string{1: "Page one", 2: "Page two", 3: "Page three"},
+	}
+	h := handlers.NewDocumentHandlers(mockDB, &mockFileStorage{}, pdfExtractor, cfg)
+
+	mockDB.CreateDocument(context.Background(), &models.Document{
+		UserID: 1, FileURL: "test.pdf", Filename: "test.pdf", PageCount: 3, FileSize: 100,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/documents/1/pages/2/scan", nil)
+	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
+	rec := httptest.NewRecorder()
+
+	h.DocumentByIDAPI(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp handlers.CreateScanFromPageResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.ScanID == 0 {
+		t.Fatal("expected non-zero scanId")
+	}
+}
+
+func TestCreateScanFromPageIdempotent(t *testing.T) {
+	mockDB := testutil.NewMockDB()
+	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024}
+	pdfExtractor := &mockPDFExtractor{
+		pages:     3,
+		pageTexts: map[int]string{1: "Page one", 2: "Page two"},
+	}
+	h := handlers.NewDocumentHandlers(mockDB, &mockFileStorage{}, pdfExtractor, cfg)
+
+	mockDB.CreateDocument(context.Background(), &models.Document{
+		UserID: 1, FileURL: "test.pdf", Filename: "test.pdf", PageCount: 3, FileSize: 100,
+	})
+
+	// First call
+	req1 := httptest.NewRequest(http.MethodPost, "/v1/documents/1/pages/2/scan", nil)
+	req1 = req1.WithContext(middleware.WithUserID(req1.Context(), 1))
+	rec1 := httptest.NewRecorder()
+	h.DocumentByIDAPI(rec1, req1)
+
+	var resp1 handlers.CreateScanFromPageResponse
+	json.Unmarshal(rec1.Body.Bytes(), &resp1)
+
+	// Second call — same doc+page should return same scan
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/documents/1/pages/2/scan", nil)
+	req2 = req2.WithContext(middleware.WithUserID(req2.Context(), 1))
+	rec2 := httptest.NewRecorder()
+	h.DocumentByIDAPI(rec2, req2)
+
+	var resp2 handlers.CreateScanFromPageResponse
+	json.Unmarshal(rec2.Body.Bytes(), &resp2)
+
+	if resp1.ScanID != resp2.ScanID {
+		t.Fatalf("expected same scanId, got %d and %d", resp1.ScanID, resp2.ScanID)
+	}
+	// Second call returns 200 (existing), not 201
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for idempotent call, got %d", rec2.Code)
+	}
+}
+
+func TestCreateScanFromPageOutOfRange(t *testing.T) {
+	h, mockDB := newDocumentHandlers(t)
+	mockDB.CreateDocument(context.Background(), &models.Document{
+		UserID: 1, FileURL: "test.pdf", Filename: "test.pdf", PageCount: 3, FileSize: 100,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/documents/1/pages/99/scan", nil)
+	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
+	rec := httptest.NewRecorder()
+
+	h.DocumentByIDAPI(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}

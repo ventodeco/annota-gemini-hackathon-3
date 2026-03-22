@@ -209,9 +209,7 @@ func (h *DocumentHandlers) DocumentByIDAPI(w http.ResponseWriter, r *http.Reques
 			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
-		// Stub for Task 5
-		_ = pageNum
-		httputil.WriteJSONError(w, http.StatusNotImplemented, "Not implemented")
+		h.createScanFromPageHandler(w, r, doc, pageNum)
 
 	default:
 		httputil.WriteJSONError(w, http.StatusNotFound, "Not found")
@@ -225,6 +223,47 @@ func (h *DocumentHandlers) getDocumentHandler(w http.ResponseWriter, doc *models
 		PageCount: doc.PageCount,
 		CreatedAt: doc.CreatedAt.Format(time.RFC3339),
 	})
+}
+
+func (h *DocumentHandlers) createScanFromPageHandler(w http.ResponseWriter, r *http.Request, doc *models.Document, pageNumber int) {
+	userID := middleware.GetUserID(r.Context())
+
+	if pageNumber < 1 || pageNumber > doc.PageCount {
+		httputil.WriteJSONError(w, http.StatusNotFound,
+			fmt.Sprintf("Page %d not found. Document has %d pages.", pageNumber, doc.PageCount))
+		return
+	}
+
+	// Idempotency: check if scan already exists for this document+page
+	existing, err := h.db.GetScanByDocumentPage(r.Context(), doc.ID, pageNumber)
+	if err == nil && existing != nil {
+		httputil.WriteJSON(w, http.StatusOK, CreateScanFromPageResponse{ScanID: existing.ID})
+		return
+	}
+
+	// Extract text from page
+	text, err := h.pdfExtractor.ExtractText(doc.FileURL, pageNumber)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to extract text from page")
+		return
+	}
+
+	// Create scan with text populated immediately
+	scan := &models.Scan{
+		UserID:     userID,
+		FullOCRText: &text,
+		DocumentID: &doc.ID,
+		PageNumber: &pageNumber,
+		CreatedAt:  time.Now(),
+	}
+
+	scanID, err := h.db.CreateScanFromDocument(r.Context(), scan)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create scan")
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusCreated, CreateScanFromPageResponse{ScanID: scanID})
 }
 
 func (h *DocumentHandlers) getPageTextHandler(w http.ResponseWriter, doc *models.Document, pageNumber int) {
