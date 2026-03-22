@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gemini-hackathon/app/internal/config"
@@ -123,5 +124,124 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 		DocumentID: docID,
 		PageCount:  pageCount,
 		Filename:   header.Filename,
+	})
+}
+
+// GetDocumentResponse is the JSON response for retrieving document metadata.
+type GetDocumentResponse struct {
+	ID        int64  `json:"id"`
+	Filename  string `json:"filename"`
+	PageCount int    `json:"pageCount"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// GetPageResponse is the JSON response for retrieving a single page's text.
+type GetPageResponse struct {
+	PageNumber int    `json:"pageNumber"`
+	Text       string `json:"text"`
+	TotalPages int    `json:"totalPages"`
+}
+
+// CreateScanFromPageResponse is the JSON response for creating a scan from a document page.
+type CreateScanFromPageResponse struct {
+	ScanID int64 `json:"scanId"`
+}
+
+// DocumentByIDAPI routes requests for /v1/documents/{id} and sub-resources.
+func (h *DocumentHandlers) DocumentByIDAPI(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == 0 {
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	remainder := strings.TrimPrefix(r.URL.Path, "/v1/documents/")
+	parts := strings.Split(remainder, "/")
+
+	docID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid document ID")
+		return
+	}
+
+	doc, err := h.db.GetDocumentByID(r.Context(), docID)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to retrieve document")
+		return
+	}
+	if doc == nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "Document not found")
+		return
+	}
+
+	if doc.UserID != userID {
+		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
+		return
+	}
+
+	switch {
+	case len(parts) == 1:
+		if r.Method != http.MethodGet {
+			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		h.getDocumentHandler(w, doc)
+
+	case len(parts) == 3 && parts[1] == "pages":
+		pageNum, err := strconv.Atoi(parts[2])
+		if err != nil {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid page number")
+			return
+		}
+		if r.Method != http.MethodGet {
+			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		h.getPageTextHandler(w, doc, pageNum)
+
+	case len(parts) == 4 && parts[1] == "pages" && parts[3] == "scan":
+		pageNum, err := strconv.Atoi(parts[2])
+		if err != nil {
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid page number")
+			return
+		}
+		if r.Method != http.MethodPost {
+			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		// Stub for Task 5
+		_ = pageNum
+		httputil.WriteJSONError(w, http.StatusNotImplemented, "Not implemented")
+
+	default:
+		httputil.WriteJSONError(w, http.StatusNotFound, "Not found")
+	}
+}
+
+func (h *DocumentHandlers) getDocumentHandler(w http.ResponseWriter, doc *models.Document) {
+	httputil.WriteJSON(w, http.StatusOK, GetDocumentResponse{
+		ID:        doc.ID,
+		Filename:  doc.Filename,
+		PageCount: doc.PageCount,
+		CreatedAt: doc.CreatedAt.Format(time.RFC3339),
+	})
+}
+
+func (h *DocumentHandlers) getPageTextHandler(w http.ResponseWriter, doc *models.Document, pageNumber int) {
+	if pageNumber < 1 || pageNumber > doc.PageCount {
+		httputil.WriteJSONError(w, http.StatusNotFound, "Page not found")
+		return
+	}
+
+	text, err := h.pdfExtractor.ExtractText(doc.FileURL, pageNumber)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to extract page text")
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, GetPageResponse{
+		PageNumber: pageNumber,
+		Text:       text,
+		TotalPages: doc.PageCount,
 	})
 }
