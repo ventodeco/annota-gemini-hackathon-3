@@ -12,11 +12,13 @@ type MockDB struct {
 	users          map[int64]*models.User
 	scans          map[int64]*models.Scan
 	annotations    map[int64]*models.Annotation
+	documents      map[int64]*models.Document
 	userByEmail    map[string]*models.User
 	userByProvider map[string]*models.User
 	nextUserID     int64
 	nextScanID     int64
 	nextAnnID      int64
+	nextDocID      int64
 }
 
 func NewMockDB() *MockDB {
@@ -24,11 +26,13 @@ func NewMockDB() *MockDB {
 		users:          make(map[int64]*models.User),
 		scans:          make(map[int64]*models.Scan),
 		annotations:    make(map[int64]*models.Annotation),
+		documents:      make(map[int64]*models.Document),
 		userByEmail:    make(map[string]*models.User),
 		userByProvider: make(map[string]*models.User),
 		nextUserID:     1,
 		nextScanID:     1,
 		nextAnnID:      1,
+		nextDocID:      1,
 	}
 }
 
@@ -149,4 +153,32 @@ func (m *MockDB) GetAnnotationsByUserIDAndScanID(
 		}
 	}
 	return result, nil
+}
+
+func (m *MockDB) CreateDocument(ctx context.Context, doc *models.Document) (int64, error) {
+	doc.ID = m.nextDocID
+	m.nextDocID++
+	m.documents[doc.ID] = doc
+	return doc.ID, nil
+}
+
+func (m *MockDB) GetDocumentByID(ctx context.Context, docID int64) (*models.Document, error) {
+	return m.documents[docID], nil
+}
+
+func (m *MockDB) GetScanByDocumentPage(ctx context.Context, documentID int64, pageNumber int) (*models.Scan, error) {
+	for _, scan := range m.scans {
+		if scan.DocumentID != nil && *scan.DocumentID == documentID &&
+			scan.PageNumber != nil && *scan.PageNumber == pageNumber {
+			return scan, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *MockDB) CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error) {
+	scan.ID = m.nextScanID
+	m.nextScanID++
+	m.scans[scan.ID] = scan
+	return scan.ID, nil
 }
