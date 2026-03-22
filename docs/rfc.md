@@ -1,47 +1,70 @@
-## RFC: Mobile-first PWA OCR+Annotation (Go + React + Gemini)
+## RFC: Mobile-first PWA OCR+PDF Reader+Annotation (Go + React + Gemini)
 
 ### Status
 Active - React frontend with Go API backend
 
 ### Summary
-Build a **mobile-first PWA** that lets users **upload/take a photo of a Japanese book page**, runs **Gemini Flash OCR** to extract text, then lets users **highlight words/sentences** to get **contextual professional/work explanations** (meaning, usage example, when to use, word breakdown, alternative meanings).
+Build a **mobile-first PWA** with two equal input paths:
+1. **Camera/Image**: upload/take a photo of a Japanese book page → **Gemini Flash OCR** to extract text
+2. **PDF**: upload a PDF document → **direct text extraction** (no OCR needed) → **Kindle-like page-by-page reader**
+
+Both paths feed into the same core value loop: users **highlight words/sentences** to get **contextual professional/work explanations** (meaning, usage example, when to use, word breakdown, alternative meanings) and **text-to-speech**.
 
 ### Goals
 - **Fast OCR**: image → readable text preview (target OCR success rate ≥ 85% per PRD)
+- **Instant PDF text**: PDF page → extracted text in ≤ 1 second (no Gemini API call)
 - **Core value loop**: highlight → annotation within ≤ 3 seconds on average (PRD)
+- **Kindle-like reader**: page-by-page navigation with swipe/tap for PDF documents
 - **Mobile UX first**: React-driven UI optimized for touch selection and quick iteration
-- **Persistence**: scans and annotations persist across sessions (session-based in Phase0)
+- **Persistence**: scans, documents, and annotations persist across sessions
 
 ### Non-goals (Phase0)
 - Google OAuth (Phase1)
 - Bookmark/history UI (Phase2)
 - Offline OCR/annotation (PWA only caches shell/assets; API calls require network)
+- Scanned/image-only PDFs (text-based PDFs only for MVP)
 - Native apps, realtime live scanning, handwriting, quizzes (PRD out of scope)
 
 ### Scope
-#### Phase0 (now): PRD 7.1.2 ImageCaptureUpload + 7.1.3 TextInteractionAnnotation
-- **Input**: upload from gallery (and optionally capture via browser camera input)
-- **OCR**: Gemini Flash vision OCR to extract Japanese text
-- **Text preview**: show extracted text, allow selecting/highlighting
+#### Phase0 (now): Image OCR + PDF Reader + Annotation
+- **Image input**: upload from gallery (and optionally capture via browser camera input)
+- **PDF input**: upload PDF document, extract text directly per page
+- **OCR**: Gemini Flash vision OCR to extract Japanese text (image path only)
+- **PDF reader**: Kindle-like page-by-page view with swipe/tap navigation
+- **Text preview**: show extracted text (from OCR or PDF), allow selecting/highlighting
 - **Annotation**: Gemini generates structured fields for highlighted text
+- **TTS**: text-to-speech for Japanese text
 - **Identity**: anonymous **session cookie** (no login)
 
 #### Phase1 (next): PRD 7.1.2 AppEntryAuthentication
 - Google OAuth sign-in
 - Associate existing session data to a user upon login
 
-#### Phase2 (next): PRD 7.1.4 BookmarkHistory
+#### Phase2 (next): PRD 7.1.6 BookmarkHistory
 - Save/bookmark annotations
-- Scan history + annotation history pages
+- Scan history + document library + annotation history pages
 
-### User experience (Phase0 happy flow)
+### User experience (Phase0 happy flows)
+
+**Image path:**
 - User opens app (PWA)
-- User chooses **Upload** (or capture)
+- User chooses **Take Photo** or **Upload from Gallery**
 - App shows **OCR processing** state
 - App shows **Text Preview**
 - User highlights a word/sentence
 - App shows **Annotation Result** with required fields
-- User can highlight another phrase (loop)
+- User can highlight another phrase (loop) or use TTS
+
+**PDF path:**
+- User opens app (PWA)
+- User chooses **Upload PDF**
+- App uploads PDF and shows **Page List** (simple text list: Page 1, Page 2, ...)
+- User taps a page
+- App shows **Kindle-like Page Reader** with extracted text
+- User swipes/taps to navigate between pages
+- User highlights a word/sentence
+- App shows **Annotation Result** with required fields
+- User can highlight another phrase (loop) or use TTS
 
 ### Architecture
 #### Monorepo Structure
@@ -67,29 +90,40 @@ gemini-hackathon/
 #### Components
 - **PWA client**: React SPA with shadcn/ui components, Tailwind CSS v4, optimized for mobile selection UX
 - **Go web server**: API backend serving JSON responses; serves React static files from `web/dist/` in production
-- **Gemini API client**: two calls
-  - **OCR**: image → extracted text JSON
+- **Gemini API client**: three calls
+  - **OCR**: image → extracted text JSON (image path only)
   - **Annotation**: extracted text + selection → structured annotation JSON
-- **SQLite**: metadata + OCR text + annotations (Phase0); users/bookmarks later
-- **File storage**: store uploaded images on disk (e.g. `backend/data/uploads/`), DB stores path + hashes
+  - **TTS**: Japanese text → speech audio
+- **PDF text extraction**: Go PDF library extracts text per page (no Gemini API call)
+- **PostgreSQL**: metadata + OCR text + documents + annotations; users/bookmarks later
+- **File storage**: store uploaded images and PDFs on disk, DB stores path + hashes
 
 #### PWA strategy
 - `manifest.webmanifest` for installability
 - Service worker caches the app shell + static assets for faster repeat loads
-- OCR/annotation endpoints are **network-only** (no offline compute)
+- OCR/annotation/PDF endpoints are **network-only** (no offline compute)
 
 #### Gemini integration
 - **Model**: Gemini Flash for OCR (vision) and annotation (text)
 - **Output format**: JSON-first prompts so backend can store and render reliably
 - **Prompt versioning**: store `prompt_version` with OCR/annotation for later iteration
+- **Not used for PDF**: PDF text extraction is handled by Go PDF library, not Gemini
 
 ### API surface
 
-#### JSON API Endpoints
+#### JSON API Endpoints — Image/Scan
 - **POST /api/scans**: multipart upload, returns JSON `{"scanID": "...", "status": "uploaded", "createdAt": "..."}`
 - **GET /api/scans/{id}**: returns JSON `{"scan": {...}, "ocrResult": {...} | null, "status": "..."}`
 - **POST /api/scans/{id}/annotate**: accepts JSON `{"selectedText": "..."}`, returns annotation JSON
 - **GET /api/scans/{id}/image**: returns binary image data
+
+#### JSON API Endpoints — PDF/Document
+- **POST /api/documents**: multipart PDF upload, returns JSON `{"documentId": ..., "pageCount": ..., "filename": "..."}`
+- **GET /api/documents/{id}**: returns document metadata `{"id": ..., "filename": "...", "pageCount": ..., "createdAt": "..."}`
+- **GET /api/documents/{id}/pages/{n}**: extracts and returns text for page N `{"pageNumber": ..., "text": "...", "totalPages": ...}`
+- **POST /api/documents/{id}/pages/{n}/scan**: creates scan record from PDF page text, returns `{"scanId": ...}`
+
+#### Common Endpoints
 - **GET /healthz**: basic health check
 
 #### Static File Serving
@@ -97,15 +131,17 @@ gemini-hackathon/
 - React Router handles client-side routing for all non-API paths
 
 ### Data model
+
 #### Diagrams
 ```mermaid
 flowchart LR
   User[UserMobileBrowser] --> ReactApp[React_PWA_App]
   ReactApp --> GoAPI[Go_API_Server]
-  GoAPI --> SQLite[(SQLite)]
+  GoAPI --> PostgreSQL[(PostgreSQL)]
   GoAPI --> FileStore[(LocalFileStorage)]
   GoAPI --> Gemini[GeminiAPI]
-  
+  GoAPI --> PDFLib[Go_PDF_Library]
+
   ReactApp -.->|Static_Assets| GoAPI
 ```
 
@@ -115,9 +151,10 @@ sequenceDiagram
   participant R as ReactApp
   participant S as GoAPIServer
   participant G as GeminiAPI
-  participant D as SQLite
+  participant D as PostgreSQL
   participant F as FileStore
 
+  Note over U,F: Image/Camera Path (OCR)
   U->>R: SelectImageOrCapture
   R->>S: POST_/api/scans(multipart_image)
   S->>F: PersistImageFile
@@ -125,7 +162,7 @@ sequenceDiagram
   S-->>R: JSON{scanID,status}
   S->>G: OCR(image,ocr_prompt)
   G-->>S: OCR_JSON(extracted_text)
-  S->>D: UpsertOCRResult
+  S->>D: UpdateScanOCR
   R->>S: GET_/api/scans/{scanID}(polling)
   S-->>R: JSON{scan,ocrResult,status}
   R->>R: RenderTextPreview
@@ -136,13 +173,39 @@ sequenceDiagram
   participant U as User
   participant R as ReactApp
   participant S as GoAPIServer
-  participant G as GeminiAPI
-  participant D as SQLite
+  participant P as PDFLibrary
+  participant D as PostgreSQL
+  participant F as FileStore
 
+  Note over U,F: PDF Path (Direct Text Extraction)
+  U->>R: UploadPDF
+  R->>S: POST_/api/documents(multipart_pdf)
+  S->>F: PersistPDFFile
+  S->>P: ExtractPageCount
+  S->>D: InsertDocument
+  S-->>R: JSON{documentId,pageCount,filename}
+  R->>R: RenderPageList
+
+  U->>R: SelectPage(n)
+  R->>S: GET_/api/documents/{id}/pages/{n}
+  S->>P: ExtractTextFromPage(n)
+  S-->>R: JSON{pageNumber,text,totalPages}
+  R->>R: RenderKindleReader
+```
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant R as ReactApp
+  participant S as GoAPIServer
+  participant G as GeminiAPI
+  participant D as PostgreSQL
+
+  Note over U,D: Annotation Flow (shared by both paths)
   U->>R: HighlightText
   R->>S: POST_/api/scans/{scanID}/annotate{selectedText}
-  S->>D: ReadOCRText
-  S->>G: Annotate(ocr_text,selection)
+  S->>D: ReadFullText
+  S->>G: Annotate(full_text,selection)
   G-->>S: Annotation_JSON
   S->>D: InsertAnnotation
   S-->>R: JSON_Annotation
@@ -151,63 +214,43 @@ sequenceDiagram
 
 ```mermaid
 erDiagram
-  SESSIONS ||--o{ SCANS : owns
   USERS ||--o{ SCANS : owns
-  SCANS ||--|| SCAN_IMAGES : has
-  SCANS ||--|| OCR_RESULTS : has
-  OCR_RESULTS ||--o{ ANNOTATIONS : produces
+  USERS ||--o{ DOCUMENTS : owns
+  DOCUMENTS ||--o{ SCANS : sources
+  SCANS ||--o{ ANNOTATIONS : has
   USERS ||--o{ BOOKMARKS : saves
   ANNOTATIONS ||--o{ BOOKMARKS : saved_as
 
-  SESSIONS {
-    text id PK
-    datetime created_at
-    datetime last_seen_at
-    text user_id FK
-  }
   USERS {
-    text id PK
-    text provider
-    text provider_subject
+    bigint id PK
     text email
     text name
-    datetime created_at
+    text avatar_url
+    timestamp created_at
+  }
+  DOCUMENTS {
+    bigint id PK
+    bigint user_id FK
+    text file_url
+    text filename
+    integer page_count
+    bigint file_size
+    timestamp created_at
   }
   SCANS {
-    text id PK
-    text session_id FK
-    text user_id FK
-    text source
-    text status
-    datetime created_at
-  }
-  SCAN_IMAGES {
-    text id PK
-    text scan_id FK
-    text storage_path
-    text mime_type
-    text sha256
-    integer width
-    integer height
-    datetime created_at
-  }
-  OCR_RESULTS {
-    text id PK
-    text scan_id FK
-    text model
-    text language
-    text raw_text
-    text structured_json
-    text prompt_version
-    datetime created_at
+    bigint id PK
+    bigint user_id FK
+    bigint document_id FK
+    integer page_number
+    text image_url
+    text full_ocr_text
+    text detected_language
+    timestamp created_at
   }
   ANNOTATIONS {
-    text id PK
-    text ocr_result_id FK
-    text scan_id FK
+    bigint id PK
+    bigint scan_id FK
     text selected_text
-    integer selection_start
-    integer selection_end
     text meaning
     text usage_example
     text when_to_use
@@ -215,113 +258,38 @@ erDiagram
     text alternative_meanings
     text model
     text prompt_version
-    datetime created_at
+    timestamp created_at
   }
   BOOKMARKS {
-    text id PK
-    text user_id FK
-    text annotation_id FK
-    datetime created_at
+    bigint id PK
+    bigint user_id FK
+    bigint annotation_id FK
+    timestamp created_at
   }
 ```
 
-#### SQLite schema (DDL)
+#### Database schema (DDL)
 ```sql
-PRAGMA foreign_keys = ON;
-
--- Phase0 identity: anonymous session (cookie) with optional future user association
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NULL,
-  created_at TEXT NOT NULL,
-  last_seen_at TEXT NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id)
+-- Documents table (PDF uploads)
+CREATE TABLE IF NOT EXISTS documents (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT REFERENCES users(id),
+  file_url TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  page_count INTEGER NOT NULL,
+  file_size BIGINT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Phase1: Google OAuth users
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  provider TEXT NOT NULL,
-  provider_subject TEXT NOT NULL,
-  email TEXT NULL,
-  name TEXT NULL,
-  avatar_url TEXT NULL,
-  created_at TEXT NOT NULL,
-  UNIQUE(provider, provider_subject)
-);
+CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);
 
--- Phase0 scan records
-CREATE TABLE IF NOT EXISTS scans (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,
-  user_id TEXT NULL,
-  source TEXT NOT NULL,      -- camera|upload
-  status TEXT NOT NULL,      -- uploaded|ocr_done|failed
-  created_at TEXT NOT NULL,
-  FOREIGN KEY (session_id) REFERENCES sessions(id),
-  FOREIGN KEY (user_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS scan_images (
-  id TEXT PRIMARY KEY,
-  scan_id TEXT NOT NULL UNIQUE,
-  storage_path TEXT NOT NULL,
-  mime_type TEXT NOT NULL,
-  sha256 TEXT NULL,
-  width INTEGER NULL,
-  height INTEGER NULL,
-  created_at TEXT NOT NULL,
-  FOREIGN KEY (scan_id) REFERENCES scans(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS ocr_results (
-  id TEXT PRIMARY KEY,
-  scan_id TEXT NOT NULL UNIQUE,
-  model TEXT NOT NULL,
-  language TEXT NULL,
-  raw_text TEXT NOT NULL,
-  structured_json TEXT NULL,
-  prompt_version TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  FOREIGN KEY (scan_id) REFERENCES scans(id) ON DELETE CASCADE
-);
-
--- Phase0 annotations (generated from highlight selections)
-CREATE TABLE IF NOT EXISTS annotations (
-  id TEXT PRIMARY KEY,
-  scan_id TEXT NOT NULL,
-  ocr_result_id TEXT NOT NULL,
-  selected_text TEXT NOT NULL,
-  selection_start INTEGER NULL,
-  selection_end INTEGER NULL,
-  meaning TEXT NOT NULL,
-  usage_example TEXT NOT NULL,
-  when_to_use TEXT NOT NULL,
-  word_breakdown TEXT NOT NULL,
-  alternative_meanings TEXT NOT NULL,
-  model TEXT NOT NULL,
-  prompt_version TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  FOREIGN KEY (scan_id) REFERENCES scans(id) ON DELETE CASCADE,
-  FOREIGN KEY (ocr_result_id) REFERENCES ocr_results(id) ON DELETE CASCADE
-);
-
--- Phase2 bookmarks
-CREATE TABLE IF NOT EXISTS bookmarks (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  annotation_id TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE,
-  UNIQUE(user_id, annotation_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_scans_session_id_created_at ON scans(session_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_scans_user_id_created_at ON scans(user_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_annotations_scan_id_created_at ON annotations(scan_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_bookmarks_user_id_created_at ON bookmarks(user_id, created_at);
+-- Add document link to scans table
+-- (existing scans table gets two new nullable columns)
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS document_id BIGINT REFERENCES documents(id);
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS page_number INTEGER;
 ```
+
+Note: The existing `scans`, `users`, and `annotations` tables are defined in `backend/migrations/001_initial_database_schema.sql`. The above DDL shows only the new additions for PDF support.
 
 ### Frontend Architecture
 
@@ -344,16 +312,25 @@ CREATE INDEX IF NOT EXISTS idx_bookmarks_user_id_created_at ON bookmarks(user_id
 web/src/
 ├── pages/                    # Page components
 │   ├── HomePage.tsx
-│   ├── ScanPage.tsx
+│   ├── WelcomePage.tsx       # Entry: Take Photo / Upload Image / Upload PDF
+│   ├── ScanPage.tsx          # Image scan text preview + annotation
+│   ├── DocumentPage.tsx      # NEW: PDF page list + Kindle reader
+│   ├── LoadingPage.tsx       # OCR loading state
+│   ├── CameraPage.tsx        # Camera capture
 │   └── NotFoundPage.tsx
 ├── components/
-│   ├── ui/                  # shadcn/ui components
-│   ├── homepage/            # HomePage-specific components
-│   └── scanpage/            # ScanPage-specific components
+│   ├── ui/                   # shadcn/ui components
+│   ├── homepage/             # HomePage-specific components
+│   ├── scanpage/             # ScanPage-specific components
+│   └── documentpage/         # NEW: PDF reader components
+│       ├── PageList.tsx      # Simple page number list
+│       ├── PageReader.tsx    # Kindle-like text reader with navigation
+│       └── PageNavigator.tsx # Swipe/tap prev/next controls
 ├── hooks/                    # Custom React hooks
 │   ├── useScan.ts
 │   ├── useAnnotation.ts
-│   └── useTextSelection.ts
+│   ├── useTextSelection.ts
+│   └── useDocument.ts       # NEW: Document data fetching + page navigation
 ├── lib/                      # Utilities, API client, types
 │   ├── api.ts               # API client functions
 │   ├── types.ts             # TypeScript types
@@ -369,12 +346,19 @@ backend/
 ├── internal/
 │   ├── config/              # Configuration loading
 │   ├── handlers/            # HTTP handlers (JSON API)
+│   │   ├── scan.go          # Image scan handlers
+│   │   └── document.go      # NEW: PDF document handlers
 │   ├── middleware/          # Session, logging middleware
 │   ├── models/              # Data models
+│   │   ├── scan.go
+│   │   └── document.go      # NEW: Document model
 │   ├── storage/             # Database and file storage
 │   ├── gemini/              # Gemini API client
+│   ├── pdf/                 # NEW: PDF text extraction
 │   └── testutil/            # Test helpers and mocks
-└── migrations/              # SQLite schema migrations
+└── migrations/              # Database migrations
+    ├── 001_initial_database_schema.sql
+    └── 002_add_documents.sql  # NEW: Documents table + scan columns
 ```
 
 #### Build Integration
@@ -403,7 +387,7 @@ backend/
 - Strong TypeScript support
 - Better mobile UX libraries and patterns
 - Modern tooling (Vite, HMR, etc.)
-- Easier to implement complex interactions
+- Easier to implement complex interactions (Kindle-like reader, swipe gestures)
 - Large community and resources
 
 **Why TypeScript**:
@@ -430,12 +414,26 @@ backend/
 - Fast compilation and execution
 - Excellent standard library for HTTP servers
 - Simple concurrency model (goroutines)
-- Good SQLite support
+- Good PostgreSQL support
 - Small binary size
 - Cross-platform support
+- Pure Go PDF libraries available (no CGO dependency)
+
+#### PDF Text Extraction: Go PDF Library
+
+**Why Go PDF library (not Gemini)**:
+- PDFs contain embedded digital text — OCR is unnecessary
+- Direct extraction is instant (< 1 second) vs Gemini API call (1-3 seconds)
+- No API cost per page extraction
+- Works offline (no network dependency for text extraction)
+
+**Recommended library**: `github.com/ledongthuc/pdf` or `github.com/dslipak/pdf`
+- Pure Go (no CGO dependency)
+- Lightweight, focused on text extraction
+- Alternative: `pdfcpu` (more features but heavier)
 
 ### Tasks
-#### Phase0: Core happy flow (7.1.2 ImageCaptureUpload + 7.1.3 Annotation)
+#### Phase0: Core happy flow (Image OCR + PDF Reader + Annotation)
 - [x] Add base Go web server (API backend)
 - [x] Migrate to React frontend
   - [x] Setup Bun workspace and React app with Vite
@@ -452,6 +450,15 @@ backend/
 - [x] Static file serving
   - [x] Go server serves React SPA from `web/dist/`
   - [x] SPA routing for all non-API routes
+- [ ] PDF document support
+  - [ ] Database migration: `documents` table + `scans` columns
+  - [ ] PDF upload endpoint: POST /api/documents
+  - [ ] PDF text extraction: GET /api/documents/{id}/pages/{n}
+  - [ ] PDF-to-scan bridge: POST /api/documents/{id}/pages/{n}/scan
+  - [ ] WelcomePage: Add "Upload PDF" button
+  - [ ] DocumentPage: Page list view
+  - [ ] DocumentPage: Kindle-like page reader with swipe/tap navigation
+  - [ ] useDocument hook for data fetching + page state
 - [ ] Implement session cookie identity
   - [ ] Create/read session cookie
   - [ ] Update `sessions.last_seen_at`
@@ -482,8 +489,9 @@ backend/
 - [ ] Session-to-user association (on login)
 - [ ] Protect user-specific pages/endpoints where needed
 
-#### Phase2: Bookmark & history (7.1.4 BookmarkHistory)
+#### Phase2: Bookmark & history (7.1.6 BookmarkHistory)
 - [ ] Save bookmark action on annotation result
 - [ ] Bookmarks page (list by date/time) + detail view
 - [ ] Scan history page (list scans) + scan detail
+- [ ] Document library (list uploaded PDFs) + continue reading
 - [ ] Annotation history (optional: per scan and global)
