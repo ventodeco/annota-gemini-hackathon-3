@@ -162,6 +162,14 @@ func (m *MockDB) CreateDocument(ctx context.Context, doc *models.Document) (int6
 	return doc.ID, nil
 }
 
+func (m *MockDB) UpdateDocumentFileInfo(ctx context.Context, docID int64, fileURL string, pageCount int) error {
+	if doc, ok := m.documents[docID]; ok {
+		doc.FileURL = fileURL
+		doc.PageCount = pageCount
+	}
+	return nil
+}
+
 func (m *MockDB) GetDocumentByID(ctx context.Context, docID int64) (*models.Document, error) {
 	return m.documents[docID], nil
 }

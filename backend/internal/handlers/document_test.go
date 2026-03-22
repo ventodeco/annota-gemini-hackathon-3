@@ -142,6 +142,40 @@ func TestUploadDocumentMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestUploadDocumentTooLarge(t *testing.T) {
+	mockDB := testutil.NewMockDB()
+	cfg := &config.Config{MaxUploadSize: 1024} // 1KB limit
+	pdfExtractor := &mockPDFExtractor{pages: 5, pageTexts: map[int]string{1: "page 1 text"}}
+	h := handlers.NewDocumentHandlers(mockDB, &mockFileStorage{}, pdfExtractor, cfg)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	fileHeader := make(textproto.MIMEHeader)
+	fileHeader.Set("Content-Disposition", `form-data; name="file"; filename="large.pdf"`)
+	fileHeader.Set("Content-Type", "application/pdf")
+	part, err := writer.CreatePart(fileHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write 2KB of data to exceed the 1KB limit
+	largeData := make([]byte, 2*1024)
+	for i := range largeData {
+		largeData[i] = 'A'
+	}
+	part.Write(largeData)
+	writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/documents", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
+	rec := httptest.NewRecorder()
+
+	h.DocumentsAPI(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestGetDocumentSuccess(t *testing.T) {
 	h, mockDB := newDocumentHandlers(t)
 

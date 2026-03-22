@@ -120,6 +120,11 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
+	if err := h.db.UpdateDocumentFileInfo(r.Context(), docID, filePath, pageCount); err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to update document record")
+		return
+	}
+
 	httputil.WriteJSON(w, http.StatusCreated, UploadDocumentResponse{
 		DocumentID: docID,
 		PageCount:  pageCount,

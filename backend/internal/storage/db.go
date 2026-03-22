@@ -25,6 +25,7 @@ type DB interface {
 	DeleteScan(ctx context.Context, scanID, userID int64) error
 
 	CreateDocument(ctx context.Context, doc *models.Document) (int64, error)
+	UpdateDocumentFileInfo(ctx context.Context, docID int64, fileURL string, pageCount int) error
 	GetDocumentByID(ctx context.Context, docID int64) (*models.Document, error)
 	GetScanByDocumentPage(ctx context.Context, documentID int64, pageNumber int) (*models.Scan, error)
 	CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error)
@@ -309,6 +310,16 @@ func (s *postgresDB) CreateDocument(ctx context.Context, doc *models.Document) (
 		doc.CreatedAt,
 	).Scan(&doc.ID)
 	return doc.ID, err
+}
+
+func (s *postgresDB) UpdateDocumentFileInfo(ctx context.Context, docID int64, fileURL string, pageCount int) error {
+	query := `
+		UPDATE documents
+		SET file_url = $1, page_count = $2
+		WHERE id = $3
+	`
+	_, err := s.db.ExecContext(ctx, query, fileURL, pageCount, docID)
+	return err
 }
 
 func (s *postgresDB) GetDocumentByID(ctx context.Context, docID int64) (*models.Document, error) {
