@@ -8,5 +8,7 @@ type Scan struct {
 	ImageURL         string
 	FullOCRText      *string
 	DetectedLanguage *string
+	DocumentID       *int64
+	PageNumber       *int
 	CreatedAt        time.Time
 }

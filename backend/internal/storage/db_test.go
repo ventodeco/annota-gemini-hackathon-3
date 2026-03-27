@@ -36,12 +36,24 @@ func setupTestDB(t *testing.T) DB {
 			UNIQUE (provider, provider_id)
 		);
 
+		CREATE TABLE documents (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+			file_url TEXT NOT NULL,
+			filename TEXT NOT NULL,
+			page_count INTEGER NOT NULL,
+			file_size BIGINT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+
 		CREATE TABLE scans (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
-			image_url TEXT NOT NULL,
+			image_url TEXT,
 			full_ocr_text TEXT,
 			detected_language VARCHAR(10),
+			document_id BIGINT REFERENCES documents(id) ON DELETE SET NULL,
+			page_number INTEGER,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 
@@ -56,6 +68,7 @@ func setupTestDB(t *testing.T) DB {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 
+		CREATE INDEX idx_documents_user_id ON documents(user_id);
 		CREATE INDEX idx_scans_user_id ON scans(user_id);
 		CREATE INDEX idx_annotations_user_id ON annotations(user_id);
 	`

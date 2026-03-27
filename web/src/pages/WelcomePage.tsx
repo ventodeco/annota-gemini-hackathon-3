@@ -1,15 +1,16 @@
 import { useNavigate } from 'react-router-dom'
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Camera, Image as ImageIcon, LogOut } from 'lucide-react'
+import { Camera, FileText, Image as ImageIcon, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/useAuth'
-import { createScan } from '@/lib/api'
+import { createScan, uploadDocument } from '@/lib/api'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 
 export default function WelcomePage() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
   const { user, logout } = useAuth()
   const [uploadError, setUploadError] = useState<string | null>(null)
 
@@ -22,6 +23,18 @@ export default function WelcomePage() {
       setUploadError(error.message || 'Failed to upload image')
     },
   })
+
+  const pdfUploadMutation = useMutation({
+    mutationFn: uploadDocument,
+    onSuccess: (data) => {
+      navigate(`/documents/${data.documentId}`)
+    },
+    onError: (error: Error) => {
+      setUploadError(error.message || 'Failed to upload PDF')
+    },
+  })
+
+  const isAnyPending = uploadMutation.isPending || pdfUploadMutation.isPending
 
   const handleTakePhoto = () => {
     navigate('/camera')
@@ -42,6 +55,23 @@ export default function WelcomePage() {
 
     setUploadError(null)
     uploadMutation.mutate(file)
+  }
+
+  const handleUploadPDF = () => {
+    pdfInputRef.current?.click()
+  }
+
+  const handlePDFFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.type !== 'application/pdf') {
+      setUploadError('Please select a PDF file')
+      return
+    }
+
+    setUploadError(null)
+    pdfUploadMutation.mutate(file)
   }
 
   const handleLogout = () => {
@@ -86,7 +116,7 @@ export default function WelcomePage() {
           <Button
             onClick={handleTakePhoto}
             variant="default"
-            disabled={uploadMutation.isPending}
+            disabled={isAnyPending}
             className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
           >
             <Camera className="w-5 h-5" />
@@ -95,11 +125,20 @@ export default function WelcomePage() {
           <Button
             onClick={handleUploadGallery}
             variant="secondary"
-            disabled={uploadMutation.isPending}
+            disabled={isAnyPending}
             className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
           >
             <ImageIcon className="w-5 h-5" />
             {uploadMutation.isPending ? 'Uploading...' : 'Upload from Gallery'}
+          </Button>
+          <Button
+            onClick={handleUploadPDF}
+            variant="secondary"
+            disabled={isAnyPending}
+            className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
+          >
+            <FileText className="w-5 h-5" />
+            {pdfUploadMutation.isPending ? 'Uploading...' : 'Upload PDF'}
           </Button>
         </div>
       </div>
@@ -109,6 +148,13 @@ export default function WelcomePage() {
         accept="image/*"
         className="hidden"
         onChange={handleFileChange}
+      />
+      <input
+        ref={pdfInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={handlePDFFileChange}
       />
       <BottomNavigation />
     </div>

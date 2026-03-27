@@ -18,6 +18,11 @@ import type {
   CreateAnnotationResponse,
   GetAnnotationsResponse,
   AnnotationDetail,
+  // Document types
+  Document,
+  UploadDocumentResponse,
+  DocumentPageResponse,
+  CreateScanFromPageResponse,
 } from './types'
 import { logger } from './logger'
 
@@ -246,6 +251,47 @@ export async function deleteAnnotation(annotationId: number): Promise<void> {
   const url = `${API_BASE_URL}/v1/annotations/${annotationId}`
   const response = await fetchWithAuth(url, { method: 'DELETE' })
   return handleResponse(response, 'DELETE', url)
+}
+
+// ============================================================================
+// Documents API
+// ============================================================================
+
+export async function uploadDocument(pdfFile: File): Promise<UploadDocumentResponse> {
+  const formData = new FormData()
+  formData.append('file', pdfFile)
+
+  const url = `${API_BASE_URL}/v1/documents`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: formData,
+  })
+  return handleResponse(response, 'POST', url)
+}
+
+export async function getDocument(documentId: number): Promise<Document> {
+  const url = `${API_BASE_URL}/v1/documents/${documentId}`
+  const response = await fetchWithAuth(url)
+  return handleResponse(response, 'GET', url)
+}
+
+export async function getDocumentPage(
+  documentId: number,
+  pageNumber: number,
+): Promise<DocumentPageResponse> {
+  const url = `${API_BASE_URL}/v1/documents/${documentId}/pages/${pageNumber}`
+  const response = await fetchWithAuth(url)
+  return handleResponse(response, 'GET', url)
+}
+
+export async function createScanFromPage(
+  documentId: number,
+  pageNumber: number,
+): Promise<CreateScanFromPageResponse> {
+  const url = `${API_BASE_URL}/v1/documents/${documentId}/pages/${pageNumber}/scan`
+  const response = await fetchWithAuth(url, { method: 'POST' })
+  return handleResponse(response, 'POST', url)
 }
 
 // ============================================================================

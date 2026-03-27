@@ -13,6 +13,8 @@ type FileStorage interface {
 	SaveImage(scanID string, data []byte, mimeType string) (string, *string, error)
 	OpenImage(path string) ([]byte, error)
 	DeleteImage(path string) error
+	SavePDF(documentID string, data []byte) (string, error)
+	OpenPDF(path string) ([]byte, error)
 }
 
 type localFileStorage struct {
@@ -54,6 +56,30 @@ func (l *localFileStorage) DeleteImage(path string) error {
 		return fmt.Errorf("failed to delete image file: %w", err)
 	}
 	return nil
+}
+
+func (l *localFileStorage) SavePDF(documentID string, data []byte) (string, error) {
+	docDir := filepath.Join(l.baseDir, "documents")
+	if err := os.MkdirAll(docDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create documents directory: %w", err)
+	}
+
+	filename := fmt.Sprintf("%s.pdf", documentID)
+	path := filepath.Join(docDir, filename)
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write PDF file: %w", err)
+	}
+
+	return path, nil
+}
+
+func (l *localFileStorage) OpenPDF(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read PDF file: %w", err)
+	}
+	return data, nil
 }
 
 func getExtensionFromMimeType(mimeType string) string {
