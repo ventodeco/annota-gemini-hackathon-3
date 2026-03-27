@@ -8,6 +8,7 @@ import WelcomePage from '../WelcomePage'
 
 const navigateMock = vi.fn()
 const createScanMock = vi.fn()
+const uploadDocumentMock = vi.fn()
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -19,6 +20,7 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('@/lib/api', () => ({
   createScan: (...args: unknown[]) => createScanMock(...args),
+  uploadDocument: (...args: unknown[]) => uploadDocumentMock(...args),
 }))
 
 vi.mock('@/contexts/useAuth', () => ({
@@ -72,5 +74,31 @@ describe('WelcomePage', () => {
 
     expect(screen.getByText('Please select an image file')).toBeInTheDocument()
     expect(createScanMock).not.toHaveBeenCalled()
+  })
+
+  it('renders Upload PDF button', () => {
+    renderPage()
+    expect(screen.getByText('Upload PDF')).toBeInTheDocument()
+  })
+
+  it('PDF file input accepts application/pdf only', () => {
+    renderPage()
+    const pdfInput = document.querySelector('input[accept="application/pdf"]') as HTMLInputElement
+    expect(pdfInput).toBeInTheDocument()
+  })
+
+  it('navigates to document page after successful PDF upload', async () => {
+    uploadDocumentMock.mockResolvedValueOnce({ documentId: 7, pageCount: 5, filename: 'test.pdf' })
+
+    renderPage()
+    const pdfInput = document.querySelector('input[accept="application/pdf"]') as HTMLInputElement
+    const file = new File(['fake-pdf'], 'test.pdf', { type: 'application/pdf' })
+
+    await userEvent.upload(pdfInput, file)
+
+    await waitFor(() => {
+      expect(uploadDocumentMock).toHaveBeenCalledTimes(1)
+      expect(navigateMock).toHaveBeenCalledWith('/documents/7')
+    })
   })
 })

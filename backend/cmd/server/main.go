@@ -15,6 +15,7 @@ import (
 	"github.com/gemini-hackathon/app/internal/handlers"
 	"github.com/gemini-hackathon/app/internal/knowledge"
 	"github.com/gemini-hackathon/app/internal/middleware"
+	"github.com/gemini-hackathon/app/internal/pdf"
 	"github.com/gemini-hackathon/app/internal/storage"
 )
 
@@ -76,6 +77,8 @@ func main() {
 	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, geminiClient, cfg)
 	aiHandlers := handlers.NewAIHandlers(storageDB, geminiClient, knowledgeSvc)
 	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg)
+	pdfExtractor := pdf.NewExtractor()
+	documentHandlers := handlers.NewDocumentHandlers(storageDB, fileStorage, pdfExtractor, cfg)
 
 	authMiddleware := middleware.NewAuthMiddleware(tokenService)
 
@@ -98,6 +101,8 @@ func main() {
 	authMux.HandleFunc("/v1/ai/speech", aiHandlers.SpeakAPI)
 	authMux.HandleFunc("/v1/annotations", annotationHandlers.AnnotationsAPI)
 	authMux.HandleFunc("/v1/annotations/", annotationHandlers.AnnotationByIDAPI)
+	authMux.HandleFunc("/v1/documents", documentHandlers.DocumentsAPI)
+	authMux.HandleFunc("/v1/documents/", documentHandlers.DocumentByIDAPI)
 
 	mux.Handle("/v1/", authMiddleware.Handle(authMux))
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))

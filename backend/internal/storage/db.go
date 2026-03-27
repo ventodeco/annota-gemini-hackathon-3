@@ -24,6 +24,12 @@ type DB interface {
 	UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error
 	DeleteScan(ctx context.Context, scanID, userID int64) error
 
+	CreateDocument(ctx context.Context, doc *models.Document) (int64, error)
+	UpdateDocumentFileInfo(ctx context.Context, docID int64, fileURL string, pageCount int) error
+	GetDocumentByID(ctx context.Context, docID int64) (*models.Document, error)
+	GetScanByDocumentPage(ctx context.Context, documentID int64, pageNumber int) (*models.Scan, error)
+	CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error)
+
 	CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error)
 	GetAnnotationByID(ctx context.Context, annotationID int64) (*models.Annotation, error)
 	GetAnnotationsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Annotation, error)
@@ -138,8 +144,8 @@ func (s *postgresDB) scanUser(row *sql.Row) (*models.User, error) {
 
 func (s *postgresDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, error) {
 	query := `
-		INSERT INTO scans (user_id, image_url, full_ocr_text, detected_language, created_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO scans (user_id, image_url, full_ocr_text, detected_language, document_id, page_number, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
 	`
 	err := s.db.QueryRowContext(ctx, query,
@@ -147,6 +153,8 @@ func (s *postgresDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, 
 		scan.ImageURL,
 		scan.FullOCRText,
 		scan.DetectedLanguage,
+		scan.DocumentID,
+		scan.PageNumber,
 		scan.CreatedAt,
 	).Scan(&scan.ID)
 	return scan.ID, err
@@ -154,12 +162,14 @@ func (s *postgresDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, 
 
 func (s *postgresDB) GetScanByID(ctx context.Context, scanID int64) (*models.Scan, error) {
 	query := `
-		SELECT id, user_id, image_url, full_ocr_text, detected_language, created_at
+		SELECT id, user_id, image_url, full_ocr_text, detected_language, document_id, page_number, created_at
 		FROM scans
 		WHERE id = $1
 	`
 	var scan models.Scan
 	var fullOCRText, detectedLanguage sql.NullString
+	var documentID sql.NullInt64
+	var pageNumber sql.NullInt32
 	var createdAt time.Time
 
 	err := s.db.QueryRowContext(ctx, query, scanID).Scan(
@@ -168,6 +178,8 @@ func (s *postgresDB) GetScanByID(ctx context.Context, scanID int64) (*models.Sca
 		&scan.ImageURL,
 		&fullOCRText,
 		&detectedLanguage,
+		&documentID,
+		&pageNumber,
 		&createdAt,
 	)
 	if err != nil {
@@ -180,6 +192,13 @@ func (s *postgresDB) GetScanByID(ctx context.Context, scanID int64) (*models.Sca
 	if detectedLanguage.Valid {
 		scan.DetectedLanguage = &detectedLanguage.String
 	}
+	if documentID.Valid {
+		scan.DocumentID = &documentID.Int64
+	}
+	if pageNumber.Valid {
+		pn := int(pageNumber.Int32)
+		scan.PageNumber = &pn
+	}
 	scan.CreatedAt = createdAt
 
 	return &scan, nil
@@ -188,7 +207,7 @@ func (s *postgresDB) GetScanByID(ctx context.Context, scanID int64) (*models.Sca
 func (s *postgresDB) GetScansByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Scan, error) {
 	offset := (page - 1) * size
 	query := `
-		SELECT id, user_id, image_url, full_ocr_text, detected_language, created_at
+		SELECT id, user_id, image_url, full_ocr_text, detected_language, document_id, page_number, created_at
 		FROM scans
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -204,6 +223,8 @@ func (s *postgresDB) GetScansByUserID(ctx context.Context, userID int64, page, s
 	for rows.Next() {
 		var scan models.Scan
 		var fullOCRText, detectedLanguage sql.NullString
+		var documentID sql.NullInt64
+		var pageNumber sql.NullInt32
 		var createdAt time.Time
 
 		err := rows.Scan(
@@ -212,6 +233,8 @@ func (s *postgresDB) GetScansByUserID(ctx context.Context, userID int64, page, s
 			&scan.ImageURL,
 			&fullOCRText,
 			&detectedLanguage,
+			&documentID,
+			&pageNumber,
 			&createdAt,
 		)
 		if err != nil {
@@ -223,6 +246,13 @@ func (s *postgresDB) GetScansByUserID(ctx context.Context, userID int64, page, s
 		}
 		if detectedLanguage.Valid {
 			scan.DetectedLanguage = &detectedLanguage.String
+		}
+		if documentID.Valid {
+			scan.DocumentID = &documentID.Int64
+		}
+		if pageNumber.Valid {
+			pn := int(pageNumber.Int32)
+			scan.PageNumber = &pn
 		}
 		scan.CreatedAt = createdAt
 
@@ -263,6 +293,127 @@ func (s *postgresDB) DeleteScan(ctx context.Context, scanID, userID int64) error
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (s *postgresDB) CreateDocument(ctx context.Context, doc *models.Document) (int64, error) {
+	query := `
+		INSERT INTO documents (user_id, file_url, filename, page_count, file_size, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id
+	`
+	err := s.db.QueryRowContext(ctx, query,
+		doc.UserID,
+		doc.FileURL,
+		doc.Filename,
+		doc.PageCount,
+		doc.FileSize,
+		doc.CreatedAt,
+	).Scan(&doc.ID)
+	return doc.ID, err
+}
+
+func (s *postgresDB) UpdateDocumentFileInfo(ctx context.Context, docID int64, fileURL string, pageCount int) error {
+	query := `
+		UPDATE documents
+		SET file_url = $1, page_count = $2
+		WHERE id = $3
+	`
+	_, err := s.db.ExecContext(ctx, query, fileURL, pageCount, docID)
+	return err
+}
+
+func (s *postgresDB) GetDocumentByID(ctx context.Context, docID int64) (*models.Document, error) {
+	query := `
+		SELECT id, user_id, file_url, filename, page_count, file_size, created_at
+		FROM documents
+		WHERE id = $1
+	`
+	var doc models.Document
+	var createdAt time.Time
+
+	err := s.db.QueryRowContext(ctx, query, docID).Scan(
+		&doc.ID,
+		&doc.UserID,
+		&doc.FileURL,
+		&doc.Filename,
+		&doc.PageCount,
+		&doc.FileSize,
+		&createdAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	doc.CreatedAt = createdAt
+
+	return &doc, nil
+}
+
+func (s *postgresDB) GetScanByDocumentPage(ctx context.Context, documentID int64, pageNumber int) (*models.Scan, error) {
+	query := `
+		SELECT id, user_id, image_url, full_ocr_text, detected_language, document_id, page_number, created_at
+		FROM scans
+		WHERE document_id = $1 AND page_number = $2
+	`
+	var scan models.Scan
+	var fullOCRText, detectedLanguage sql.NullString
+	var docID sql.NullInt64
+	var pageNum sql.NullInt32
+	var createdAt time.Time
+
+	err := s.db.QueryRowContext(ctx, query, documentID, pageNumber).Scan(
+		&scan.ID,
+		&scan.UserID,
+		&scan.ImageURL,
+		&fullOCRText,
+		&detectedLanguage,
+		&docID,
+		&pageNum,
+		&createdAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if fullOCRText.Valid {
+		scan.FullOCRText = &fullOCRText.String
+	}
+	if detectedLanguage.Valid {
+		scan.DetectedLanguage = &detectedLanguage.String
+	}
+	if docID.Valid {
+		scan.DocumentID = &docID.Int64
+	}
+	if pageNum.Valid {
+		pn := int(pageNum.Int32)
+		scan.PageNumber = &pn
+	}
+	scan.CreatedAt = createdAt
+
+	return &scan, nil
+}
+
+func (s *postgresDB) CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error) {
+	query := `
+		INSERT INTO scans (user_id, image_url, full_ocr_text, detected_language, document_id, page_number, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
+	`
+	err := s.db.QueryRowContext(ctx, query,
+		scan.UserID,
+		scan.ImageURL,
+		scan.FullOCRText,
+		scan.DetectedLanguage,
+		scan.DocumentID,
+		scan.PageNumber,
+		scan.CreatedAt,
+	).Scan(&scan.ID)
+	return scan.ID, err
 }
 
 func (s *postgresDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error) {
