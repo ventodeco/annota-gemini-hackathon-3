@@ -277,3 +277,54 @@ This is the execution checklist derived from `docs/rfc.md` (Phase0 only). Each t
 - Keep selection simple for Phase0: **send `selected_text` only**; offsets can be added later.
 - PDF reader can start simple (prev/next buttons) and add swipe gestures as polish.
 - **Scanned/image-only PDFs are out of scope** — only text-based PDFs with extractable text are supported in MVP. Do not attempt to OCR PDF page images.
+
+---
+
+## PDF feature epic (spec: [docs/add-pdf/prd.md](add-pdf/prd.md), [docs/add-pdf/rfc.md](add-pdf/rfc.md))
+
+**Stack note:** The live app is **React + Go JSON API under `/v1`** (see [docs/rfc.md](rfc.md)). The Phase0 checklist above (HTMX, `POST /scans`) is legacy/reference — PDF work targets **`/v1`** and files under `backend/` and `web/`.
+
+Derived from the PDF addendum RFC/PRD. Implement after core image scan flow is stable unless prioritized otherwise.
+
+### Product / UX
+- [ ] Home (or upload entry): **PDF file picker** (`application/pdf`), mobile-friendly; copy for limits and errors per [docs/add-pdf/prd.md](add-pdf/prd.md) §5–§6, §12–§13.
+- [ ] **Processing UI**: uploading → **`status: processing`** with poll until **`ready`** / **`failed`** (use `status`, not only empty `fullText`); support optional `processingProgress` when backend exposes it.
+- [ ] **Leave / return / stale tab**: refetch scan on focus if still `processing` (PRD §12).
+- [ ] **Text preview + highlight**: reuse image flow when **`fullText`** is available and **`status === ready`**.
+- [ ] **No image preview**: hide or skip image when `imageUrl` empty/null for PDF-only rows.
+
+### Backend — API contract ([docs/add-pdf/rfc.md](add-pdf/rfc.md) §6)
+- [ ] **`POST /v1/scans`**: accept multipart **`pdf`** OR **`image`** (mutually exclusive); `201` includes **`status`**, **`sourceType`**.
+- [ ] **`GET /v1/scans/{id}`**: include **`status`**, **`sourceType`**, **`pageCount`**, optional **`processingProgress`**, optional **`failureReason`**.
+- [ ] **`GET /v1/scans`** (list): include **`status`** / **`sourceType`** when known for history UI.
+- [ ] **Annotation guard**: reject analyze (and/or annotation) with **4xx** + code **`scan_not_ready`** when `status !== ready` (RFC §6.4).
+- [ ] **Keep v1 annotation flow**: **`POST /v1/ai/analyze`** + **`POST /v1/annotations`** — no new `POST /v1/scans/{id}/annotate` unless product explicitly expands scope.
+
+### Backend — schema & migration (RFC §7)
+- [ ] Migration: **`source_type`**, **`page_count`**, **`status`**, **`failure_reason`**, **`pdf_storage_path`** (nullable); **`image_url` nullable** for PDF-only rows.
+- [ ] Backfill existing rows: `source_type = image`, `status = ready` where `full_ocr_text` present; otherwise align with current implicit behavior.
+- [ ] **Image flow regression**: after migration, image uploads still set `image_url` and reach `ready` as today.
+
+### Backend — ingestion (RFC §3–§5)
+- [ ] **Validation**: PDF MIME/magic, max size (MB), max pages — config keys per PRD §14 / RFC §9.
+- [ ] **Hard reject** over limits (no truncate, PRD §14).
+- [ ] **Ingestion worker**: per-page extract → **§5.1** fallback → rasterize + `geminiClient.OCR`; merge with page delimiters; PRD §11 final gate before `ready`.
+- [ ] **Whole-document failure**: any page failure → **`failed`** (PRD §10); no partial text in v1.
+- [ ] **Password / corrupt / zero-page**: clear **4xx** or **`failed`** + **`failureReason`** per PRD §13.
+- [ ] **Merged text cap** (optional safety): max stored characters/bytes; exceed → `failed` (RFC §9).
+
+### Backend — analyze context (RFC §6.4)
+- [ ] Implement **context window** (e.g. ≤ 12k Unicode scalars around selection) for **`POST /v1/ai/analyze`** when building `context` from PDF `fullText` (client and/or server — document which owns truncation).
+
+### Backend — operations (RFC §11)
+- [ ] **Stuck `processing`**: startup or periodic sweep marks scans stuck longer than **T** minutes as **`failed`** with `processing_timeout`, or document manual ops if deferred.
+
+### Quality
+- [ ] **Unit tests**: digital PDF extract fixture; scanned PDF OCR path (mock Gemini); §5.1 threshold cases; context window builder.
+- [ ] **Integration test**: `POST /v1/scans` with `pdf` → poll `GET /v1/scans/{id}` until `ready` → `analyze` → `POST /v1/annotations`.
+- [ ] **Negative tests**: password PDF; corrupt PDF; over size/pages; **`analyze` while `processing`** → 4xx.
+- [ ] **Regression**: `POST /v1/scans` with `image` unchanged end-to-end.
+- [ ] **Logging / metrics**: per-page `extract` vs `ocr`, failure stage/reason, duration (RFC §12).
+
+### Docs
+- [ ] After implementation, diff API against [docs/add-pdf/rfc.md](add-pdf/rfc.md) and [docs/add-pdf/prd.md](add-pdf/prd.md); update docs if env limits or field names change.
