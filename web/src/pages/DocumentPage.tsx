@@ -1,36 +1,34 @@
 import { useParams } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
-import PageList from '@/components/documentpage/PageList'
-import PageReader from '@/components/documentpage/PageReader'
+import ContinuousPDFViewer from '@/components/documentpage/ContinuousPDFViewer'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
-import { useDocument, useDocumentPage } from '@/hooks/useDocument'
+import { useDocument } from '@/hooks/useDocument'
 import { useTextSelection } from '@/hooks/useTextSelection'
-import { useAnalyzeText, useCreateAnnotation } from '@/hooks/useAnnotations'
-import { createScanFromPage } from '@/lib/api'
+import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
+import { createScanFromPage, getDocumentFile } from '@/lib/api'
+import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import type { Annotation } from '@/lib/types'
 
 const MAX_ANNOTATION_VERSIONS = 2
-
-type ViewMode = 'list' | 'reader'
 
 export default function DocumentPage() {
   const { id } = useParams<{ id: string }>()
   const documentId = id ? parseInt(id, 10) : undefined
 
   const { data: document, isLoading, error } = useDocument(documentId)
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [currentPage, setCurrentPage] = useState(1)
-  const { data: pageData, isLoading: isPageLoading } = useDocumentPage(
-    viewMode === 'reader' ? documentId : undefined,
-    currentPage,
-  )
+  const [pdfUrl, setPdfUrl] = useState<string>('')
+  const [isPdfLoading, setIsPdfLoading] = useState(false)
+  const objectUrlRef = useRef<string>('')
 
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
   const analyzeText = useAnalyzeText()
   const createAnnotation = useCreateAnnotation()
+  const synthesizeSpeech = useSynthesizeSpeech()
+  const speech = useSpeechPlayback()
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
@@ -39,33 +37,46 @@ export default function DocumentPage() {
   const [contextText, setContextText] = useState('')
   const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
 
-  const handleSelectPage = (pageNumber: number) => {
-    setCurrentPage(pageNumber)
-    setViewMode('reader')
-    clearSelection()
-  }
+  useEffect(() => {
+    if (!documentId || !document) return
 
-  const handleBackToList = () => {
-    setViewMode('list')
+    if (!pdfUrl) {
+      setIsPdfLoading(true)
+      const blobPromise = getDocumentFile(documentId)
+      blobPromise
+        .then((blob) => {
+          const url = URL.createObjectURL(blob)
+          objectUrlRef.current = url
+          setPdfUrl(url)
+        })
+        .catch((err) => {
+          console.error('Failed to load PDF:', err)
+          toast.error('Failed to load PDF. Please try again.')
+        })
+        .finally(() => {
+          setIsPdfLoading(false)
+        })
+    }
+
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+      }
+    }
+  }, [documentId, document])
+
+  useEffect(() => {
+    return () => {
+      speech.stop()
+    }
+  }, [speech])
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
     clearSelection()
     setIsDrawerOpen(false)
     setCurrentAnnotation(null)
     setBridgeScanId(null)
-  }
-
-  const handlePrev = () => {
-    if (currentPage > 1) {
-      setCurrentPage((p) => p - 1)
-      clearSelection()
-    }
-  }
-
-  const handleNext = () => {
-    const total = document?.pageCount ?? 0
-    if (currentPage < total) {
-      setCurrentPage((p) => p + 1)
-      clearSelection()
-    }
   }
 
   const handleTextSelect = () => {
@@ -119,6 +130,26 @@ export default function DocumentPage() {
       toast.error('Failed to analyze text. Please try again.')
     } finally {
       setIsLoadingAnnotation(false)
+    }
+  }
+
+  const handleSpeechToggle = async () => {
+    if (!selectedText) return
+
+    if (speech.isPlaying || synthesizeSpeech.isPending) {
+      speech.stop()
+      return
+    }
+
+    try {
+      const audioBlob = await synthesizeSpeech.mutateAsync({
+        highlightedText: selectedText,
+        contextText,
+      })
+      await speech.play(audioBlob)
+    } catch (err) {
+      console.error('Failed to play speech:', err)
+      toast.error('Failed to play audio. Please try again.')
     }
   }
 
@@ -194,34 +225,24 @@ export default function DocumentPage() {
     )
   }
 
-  if (viewMode === 'list') {
-    return (
-      <div className="min-h-screen bg-white flex flex-col">
-        <Header title={document.filename} />
-        <div className="flex-1 p-4">
-          <p className="text-sm text-gray-500 mb-4">{document.pageCount} pages</p>
-          <PageList pageCount={document.pageCount} onSelectPage={handleSelectPage} />
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
-      <Header title={document.filename} onBack={handleBackToList} />
-      <PageReader
-        text={pageData?.text ?? ''}
+      <Header title={document.filename} />
+      <ContinuousPDFViewer
+        pdfUrl={pdfUrl}
         currentPage={currentPage}
         totalPages={document.pageCount}
-        onPrev={handlePrev}
-        onNext={handleNext}
+        onPageChange={handlePageChange}
         onTextSelect={handleTextSelect}
-        isLoading={isPageLoading}
+        isLoading={isPdfLoading}
       />
       <BottomActionBar
         disabled={!selectedText || isLoadingAnnotation}
         isLoading={isLoadingAnnotation || analyzeText.isPending}
         onExplain={handleExplain}
+        onSpeech={selectedText ? handleSpeechToggle : undefined}
+        isPlaying={speech.isPlaying}
+        isSpeechLoading={synthesizeSpeech.isPending}
       />
       <AnnotationDrawer
         isOpen={isDrawerOpen}

@@ -294,6 +294,19 @@ export async function createScanFromPage(
   return handleResponse(response, 'POST', url)
 }
 
+export async function getDocumentFile(documentId: number): Promise<Blob> {
+  const url = `${API_BASE_URL}/v1/documents/${documentId}/file`
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  })
+  if (!response.ok) {
+    const error = await response.text().catch(() => 'Failed to fetch PDF file')
+    throw new Error(error)
+  }
+  return response.blob()
+}
+
 // ============================================================================
 // Utility Functions
 // ============================================================================

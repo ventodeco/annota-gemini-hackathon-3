@@ -120,7 +120,8 @@ gemini-hackathon/
 #### JSON API Endpoints — PDF/Document
 - **POST /api/documents**: multipart PDF upload, returns JSON `{"documentId": ..., "pageCount": ..., "filename": "..."}`
 - **GET /api/documents/{id}**: returns document metadata `{"id": ..., "filename": "...", "pageCount": ..., "createdAt": "..."}`
-- **GET /api/documents/{id}/pages/{n}**: extracts and returns text for page N `{"pageNumber": ..., "text": "...", "totalPages": ...}`
+- **GET /api/documents/{id}/file**: returns PDF file binary for browser rendering
+- **GET /api/documents/{id}/pages/{n}**: extracts and returns text for page N `{"pageNumber": ..., "text": "...", "totalPages": ...}` (used for annotation context)
 - **POST /api/documents/{id}/pages/{n}/scan**: creates scan record from PDF page text, returns `{"scanId": ...}`
 
 #### Common Endpoints
@@ -306,6 +307,7 @@ Note: The existing `scans`, `users`, and `annotations` tables are defined in `ba
 - **State Management**: React Query + Context API (minimal global state)
 - **PWA**: Vite PWA Plugin
 - **Form Handling**: React Hook Form
+- **PDF Rendering**: PDF.js (Mozilla's PDF engine for canvas rendering with text layer)
 
 #### Frontend Component Structure
 ```
@@ -322,9 +324,9 @@ web/src/
 │   ├── ui/                   # shadcn/ui components
 │   ├── homepage/             # HomePage-specific components
 │   ├── scanpage/             # ScanPage-specific components
-│   └── documentpage/         # NEW: PDF reader components
+│   └── documentpage/         # PDF reader components
 │       ├── PageList.tsx      # Simple page number list
-│       ├── PageReader.tsx    # Kindle-like text reader with navigation
+│       ├── PDFViewer.tsx     # PDF.js canvas renderer with text layer
 │       └── PageNavigator.tsx # Swipe/tap prev/next controls
 ├── hooks/                    # Custom React hooks
 │   ├── useScan.ts
@@ -419,18 +421,30 @@ backend/
 - Cross-platform support
 - Pure Go PDF libraries available (no CGO dependency)
 
-#### PDF Text Extraction: Go PDF Library
+#### PDF Rendering: PDF.js (Browser-side)
 
-**Why Go PDF library (not Gemini)**:
-- PDFs contain embedded digital text — OCR is unnecessary
-- Direct extraction is instant (< 1 second) vs Gemini API call (1-3 seconds)
-- No API cost per page extraction
-- Works offline (no network dependency for text extraction)
+**Why PDF.js**:
+- Renders actual PDF pages to canvas (like native PDF viewers)
+- Provides text layer for accurate text selection on Japanese text
+- Industry standard (used in Firefox)
+- Excellent handling of complex/multi-column PDF layouts
+- Swipe gesture support for page navigation
+
+**Why not server-side text extraction for display**:
+- Server-side extraction displays plain text, not actual PDF appearance
+- PDF.js renders the visual PDF for a Kindle-like reading experience
+- Text selection works directly on rendered PDF content
+
+**Text extraction still used for**:
+- Annotation context (surrounding text for AI analysis)
+- Fallback when PDF.js text layer fails
+
+#### Go PDF Library (Server-side text extraction)
 
 **Recommended library**: `github.com/ledongthuc/pdf` or `github.com/dslipak/pdf`
 - Pure Go (no CGO dependency)
 - Lightweight, focused on text extraction
-- Alternative: `pdfcpu` (more features but heavier)
+- Used for annotation context, not display
 
 ### Tasks
 #### Phase0: Core happy flow (Image OCR + PDF Reader + Annotation)

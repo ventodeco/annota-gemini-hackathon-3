@@ -216,6 +216,13 @@ func (h *DocumentHandlers) DocumentByIDAPI(w http.ResponseWriter, r *http.Reques
 		}
 		h.createScanFromPageHandler(w, r, doc, pageNum)
 
+	case len(parts) == 2 && parts[1] == "file":
+		if r.Method != http.MethodGet {
+			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		h.getDocumentFileHandler(w, r, doc)
+
 	default:
 		httputil.WriteJSONError(w, http.StatusNotFound, "Not found")
 	}
@@ -288,4 +295,18 @@ func (h *DocumentHandlers) getPageTextHandler(w http.ResponseWriter, doc *models
 		Text:       text,
 		TotalPages: doc.PageCount,
 	})
+}
+
+func (h *DocumentHandlers) getDocumentFileHandler(w http.ResponseWriter, r *http.Request, doc *models.Document) {
+	data, err := h.fileStorage.OpenPDF(doc.FileURL)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to read PDF file")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", doc.Filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }
