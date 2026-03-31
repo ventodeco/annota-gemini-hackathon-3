@@ -1,11 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { TextLayer } from 'pdfjs-dist'
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString()
+import { ensurePdfjsWorker, getPdfDocumentLoadOptions } from '@/lib/pdf/initPdfWorker'
+import { renderPdfPageToCanvas } from '@/lib/pdf/renderPage'
 
 interface ContinuousPDFViewerProps {
   pdfUrl: string
@@ -25,6 +22,8 @@ interface PageContainerProps {
   isVisible: boolean
 }
 
+type PdfPageStyle = CSSProperties & Record<'--scale-factor' | '--total-scale-factor' | '--user-unit', string>
+
 function PageRenderer({
   pageNumber,
   pdfDoc,
@@ -38,6 +37,7 @@ function PageRenderer({
   const textLayerInstance = useRef<TextLayer | null>(null)
   const [rendered, setRendered] = useState(false)
   const [rendering, setRendering] = useState(false)
+  const [pageStyle, setPageStyle] = useState<PdfPageStyle | null>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const divRef = useRef<HTMLDivElement>(null)
 
@@ -46,40 +46,21 @@ function PageRenderer({
 
     setRendering(true)
     try {
-      const page = await pdfDoc.getPage(pageNumber)
-      const canvas = canvasRef.current
-
-      const viewport = page.getViewport({ scale: 1 })
-      const scale = containerWidth / viewport.width
-      const scaledViewport = page.getViewport({ scale })
-
-      canvas.height = scaledViewport.height
-      canvas.width = scaledViewport.width
-
-      await page.render({
-        canvas,
-        viewport: scaledViewport,
-      }).promise
-
-      if (textLayerInstance.current) {
-        textLayerInstance.current.cancel()
-        textLayerInstance.current = null
-      }
-
-      const textContent = await page.getTextContent()
-      const textLayerDiv = textLayerRef.current
-      textLayerDiv.innerHTML = ''
-      textLayerDiv.style.width = `${canvas.width}px`
-      textLayerDiv.style.height = `${canvas.height}px`
-
-      const textLayer = new TextLayer({
-        textContentSource: textContent,
-        container: textLayerDiv,
-        viewport: scaledViewport,
+      const metrics = await renderPdfPageToCanvas({
+        pdfDoc,
+        pageNumber,
+        containerWidth,
+        canvas: canvasRef.current,
+        textLayerDiv: textLayerRef.current,
+        textLayerInstanceRef: textLayerInstance,
       })
-      textLayerInstance.current = textLayer
-      await textLayer.render()
-
+      setPageStyle({
+        width: `${metrics.width}px`,
+        height: `${metrics.height}px`,
+        '--scale-factor': `${metrics.scale}`,
+        '--total-scale-factor': `${metrics.scale}`,
+        '--user-unit': '1',
+      })
       setRendered(true)
     } catch (err) {
       console.error(`Failed to render page ${pageNumber}:`, err)
@@ -117,12 +98,37 @@ function PageRenderer({
     }
   }, [isVisible, rendered, rendering, renderPage])
 
-  const handleTextSelection = () => {
+  const handleTextSelection = useCallback(() => {
     const selection = window.getSelection()
-    if (selection && selection.toString().trim()) {
-      onTextSelect(selection.toString())
+    onTextSelect(selection ? selection.toString() : '')
+  }, [onTextSelect])
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection()
+      if (!selection || selection.rangeCount === 0 || selection.toString().trim() === '') {
+        return
+      }
+
+      const textLayer = textLayerRef.current
+      if (!textLayer) {
+        return
+      }
+
+      const range = selection.getRangeAt(0)
+      const ancestor =
+        range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+          ? range.commonAncestorContainer.parentNode
+          : range.commonAncestorContainer
+
+      if (ancestor && textLayer.contains(ancestor)) {
+        onTextSelect(selection.toString())
+      }
     }
-  }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => document.removeEventListener('selectionchange', handleSelectionChange)
+  }, [onTextSelect])
 
   return (
     <div
@@ -130,22 +136,16 @@ function PageRenderer({
       className="flex justify-center p-2"
       data-page={pageNumber}
     >
-      <div className="relative">
+      <div className="pdf-page shadow-lg" style={pageStyle ?? undefined}>
         <canvas
           ref={canvasRef}
-          className="max-w-full shadow-lg"
-          style={{ display: 'block' }}
+          className="block h-full w-full"
         />
         <div
           ref={textLayerRef}
-          className="absolute top-0 left-0 text-layer"
+          className="textLayer absolute inset-0"
           onMouseUp={handleTextSelection}
           onTouchEnd={handleTextSelection}
-          style={{
-            color: 'transparent',
-            pointerEvents: 'auto',
-            whiteSpace: 'pre-wrap',
-          }}
         />
         {rendering && (
           <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
@@ -175,11 +175,8 @@ export default function ContinuousPDFViewer({
 
     const loadPdf = async () => {
       try {
-        const loadingTask = pdfjsLib.getDocument({
-          url: pdfUrl,
-          cMapUrl: 'https://unpkg.com/pdfjs-dist@5.5.207/cmaps/',
-          cMapPacked: true,
-        })
+        ensurePdfjsWorker()
+        const loadingTask = pdfjsLib.getDocument(getPdfDocumentLoadOptions(pdfUrl))
         const pdf = await loadingTask.promise
         setPdfDoc(pdf)
       } catch (err) {
@@ -245,7 +242,9 @@ export default function ContinuousPDFViewer({
         ref={containerRef}
         className="flex-1 overflow-y-auto"
       >
-        {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+        {[...Array(totalPages)].map((_, i) => {
+          const pageNum = i + 1
+          return (
           <PageRenderer
             key={pageNum}
             pageNumber={pageNum}
@@ -255,7 +254,8 @@ export default function ContinuousPDFViewer({
             onVisible={handlePageVisible}
             isVisible={visiblePages.has(pageNum)}
           />
-        ))}
+          )
+        })}
       </div>
       <div className="fixed bottom-24 right-4 bg-white bg-opacity-90 px-3 py-1 rounded-full text-sm text-gray-600 shadow">
         Page {currentPage} of {totalPages}

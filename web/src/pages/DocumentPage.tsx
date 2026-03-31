@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
@@ -10,9 +10,7 @@ import { useTextSelection } from '@/hooks/useTextSelection'
 import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
 import { createScanFromPage, getDocumentFile } from '@/lib/api'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
-import type { Annotation } from '@/lib/types'
-
-const MAX_ANNOTATION_VERSIONS = 2
+import { useAnnotationDrawerFlow, DEFAULT_MAX_ANNOTATION_VERSIONS } from '@/hooks/useAnnotationDrawerFlow'
 
 export default function DocumentPage() {
   const { id } = useParams<{ id: string }>()
@@ -23,6 +21,7 @@ export default function DocumentPage() {
   const [pdfUrl, setPdfUrl] = useState<string>('')
   const [isPdfLoading, setIsPdfLoading] = useState(false)
   const objectUrlRef = useRef<string>('')
+  const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
 
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
   const analyzeText = useAnalyzeText()
@@ -30,12 +29,42 @@ export default function DocumentPage() {
   const synthesizeSpeech = useSynthesizeSpeech()
   const speech = useSpeechPlayback()
 
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
-  const [annotationVersion, setAnnotationVersion] = useState(1)
-  const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
   const [contextText, setContextText] = useState('')
-  const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
+
+  const resolveScanIdForExplain = useCallback(async () => {
+    if (!documentId) {
+      throw new Error('Missing document')
+    }
+    if (bridgeScanId !== null) {
+      return bridgeScanId
+    }
+    const bridgeResult = await createScanFromPage(documentId, currentPage)
+    setBridgeScanId(bridgeResult.scanId)
+    return bridgeResult.scanId
+  }, [documentId, currentPage, bridgeScanId])
+
+  const {
+    isDrawerOpen,
+    currentAnnotation,
+    annotationVersion,
+    isLoadingAnnotation,
+    resetAnnotationState,
+    handleExplain,
+    handleSaveAnnotation,
+    handleRegenerateAnnotation,
+    handleDrawerClose,
+    handleSpeechToggle,
+  } = useAnnotationDrawerFlow({
+    selectedText,
+    contextText,
+    analyzeText,
+    createAnnotation,
+    synthesizeSpeech,
+    speech,
+    clearSelection,
+    reportError: toast.error,
+    resolveScanIdForExplain,
+  })
 
   useEffect(() => {
     if (!documentId || !document) return
@@ -71,137 +100,44 @@ export default function DocumentPage() {
     }
   }, [speech])
 
+  useEffect(() => {
+    if (!selectedText) {
+      speech.stop()
+    }
+  }, [selectedText, speech])
+
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
     clearSelection()
-    setIsDrawerOpen(false)
-    setCurrentAnnotation(null)
+    resetAnnotationState()
     setBridgeScanId(null)
   }
 
-  const handleTextSelect = () => {
-    const selection = window.getSelection()
-    if (!selection || selection.toString().trim() === '') {
+  const handleTextSelect = useCallback((selectedTextFromViewer: string) => {
+    const selectedTextValue = selectedTextFromViewer.trim()
+    if (selectedTextValue === '') {
       clearSelection()
       setContextText('')
       return
     }
-    handleSelection(selection.toString())
+
+    const selectionResult = handleSelection(selectedTextValue)
+    if (!selectionResult.valid) {
+      clearSelection()
+      setContextText('')
+      return
+    }
+
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) {
+      setContextText(selectedTextValue)
+      return
+    }
 
     const range = selection.getRangeAt(0)
-    const context = range.endContainer.textContent || ''
-    setContextText(context)
-  }
-
-  const handleExplain = async () => {
-    if (!selectedText || !documentId) return
-
-    setIsLoadingAnnotation(true)
-
-    try {
-      let scanId = bridgeScanId
-      if (!scanId) {
-        const bridgeResult = await createScanFromPage(documentId, currentPage)
-        scanId = bridgeResult.scanId
-        setBridgeScanId(scanId)
-      }
-
-      const result = await analyzeText.mutateAsync({
-        textToAnalyze: selectedText,
-        context: contextText,
-      })
-
-      const annotation: Annotation = {
-        id: Date.now(),
-        user_id: 0,
-        scan_id: scanId,
-        highlighted_text: selectedText,
-        context_text: contextText,
-        nuance_data: result,
-        is_bookmarked: true,
-        created_at: new Date().toISOString(),
-      }
-
-      setCurrentAnnotation(annotation)
-      setAnnotationVersion(1)
-      setIsDrawerOpen(true)
-    } catch (err) {
-      console.error('Failed to analyze text:', err)
-      toast.error('Failed to analyze text. Please try again.')
-    } finally {
-      setIsLoadingAnnotation(false)
-    }
-  }
-
-  const handleSpeechToggle = async () => {
-    if (!selectedText) return
-
-    if (speech.isPlaying || synthesizeSpeech.isPending) {
-      speech.stop()
-      return
-    }
-
-    try {
-      const audioBlob = await synthesizeSpeech.mutateAsync({
-        highlightedText: selectedText,
-        contextText,
-      })
-      await speech.play(audioBlob)
-    } catch (err) {
-      console.error('Failed to play speech:', err)
-      toast.error('Failed to play audio. Please try again.')
-    }
-  }
-
-  const handleSaveAnnotation = async () => {
-    if (!currentAnnotation || !currentAnnotation.scan_id) return
-
-    try {
-      await createAnnotation.mutateAsync({
-        scanId: currentAnnotation.scan_id,
-        highlightedText: currentAnnotation.highlighted_text,
-        contextText: currentAnnotation.context_text,
-        nuanceData: currentAnnotation.nuance_data,
-      })
-      setIsDrawerOpen(false)
-      setCurrentAnnotation(null)
-      setAnnotationVersion(1)
-      clearSelection()
-    } catch (err) {
-      console.error('Failed to save annotation:', err)
-      toast.error('Failed to save annotation. Please try again.')
-    }
-  }
-
-  const handleRegenerateAnnotation = async () => {
-    if (!currentAnnotation || analyzeText.isPending || annotationVersion >= MAX_ANNOTATION_VERSIONS) {
-      return
-    }
-
-    try {
-      const result = await analyzeText.mutateAsync({
-        textToAnalyze: currentAnnotation.highlighted_text,
-        context: currentAnnotation.context_text ?? '',
-      })
-
-      setCurrentAnnotation({
-        ...currentAnnotation,
-        nuance_data: result,
-        created_at: new Date().toISOString(),
-      })
-      setAnnotationVersion((prev) => Math.min(prev + 1, MAX_ANNOTATION_VERSIONS))
-    } catch (err) {
-      console.error('Failed to regenerate annotation:', err)
-      toast.error('Failed to regenerate annotation. Please try again.')
-    }
-  }
-
-  const handleDrawerClose = () => {
-    setIsDrawerOpen(false)
-    setCurrentAnnotation(null)
-    setAnnotationVersion(1)
-    clearSelection()
-  }
+    const context = range.cloneContents().textContent?.trim() ?? ''
+    setContextText(context || selectedTextValue)
+  }, [clearSelection, handleSelection])
 
   if (isLoading) {
     return (
@@ -253,7 +189,7 @@ export default function DocumentPage() {
         isRegenerating={analyzeText.isPending}
         isSaving={createAnnotation.isPending}
         version={annotationVersion}
-        maxVersions={MAX_ANNOTATION_VERSIONS}
+        maxVersions={DEFAULT_MAX_ANNOTATION_VERSIONS}
       />
     </div>
   )

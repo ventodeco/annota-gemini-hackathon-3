@@ -69,3 +69,47 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.439 0 0);
 }
+
+.pdf-page {
+  --user-unit: 1;
+  --scale-factor: 1;
+  --total-scale-factor: var(--scale-factor);
+  position: relative;
+}
+
+.pdf-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-page .textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  opacity: 1;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+}
+
+.pdf-page .textLayer span,
+.pdf-page .textLayer br {
+  position: absolute;
+  color: transparent;
+  cursor: text;
+  transform-origin: 0% 0%;
+  white-space: pre;
+}
+
+.pdf-page .textLayer,
+.pdf-page .textLayer * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.pdf-page .textLayer::selection,
+.pdf-page .textLayer *::selection {
+  background: rgba(0, 100, 255, 0.28);
+}
