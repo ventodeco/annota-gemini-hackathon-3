@@ -11,6 +11,77 @@ import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hook
 import { createScanFromPage, getDocumentFile } from '@/lib/api'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { useAnnotationDrawerFlow, DEFAULT_MAX_ANNOTATION_VERSIONS } from '@/hooks/useAnnotationDrawerFlow'
+import type { Document } from '@/lib/types'
+
+type DocumentPdfSectionProps = {
+  documentId: number
+  document: Document
+  currentPage: number
+  onPageChange: (page: number) => void
+  onTextSelect: (selectedText: string) => void
+}
+
+/**
+ * Loads the PDF blob when `documentId` changes (`key` on parent resets state).
+ * Loading UI is derived: no synchronous setState in the fetch effect body.
+ */
+function DocumentPdfSection({
+  documentId,
+  document,
+  currentPage,
+  onPageChange,
+  onTextSelect,
+}: DocumentPdfSectionProps) {
+  const [pdfUrl, setPdfUrl] = useState('')
+  const [loadError, setLoadError] = useState(false)
+  const objectUrlRef = useRef('')
+
+  const isPdfLoading = !pdfUrl && !loadError
+
+  useEffect(() => {
+    let cancelled = false
+    getDocumentFile(documentId)
+      .then((blob) => {
+        if (cancelled) return
+        const url = URL.createObjectURL(blob)
+        objectUrlRef.current = url
+        setPdfUrl(url)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('Failed to load PDF:', err)
+        toast.error('Failed to load PDF. Please try again.')
+        setLoadError(true)
+      })
+
+    return () => {
+      cancelled = true
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = ''
+      }
+    }
+  }, [documentId])
+
+  if (loadError) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <p className="text-gray-600">Failed to load PDF</p>
+      </div>
+    )
+  }
+
+  return (
+    <ContinuousPDFViewer
+      pdfUrl={pdfUrl}
+      currentPage={currentPage}
+      totalPages={document.pageCount}
+      onPageChange={onPageChange}
+      onTextSelect={onTextSelect}
+      isLoading={isPdfLoading}
+    />
+  )
+}
 
 export default function DocumentPage() {
   const { id } = useParams<{ id: string }>()
@@ -18,9 +89,6 @@ export default function DocumentPage() {
 
   const { data: document, isLoading, error } = useDocument(documentId)
   const [currentPage, setCurrentPage] = useState(1)
-  const [pdfUrl, setPdfUrl] = useState<string>('')
-  const [isPdfLoading, setIsPdfLoading] = useState(false)
-  const objectUrlRef = useRef<string>('')
   const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
 
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
@@ -65,34 +133,6 @@ export default function DocumentPage() {
     reportError: toast.error,
     resolveScanIdForExplain,
   })
-
-  useEffect(() => {
-    if (!documentId || !document) return
-
-    if (!pdfUrl) {
-      setIsPdfLoading(true)
-      const blobPromise = getDocumentFile(documentId)
-      blobPromise
-        .then((blob) => {
-          const url = URL.createObjectURL(blob)
-          objectUrlRef.current = url
-          setPdfUrl(url)
-        })
-        .catch((err) => {
-          console.error('Failed to load PDF:', err)
-          toast.error('Failed to load PDF. Please try again.')
-        })
-        .finally(() => {
-          setIsPdfLoading(false)
-        })
-    }
-
-    return () => {
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current)
-      }
-    }
-  }, [documentId, document])
 
   useEffect(() => {
     return () => {
@@ -150,7 +190,7 @@ export default function DocumentPage() {
     )
   }
 
-  if (error || !document) {
+  if (error || !document || documentId === undefined) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
         <Header title="Document" />
@@ -164,13 +204,13 @@ export default function DocumentPage() {
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <Header title={document.filename} />
-      <ContinuousPDFViewer
-        pdfUrl={pdfUrl}
+      <DocumentPdfSection
+        key={documentId}
+        documentId={documentId}
+        document={document}
         currentPage={currentPage}
-        totalPages={document.pageCount}
         onPageChange={handlePageChange}
         onTextSelect={handleTextSelect}
-        isLoading={isPdfLoading}
       />
       <BottomActionBar
         disabled={!selectedText || isLoadingAnnotation}

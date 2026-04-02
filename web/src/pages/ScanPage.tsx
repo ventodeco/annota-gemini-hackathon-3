@@ -87,10 +87,11 @@ export default function ScanPage() {
 
   useEffect(() => {
     if (!selectedText) {
-      setSelectionRect(null)
       speech.stop()
     }
-  }, [selectedText, speech.stop])
+  }, [selectedText, speech])
+
+  const effectiveSelectionRect = selectedText ? selectionRect : null
 
   const handleTextSelect = () => {
     const selection = window.getSelection()
@@ -205,7 +206,7 @@ export default function ScanPage() {
       />
       {selectedText && (
         <SelectionSpeechButton
-          selectionRect={selectionRect}
+          selectionRect={effectiveSelectionRect}
           isLoading={synthesizeSpeech.isPending}
           isPlaying={speech.isPlaying}
           onClick={handleSpeechToggle}
