@@ -254,8 +254,8 @@ graph TD
 
     Processing --> PageList[Page List View]
     PageList --> SelectPage[User Selects Page]
-    SelectPage --> ExtractText[Extract Text from Page]
-    ExtractText --> Reader[Kindle-like Page Reader]
+    SelectPage --> LoadPDF[Load PDF with PDF.js]
+    LoadPDF --> Reader[Kindle-like PDF Viewer]
 
     Reader --> Highlight[Highlight Word / Sentence]
     Highlight --> Annotation[Annotation / Translation]
@@ -292,6 +292,7 @@ graph LR
 
 - PDF text extraction is for text-based PDFs only; scanned/image-only PDFs require OCR and are out of scope for MVP
 - PDF page navigation is single-page-at-a-time (Kindle-style), not continuous scroll
+- PDF rendering uses Mozilla's PDF.js library for canvas rendering with text layer selection
 - Both image and PDF uploads share the same 10MB size limit
 
 ---

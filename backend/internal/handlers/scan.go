@@ -3,8 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -69,8 +69,6 @@ type GetScanResponse struct {
 	CreatedAt        string  `json:"createdAt"`
 }
 
-
-
 func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context()))
 
@@ -87,19 +85,21 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 
 	log = log.WithUserID(userID)
 
-	if err := r.ParseMultipartForm(h.config.MaxUploadSize); err != nil {
-		log.Warnf("Failed to parse multipart form: %v", err)
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")
-		return
-	}
-
-	file, header, err := r.FormFile("image")
+	imageData, header, err := readFormFile(r, h.config.MaxUploadSize, "image")
 	if err != nil {
-		log.Warnf("Failed to get image from form: %v", err)
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Please select an image to upload")
+		switch {
+		case errors.Is(err, ErrMultipartParse):
+			log.Warnf("Failed to parse multipart form: %v", err)
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")
+		case errors.Is(err, ErrMultipartField):
+			log.Warnf("Failed to get image from form: %v", err)
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Please select an image to upload")
+		default:
+			log.ErrorWithErr(err, "Failed to read uploaded file")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to read uploaded file")
+		}
 		return
 	}
-	defer file.Close()
 
 	mimeType := header.Header.Get("Content-Type")
 	if !isValidImageType(mimeType) {
@@ -110,14 +110,7 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 
 	if header.Size > h.config.MaxUploadSize {
 		log.Warnf("Image size %d exceeds max size %d", header.Size, h.config.MaxUploadSize)
-		httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("File too large. Maximum size is %v MB.", h.config.MaxUploadSize/(1024*1024)))
-		return
-	}
-
-	imageData, err := io.ReadAll(file)
-	if err != nil {
-		log.ErrorWithErr(err, "Failed to read uploaded file")
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to read uploaded file")
+		httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fileTooLargeMBMessage(h.config.MaxUploadSize))
 		return
 	}
 
@@ -341,9 +334,9 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 	}
 
 	log.WithFields(map[string]any{
-		"has_ocr":          fullText != "",
-		"ocr_text_length":  len(fullText),
-		"language":         scan.DetectedLanguage,
+		"has_ocr":         fullText != "",
+		"ocr_text_length": len(fullText),
+		"language":        scan.DetectedLanguage,
 	}).Infof("Successfully retrieved scan: id=%d", scanID)
 
 	response := GetScanResponse{
@@ -380,7 +373,6 @@ func (h *ScanHandlers) processOCR(ctx context.Context, scanID int64, imageData [
 
 	log.Infof("OCR results saved to database successfully")
 }
-
 
 func isValidImageType(mimeType string) bool {
 	validTypes := []string{"image/jpeg", "image/jpg", "image/png", "image/webp"}

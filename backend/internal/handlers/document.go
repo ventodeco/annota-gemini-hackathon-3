@@ -1,8 +1,8 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/httputil"
+	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/pdf"
@@ -58,17 +59,23 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := r.ParseMultipartForm(h.config.MaxUploadSize); err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")
-		return
-	}
+	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
 
-	file, header, err := r.FormFile("file")
+	pdfData, header, err := readFormFile(r, h.config.MaxUploadSize, "file")
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Please select a PDF file to upload")
+		switch {
+		case errors.Is(err, ErrMultipartParse):
+			log.Warnf("Failed to parse multipart form: %v", err)
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")
+		case errors.Is(err, ErrMultipartField):
+			log.Warnf("Missing file field: %v", err)
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Please select a PDF file to upload")
+		default:
+			log.ErrorWithErr(err, "Failed to read uploaded file")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to read uploaded file")
+		}
 		return
 	}
-	defer file.Close()
 
 	mimeType := header.Header.Get("Content-Type")
 	if mimeType != "application/pdf" {
@@ -77,13 +84,7 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 	}
 
 	if header.Size > h.config.MaxUploadSize {
-		httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("File too large. Maximum size is %d MB.", h.config.MaxUploadSize/(1024*1024)))
-		return
-	}
-
-	pdfData, err := io.ReadAll(file)
-	if err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to read uploaded file")
+		httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fileTooLargeMBMessage(h.config.MaxUploadSize))
 		return
 	}
 
@@ -216,6 +217,13 @@ func (h *DocumentHandlers) DocumentByIDAPI(w http.ResponseWriter, r *http.Reques
 		}
 		h.createScanFromPageHandler(w, r, doc, pageNum)
 
+	case len(parts) == 2 && parts[1] == "file":
+		if r.Method != http.MethodGet {
+			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		h.getDocumentFileHandler(w, r, doc)
+
 	default:
 		httputil.WriteJSONError(w, http.StatusNotFound, "Not found")
 	}
@@ -255,11 +263,11 @@ func (h *DocumentHandlers) createScanFromPageHandler(w http.ResponseWriter, r *h
 
 	// Create scan with text populated immediately
 	scan := &models.Scan{
-		UserID:     userID,
+		UserID:      userID,
 		FullOCRText: &text,
-		DocumentID: &doc.ID,
-		PageNumber: &pageNumber,
-		CreatedAt:  time.Now(),
+		DocumentID:  &doc.ID,
+		PageNumber:  &pageNumber,
+		CreatedAt:   time.Now(),
 	}
 
 	scanID, err := h.db.CreateScanFromDocument(r.Context(), scan)
@@ -288,4 +296,18 @@ func (h *DocumentHandlers) getPageTextHandler(w http.ResponseWriter, doc *models
 		Text:       text,
 		TotalPages: doc.PageCount,
 	})
+}
+
+func (h *DocumentHandlers) getDocumentFileHandler(w http.ResponseWriter, r *http.Request, doc *models.Document) {
+	data, err := h.fileStorage.OpenPDF(doc.FileURL)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to read PDF file")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", doc.Filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }

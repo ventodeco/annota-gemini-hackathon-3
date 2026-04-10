@@ -1,176 +1,183 @@
 import { useParams } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
-import PageList from '@/components/documentpage/PageList'
-import PageReader from '@/components/documentpage/PageReader'
+import ContinuousPDFViewer from '@/components/documentpage/ContinuousPDFViewer'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
-import { useDocument, useDocumentPage } from '@/hooks/useDocument'
+import { useDocument } from '@/hooks/useDocument'
 import { useTextSelection } from '@/hooks/useTextSelection'
-import { useAnalyzeText, useCreateAnnotation } from '@/hooks/useAnnotations'
-import { createScanFromPage } from '@/lib/api'
-import type { Annotation } from '@/lib/types'
+import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
+import { createScanFromPage, getDocumentFile } from '@/lib/api'
+import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
+import { useAnnotationDrawerFlow, DEFAULT_MAX_ANNOTATION_VERSIONS } from '@/hooks/useAnnotationDrawerFlow'
+import type { Document } from '@/lib/types'
 
-const MAX_ANNOTATION_VERSIONS = 2
+type DocumentPdfSectionProps = {
+  documentId: number
+  document: Document
+  currentPage: number
+  onPageChange: (page: number) => void
+  onTextSelect: (selectedText: string) => void
+}
 
-type ViewMode = 'list' | 'reader'
+/**
+ * Loads the PDF blob when `documentId` changes (`key` on parent resets state).
+ * Loading UI is derived: no synchronous setState in the fetch effect body.
+ */
+function DocumentPdfSection({
+  documentId,
+  document,
+  currentPage,
+  onPageChange,
+  onTextSelect,
+}: DocumentPdfSectionProps) {
+  const [pdfUrl, setPdfUrl] = useState('')
+  const [loadError, setLoadError] = useState(false)
+  const objectUrlRef = useRef('')
+
+  const isPdfLoading = !pdfUrl && !loadError
+
+  useEffect(() => {
+    let cancelled = false
+    getDocumentFile(documentId)
+      .then((blob) => {
+        if (cancelled) return
+        const url = URL.createObjectURL(blob)
+        objectUrlRef.current = url
+        setPdfUrl(url)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('Failed to load PDF:', err)
+        toast.error('Failed to load PDF. Please try again.')
+        setLoadError(true)
+      })
+
+    return () => {
+      cancelled = true
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = ''
+      }
+    }
+  }, [documentId])
+
+  if (loadError) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <p className="text-gray-600">Failed to load PDF</p>
+      </div>
+    )
+  }
+
+  return (
+    <ContinuousPDFViewer
+      pdfUrl={pdfUrl}
+      currentPage={currentPage}
+      totalPages={document.pageCount}
+      onPageChange={onPageChange}
+      onTextSelect={onTextSelect}
+      isLoading={isPdfLoading}
+    />
+  )
+}
 
 export default function DocumentPage() {
   const { id } = useParams<{ id: string }>()
   const documentId = id ? parseInt(id, 10) : undefined
 
   const { data: document, isLoading, error } = useDocument(documentId)
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [currentPage, setCurrentPage] = useState(1)
-  const { data: pageData, isLoading: isPageLoading } = useDocumentPage(
-    viewMode === 'reader' ? documentId : undefined,
-    currentPage,
-  )
+  const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
 
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
   const analyzeText = useAnalyzeText()
   const createAnnotation = useCreateAnnotation()
+  const synthesizeSpeech = useSynthesizeSpeech()
+  const speech = useSpeechPlayback()
 
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
-  const [annotationVersion, setAnnotationVersion] = useState(1)
-  const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
   const [contextText, setContextText] = useState('')
-  const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
 
-  const handleSelectPage = (pageNumber: number) => {
-    setCurrentPage(pageNumber)
-    setViewMode('reader')
-    clearSelection()
-  }
+  const resolveScanIdForExplain = useCallback(async () => {
+    if (!documentId) {
+      throw new Error('Missing document')
+    }
+    if (bridgeScanId !== null) {
+      return bridgeScanId
+    }
+    const bridgeResult = await createScanFromPage(documentId, currentPage)
+    setBridgeScanId(bridgeResult.scanId)
+    return bridgeResult.scanId
+  }, [documentId, currentPage, bridgeScanId])
 
-  const handleBackToList = () => {
-    setViewMode('list')
+  const {
+    isDrawerOpen,
+    currentAnnotation,
+    annotationVersion,
+    isLoadingAnnotation,
+    resetAnnotationState,
+    handleExplain,
+    handleSaveAnnotation,
+    handleRegenerateAnnotation,
+    handleDrawerClose,
+    handleSpeechToggle,
+  } = useAnnotationDrawerFlow({
+    selectedText,
+    contextText,
+    analyzeText,
+    createAnnotation,
+    synthesizeSpeech,
+    speech,
+    clearSelection,
+    reportError: toast.error,
+    resolveScanIdForExplain,
+  })
+
+  useEffect(() => {
+    return () => {
+      speech.stop()
+    }
+  }, [speech])
+
+  useEffect(() => {
+    if (!selectedText) {
+      speech.stop()
+    }
+  }, [selectedText, speech])
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
     clearSelection()
-    setIsDrawerOpen(false)
-    setCurrentAnnotation(null)
+    resetAnnotationState()
     setBridgeScanId(null)
   }
 
-  const handlePrev = () => {
-    if (currentPage > 1) {
-      setCurrentPage((p) => p - 1)
-      clearSelection()
-    }
-  }
-
-  const handleNext = () => {
-    const total = document?.pageCount ?? 0
-    if (currentPage < total) {
-      setCurrentPage((p) => p + 1)
-      clearSelection()
-    }
-  }
-
-  const handleTextSelect = () => {
-    const selection = window.getSelection()
-    if (!selection || selection.toString().trim() === '') {
+  const handleTextSelect = useCallback((selectedTextFromViewer: string) => {
+    const selectedTextValue = selectedTextFromViewer.trim()
+    if (selectedTextValue === '') {
       clearSelection()
       setContextText('')
       return
     }
-    handleSelection(selection.toString())
 
-    const range = selection.getRangeAt(0)
-    const context = range.endContainer.textContent || ''
-    setContextText(context)
-  }
-
-  const handleExplain = async () => {
-    if (!selectedText || !documentId) return
-
-    setIsLoadingAnnotation(true)
-
-    try {
-      let scanId = bridgeScanId
-      if (!scanId) {
-        const bridgeResult = await createScanFromPage(documentId, currentPage)
-        scanId = bridgeResult.scanId
-        setBridgeScanId(scanId)
-      }
-
-      const result = await analyzeText.mutateAsync({
-        textToAnalyze: selectedText,
-        context: contextText,
-      })
-
-      const annotation: Annotation = {
-        id: Date.now(),
-        user_id: 0,
-        scan_id: scanId,
-        highlighted_text: selectedText,
-        context_text: contextText,
-        nuance_data: result,
-        is_bookmarked: true,
-        created_at: new Date().toISOString(),
-      }
-
-      setCurrentAnnotation(annotation)
-      setAnnotationVersion(1)
-      setIsDrawerOpen(true)
-    } catch (err) {
-      console.error('Failed to analyze text:', err)
-      toast.error('Failed to analyze text. Please try again.')
-    } finally {
-      setIsLoadingAnnotation(false)
-    }
-  }
-
-  const handleSaveAnnotation = async () => {
-    if (!currentAnnotation || !currentAnnotation.scan_id) return
-
-    try {
-      await createAnnotation.mutateAsync({
-        scanId: currentAnnotation.scan_id,
-        highlightedText: currentAnnotation.highlighted_text,
-        contextText: currentAnnotation.context_text,
-        nuanceData: currentAnnotation.nuance_data,
-      })
-      setIsDrawerOpen(false)
-      setCurrentAnnotation(null)
-      setAnnotationVersion(1)
+    const selectionResult = handleSelection(selectedTextValue)
+    if (!selectionResult.valid) {
       clearSelection()
-    } catch (err) {
-      console.error('Failed to save annotation:', err)
-      toast.error('Failed to save annotation. Please try again.')
-    }
-  }
-
-  const handleRegenerateAnnotation = async () => {
-    if (!currentAnnotation || analyzeText.isPending || annotationVersion >= MAX_ANNOTATION_VERSIONS) {
+      setContextText('')
       return
     }
 
-    try {
-      const result = await analyzeText.mutateAsync({
-        textToAnalyze: currentAnnotation.highlighted_text,
-        context: currentAnnotation.context_text ?? '',
-      })
-
-      setCurrentAnnotation({
-        ...currentAnnotation,
-        nuance_data: result,
-        created_at: new Date().toISOString(),
-      })
-      setAnnotationVersion((prev) => Math.min(prev + 1, MAX_ANNOTATION_VERSIONS))
-    } catch (err) {
-      console.error('Failed to regenerate annotation:', err)
-      toast.error('Failed to regenerate annotation. Please try again.')
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) {
+      setContextText(selectedTextValue)
+      return
     }
-  }
 
-  const handleDrawerClose = () => {
-    setIsDrawerOpen(false)
-    setCurrentAnnotation(null)
-    setAnnotationVersion(1)
-    clearSelection()
-  }
+    const range = selection.getRangeAt(0)
+    const context = range.cloneContents().textContent?.trim() ?? ''
+    setContextText(context || selectedTextValue)
+  }, [clearSelection, handleSelection])
 
   if (isLoading) {
     return (
@@ -183,7 +190,7 @@ export default function DocumentPage() {
     )
   }
 
-  if (error || !document) {
+  if (error || !document || documentId === undefined) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
         <Header title="Document" />
@@ -194,34 +201,24 @@ export default function DocumentPage() {
     )
   }
 
-  if (viewMode === 'list') {
-    return (
-      <div className="min-h-screen bg-white flex flex-col">
-        <Header title={document.filename} />
-        <div className="flex-1 p-4">
-          <p className="text-sm text-gray-500 mb-4">{document.pageCount} pages</p>
-          <PageList pageCount={document.pageCount} onSelectPage={handleSelectPage} />
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
-      <Header title={document.filename} onBack={handleBackToList} />
-      <PageReader
-        text={pageData?.text ?? ''}
+      <Header title={document.filename} />
+      <DocumentPdfSection
+        key={documentId}
+        documentId={documentId}
+        document={document}
         currentPage={currentPage}
-        totalPages={document.pageCount}
-        onPrev={handlePrev}
-        onNext={handleNext}
+        onPageChange={handlePageChange}
         onTextSelect={handleTextSelect}
-        isLoading={isPageLoading}
       />
       <BottomActionBar
         disabled={!selectedText || isLoadingAnnotation}
         isLoading={isLoadingAnnotation || analyzeText.isPending}
         onExplain={handleExplain}
+        onSpeech={selectedText ? handleSpeechToggle : undefined}
+        isPlaying={speech.isPlaying}
+        isSpeechLoading={synthesizeSpeech.isPending}
       />
       <AnnotationDrawer
         isOpen={isDrawerOpen}
@@ -232,7 +229,7 @@ export default function DocumentPage() {
         isRegenerating={analyzeText.isPending}
         isSaving={createAnnotation.isPending}
         version={annotationVersion}
-        maxVersions={MAX_ANNOTATION_VERSIONS}
+        maxVersions={DEFAULT_MAX_ANNOTATION_VERSIONS}
       />
     </div>
   )

@@ -54,24 +54,46 @@ function isAuthError(status: number): boolean {
   return status === 401
 }
 
+async function throwIfNotOk(
+  response: Response,
+  method: string,
+  url: string,
+  startTime: number,
+  errorTextFallback = 'An error occurred',
+): Promise<void> {
+  if (response.ok) return
+
+  if (isAuthError(response.status)) {
+    clearAuthToken()
+    window.location.href = '/login'
+  }
+  const error = await response.text().catch(() => errorTextFallback)
+  logger.apiCall(method, url, response.status, Date.now() - startTime, new Error(error))
+  throw new Error(error)
+}
+
 async function handleResponse<T>(response: Response, method: string, url: string): Promise<T> {
   const startTime = Date.now()
-
-  if (!response.ok) {
-    if (isAuthError(response.status)) {
-      clearAuthToken()
-      window.location.href = '/login'
-    }
-    const error = await response.text().catch(() => 'An error occurred')
-    logger.apiCall(method, url, response.status, Date.now() - startTime, new Error(error))
-    throw new Error(error)
-  }
+  await throwIfNotOk(response, method, url, startTime)
 
   logger.apiCall(method, url, response.status, Date.now() - startTime)
   if (response.status === 204) {
     return undefined as T
   }
   return response.json()
+}
+
+async function handleBlobResponse(
+  response: Response,
+  method: string,
+  url: string,
+  errorTextFallback = 'An error occurred',
+): Promise<Blob> {
+  const startTime = Date.now()
+  await throwIfNotOk(response, method, url, startTime, errorTextFallback)
+
+  logger.apiCall(method, url, response.status, Date.now() - startTime)
+  return response.blob()
 }
 
 function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
@@ -188,24 +210,11 @@ export async function analyzeText(request: AnalyzeRequest): Promise<AnalyzeRespo
 
 export async function synthesizeSpeech(request: SynthesizeSpeechRequest): Promise<Blob> {
   const url = `${API_BASE_URL}/v1/ai/speech`
-  const startTime = Date.now()
   const response = await fetchWithAuth(url, {
     method: 'POST',
     body: JSON.stringify(request),
   })
-
-  if (!response.ok) {
-    if (isAuthError(response.status)) {
-      clearAuthToken()
-      window.location.href = '/login'
-    }
-    const error = await response.text().catch(() => 'An error occurred')
-    logger.apiCall('POST', url, response.status, Date.now() - startTime, new Error(error))
-    throw new Error(error)
-  }
-
-  logger.apiCall('POST', url, response.status, Date.now() - startTime)
-  return response.blob()
+  return handleBlobResponse(response, 'POST', url)
 }
 
 // ============================================================================
@@ -292,6 +301,15 @@ export async function createScanFromPage(
   const url = `${API_BASE_URL}/v1/documents/${documentId}/pages/${pageNumber}/scan`
   const response = await fetchWithAuth(url, { method: 'POST' })
   return handleResponse(response, 'POST', url)
+}
+
+export async function getDocumentFile(documentId: number): Promise<Blob> {
+  const url = `${API_BASE_URL}/v1/documents/${documentId}/file`
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  })
+  return handleBlobResponse(response, 'GET', url, 'Failed to fetch PDF file')
 }
 
 // ============================================================================
