@@ -45,6 +45,8 @@ func createTestMigrationsDir(t *testing.T) string {
 			is_bookmarked BOOLEAN DEFAULT 1,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
+
+		CREATE INDEX IF NOT EXISTS idx_annotations_scan_id ON annotations(scan_id);
 	`
 	err := os.WriteFile(filepath.Join(dir, "001_schema.sql"), []byte(migration), 0644)
 	if err != nil {
@@ -83,6 +85,12 @@ func TestRunMigrations_CreatesTablesFromSQLFiles(t *testing.T) {
 	_, err = db.Exec("INSERT INTO annotations (user_id, highlighted_text, nuance_data) VALUES (1, 'text', '{}')")
 	if err != nil {
 		t.Fatalf("annotations table should exist after migration: %v", err)
+	}
+
+	var indexName string
+	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_annotations_scan_id'").Scan(&indexName)
+	if err != nil {
+		t.Fatalf("idx_annotations_scan_id should exist after migration: %v", err)
 	}
 }
 

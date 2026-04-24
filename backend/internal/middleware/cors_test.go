@@ -52,6 +52,10 @@ func TestCORSMiddleware_PreflightAllowedOrigin(t *testing.T) {
 				t.Fatalf("expected Access-Control-Allow-Origin %q, got %q", tt.origin, got)
 			}
 
+			if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+				t.Fatalf("expected Access-Control-Allow-Credentials to be true, got %q", got)
+			}
+
 			if got := recorder.Header().Get("Access-Control-Allow-Methods"); got != "GET, POST, PUT, PATCH, DELETE, OPTIONS" {
 				t.Fatalf("unexpected Access-Control-Allow-Methods: %q", got)
 			}
@@ -146,5 +150,9 @@ func TestCORSMiddleware_WildcardAllowsAnyOrigin(t *testing.T) {
 
 	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Fatalf("expected Access-Control-Allow-Origin to be '*', got %q", got)
+	}
+
+	if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("expected Access-Control-Allow-Credentials to be omitted for wildcard origins, got %q", got)
 	}
 }

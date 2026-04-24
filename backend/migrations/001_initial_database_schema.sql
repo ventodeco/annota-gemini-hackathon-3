@@ -41,3 +41,4 @@ CREATE TABLE annotations (
 
 CREATE INDEX idx_scans_user_id ON scans(user_id);
 CREATE INDEX idx_annotations_user_id ON annotations(user_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_scan_id ON annotations(scan_id);
