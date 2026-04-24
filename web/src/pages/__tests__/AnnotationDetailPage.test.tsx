@@ -48,6 +48,11 @@ vi.mock('@/components/layout/BottomNavigation', () => ({
 
 vi.mock('@/hooks/useAnnotations', () => ({
   useDeleteAnnotation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSynthesizeSpeech: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
+
+vi.mock('@/hooks/useSpeechPlayback', () => ({
+  useSpeechPlayback: () => ({ isPlaying: false, play: vi.fn(), stop: vi.fn() }),
 }))
 
 function HistoryRouteProbe() {

@@ -22,6 +22,11 @@ export interface Scan {
   fullText?: string
   imageUrl: string
   detectedLanguage?: string
+  sourceType: 'image' | 'pdf'
+  status: 'processing' | 'ready' | 'failed'
+  failureReason?: string
+  documentId?: number
+  pageNumber?: number
   createdAt: string
 }
 
@@ -29,12 +34,20 @@ export interface CreateScanResponse {
   scanId: number
   fullText?: string
   imageUrl: string
+  sourceType: 'image' | 'pdf'
+  status: 'processing' | 'ready' | 'failed'
+  failureReason?: string
 }
 
 export interface GetScanListItem {
   id: number
   imageUrl: string
   detectedLanguage?: string
+  sourceType: 'image' | 'pdf'
+  status: 'processing' | 'ready' | 'failed'
+  failureReason?: string
+  documentId?: number
+  pageNumber?: number
   createdAt: string
 }
 
@@ -50,11 +63,19 @@ export interface GetScansResponse {
 
 // Annotation Types
 export interface NuanceData {
+  translation?: string
+  contextualExplanation?: string
   meaning: string
   usageExample: string
+  whenToUse?: string
   usageTiming: string
   wordBreakdown: string
+  alternativeMeanings?: string
   alternativeMeaning: string
+  pronunciation?: {
+    kana?: string
+    romaji?: string
+  }
 }
 
 export interface Annotation {
@@ -72,11 +93,21 @@ export interface AnnotationListItem {
   id: number
   highlightedText: string
   nuanceSummary: string
+  scanId?: number
+  sourceType?: 'image' | 'pdf'
+  documentId?: number
+  pageNumber?: number
+  sourceLabel?: string
   createdAt: string
 }
 
 export interface AnnotationDetail {
   id: number
+  scanId?: number
+  sourceType?: 'image' | 'pdf'
+  documentId?: number
+  pageNumber?: number
+  sourceLabel?: string
   highlightedText: string
   contextText?: string
   nuanceData: NuanceData
@@ -109,6 +140,7 @@ export interface CreateAnnotationResponse {
 export interface AnalyzeRequest {
   textToAnalyze: string
   context: string
+  scanId?: number
 }
 
 export type AnalyzeResponse = NuanceData
@@ -151,7 +183,10 @@ export interface Document {
   id: number
   filename: string
   pageCount: number
+  lastPageNumber: number
+  lastOpenedAt?: string
   createdAt: string
+  updatedAt: string
 }
 
 export interface UploadDocumentResponse {
@@ -168,6 +203,11 @@ export interface DocumentPageResponse {
 
 export interface CreateScanFromPageResponse {
   scanId: number
+}
+
+export interface GetDocumentsResponse {
+  data: Document[]
+  meta: PaginationMeta
 }
 
 // Legacy Types (for reference during migration)

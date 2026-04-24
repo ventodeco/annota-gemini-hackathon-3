@@ -30,7 +30,7 @@ func setupTestDB(t *testing.T) DB {
 			provider VARCHAR(50) NOT NULL,
 			provider_id VARCHAR(255) NOT NULL,
 			avatar_url TEXT,
-			preferred_language VARCHAR(10) DEFAULT 'ID',
+			preferred_language VARCHAR(10) DEFAULT 'EN',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE (provider, provider_id)
@@ -43,7 +43,10 @@ func setupTestDB(t *testing.T) DB {
 			filename TEXT NOT NULL,
 			page_count INTEGER NOT NULL,
 			file_size BIGINT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			last_page_number INTEGER NOT NULL DEFAULT 1,
+			last_opened_at TIMESTAMP,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 
 		CREATE TABLE scans (
@@ -54,6 +57,9 @@ func setupTestDB(t *testing.T) DB {
 			detected_language VARCHAR(10),
 			document_id BIGINT REFERENCES documents(id) ON DELETE SET NULL,
 			page_number INTEGER,
+			source_type TEXT NOT NULL DEFAULT 'image',
+			status TEXT NOT NULL DEFAULT 'processing',
+			failure_reason TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 
@@ -61,6 +67,10 @@ func setupTestDB(t *testing.T) DB {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
 			scan_id BIGINT REFERENCES scans(id) ON DELETE SET NULL,
+			source_type TEXT,
+			document_id BIGINT,
+			page_number INTEGER,
+			source_label TEXT,
 			highlighted_text TEXT NOT NULL,
 			context_text TEXT,
 			nuance_data TEXT NOT NULL,
@@ -102,8 +112,8 @@ func createTestScan(t *testing.T, store DB, userID int64, imageURL string) *mode
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Second)
 	scan := &models.Scan{
-		UserID:   userID,
-		ImageURL: imageURL,
+		UserID:    userID,
+		ImageURL:  imageURL,
 		CreatedAt: now,
 	}
 	id, err := store.CreateScan(context.Background(), scan)
@@ -283,8 +293,8 @@ func TestCreateScan(t *testing.T) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	scan := &models.Scan{
-		UserID:   user.ID,
-		ImageURL: "/uploads/test.jpg",
+		UserID:    user.ID,
+		ImageURL:  "/uploads/test.jpg",
 		CreatedAt: now,
 	}
 

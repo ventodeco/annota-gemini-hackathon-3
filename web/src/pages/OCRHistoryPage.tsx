@@ -22,6 +22,10 @@ interface ScanHistoryItem {
   id: number
   imageUrl: string
   detectedLanguage?: string
+  sourceType?: 'image' | 'pdf'
+  status?: 'processing' | 'ready' | 'failed'
+  documentId?: number
+  pageNumber?: number
   createdAt: string
 }
 
@@ -98,7 +102,12 @@ export default function OCRHistoryPage() {
                 >
                   <p className="font-medium text-gray-900">{`OCR #${scan.id}`}</p>
                   <p className="text-sm text-gray-500 mt-1">
-                    Language: {scan.detectedLanguage || 'Unknown'}
+                    {scan.sourceType === 'pdf'
+                      ? `PDF page ${scan.pageNumber || '-'}`
+                      : `Language: ${scan.detectedLanguage || 'Unknown'}`}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Status: {scan.status || 'ready'}
                   </p>
                   <p className="text-xs text-gray-400 mt-2">
                     {formatDate(scan.createdAt)}

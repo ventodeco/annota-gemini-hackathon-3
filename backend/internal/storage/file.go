@@ -15,6 +15,7 @@ type FileStorage interface {
 	DeleteImage(path string) error
 	SavePDF(documentID string, data []byte) (string, error)
 	OpenPDF(path string) ([]byte, error)
+	DeletePDF(path string) error
 }
 
 type localFileStorage struct {
@@ -80,6 +81,13 @@ func (l *localFileStorage) OpenPDF(path string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read PDF file: %w", err)
 	}
 	return data, nil
+}
+
+func (l *localFileStorage) DeletePDF(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete PDF file: %w", err)
+	}
+	return nil
 }
 
 func getExtensionFromMimeType(mimeType string) string {

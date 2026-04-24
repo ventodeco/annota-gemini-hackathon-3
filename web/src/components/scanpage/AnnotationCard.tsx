@@ -6,6 +6,15 @@ interface AnnotationCardProps {
 }
 
 export default function AnnotationCard({ annotation }: AnnotationCardProps) {
+  const nuance = annotation.nuance_data
+  const translation = nuance.translation || nuance.meaning
+  const explanation = nuance.contextualExplanation || ''
+  const whenToUse = nuance.whenToUse || nuance.usageTiming
+  const alternativeMeanings = nuance.alternativeMeanings || nuance.alternativeMeaning
+  const pronunciation = nuance.pronunciation?.kana
+    ? `${nuance.pronunciation.kana}${nuance.pronunciation.romaji ? ` (${nuance.pronunciation.romaji})` : ''}`
+    : ''
+
   return (
     <Card className="mb-6">
       <CardHeader>
@@ -15,28 +24,42 @@ export default function AnnotationCard({ annotation }: AnnotationCardProps) {
       <CardContent className="space-y-4">
         <div>
           <h3 className="font-semibold mb-2">Meaning</h3>
-          <p className="text-gray-700">{annotation.nuance_data.meaning}</p>
+          <p className="text-gray-700">{translation}</p>
         </div>
-        
+
+        {explanation && explanation !== translation && (
+          <div>
+            <h3 className="font-semibold mb-2">Explanation</h3>
+            <p className="text-gray-700">{explanation}</p>
+          </div>
+        )}
+
+        {pronunciation && (
+          <div>
+            <h3 className="font-semibold mb-2">Pronunciation</h3>
+            <p className="text-gray-700">{pronunciation}</p>
+          </div>
+        )}
+
         <div>
           <h3 className="font-semibold mb-2">Usage Example</h3>
-          <p className="text-gray-700">{annotation.nuance_data.usageExample}</p>
+          <p className="text-gray-700">{nuance.usageExample}</p>
         </div>
-        
+
         <div>
           <h3 className="font-semibold mb-2">When to Use</h3>
-          <p className="text-gray-700">{annotation.nuance_data.usageTiming}</p>
+          <p className="text-gray-700">{whenToUse}</p>
         </div>
-        
+
         <div>
           <h3 className="font-semibold mb-2">Word Breakdown</h3>
-          <p className="text-gray-700">{annotation.nuance_data.wordBreakdown}</p>
+          <p className="text-gray-700">{nuance.wordBreakdown}</p>
         </div>
-        
-        {annotation.nuance_data.alternativeMeaning && (
+
+        {alternativeMeanings && (
           <div>
             <h3 className="font-semibold mb-2">Alternative Meanings</h3>
-            <p className="text-gray-700">{annotation.nuance_data.alternativeMeaning}</p>
+            <p className="text-gray-700">{alternativeMeanings}</p>
           </div>
         )}
       </CardContent>

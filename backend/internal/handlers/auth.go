@@ -174,7 +174,7 @@ func (h *AuthHandlers) GoogleCallbackAPI(w http.ResponseWriter, r *http.Request)
 			Email:             userInfo.Email,
 			Provider:          "google",
 			ProviderID:        userInfo.ID,
-			PreferredLanguage: "ID",
+			PreferredLanguage: "EN",
 			CreatedAt:         time.Now(),
 			UpdatedAt:         time.Now(),
 		}

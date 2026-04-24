@@ -85,6 +85,7 @@ export function useAnnotationDrawerFlow(
       const result = await analyzeText.mutateAsync({
         textToAnalyze: selectedText,
         context: contextText,
+        scanId,
       })
 
       const annotation: Annotation = {

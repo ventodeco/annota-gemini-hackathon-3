@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/handlers"
@@ -199,6 +201,107 @@ func TestGetDocumentSuccess(t *testing.T) {
 	}
 	if resp.PageCount != 3 {
 		t.Fatalf("expected 3, got %d", resp.PageCount)
+	}
+}
+
+func TestListDocumentsSuccess(t *testing.T) {
+	h, mockDB := newDocumentHandlers(t)
+	now := time.Now()
+	mockDB.CreateDocument(context.Background(), &models.Document{
+		UserID:         1,
+		FileURL:        "test.pdf",
+		Filename:       "test.pdf",
+		PageCount:      3,
+		FileSize:       100,
+		LastPageNumber: 2,
+		LastOpenedAt:   &now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/documents?page=1&size=20", nil)
+	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
+	rec := httptest.NewRecorder()
+
+	h.DocumentsAPI(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp handlers.GetDocumentsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(resp.Data))
+	}
+	if resp.Data[0].LastPageNumber != 2 {
+		t.Fatalf("expected lastPageNumber=2, got %d", resp.Data[0].LastPageNumber)
+	}
+}
+
+func TestUpdateDocumentProgressSuccess(t *testing.T) {
+	h, mockDB := newDocumentHandlers(t)
+	now := time.Now()
+	mockDB.CreateDocument(context.Background(), &models.Document{
+		UserID:         1,
+		FileURL:        "test.pdf",
+		Filename:       "test.pdf",
+		PageCount:      3,
+		FileSize:       100,
+		LastPageNumber: 1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+
+	req := httptest.NewRequest(http.MethodPatch, "/v1/documents/1/progress", strings.NewReader(`{"lastPageNumber": 3}`))
+	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
+	rec := httptest.NewRecorder()
+
+	h.DocumentByIDAPI(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	doc, _ := mockDB.GetDocumentByID(context.Background(), 1)
+	if doc.LastPageNumber != 3 {
+		t.Fatalf("expected persisted page 3, got %d", doc.LastPageNumber)
+	}
+}
+
+func TestDeleteDocumentSuccess(t *testing.T) {
+	h, mockDB := newDocumentHandlers(t)
+	now := time.Now()
+	docID, _ := mockDB.CreateDocument(context.Background(), &models.Document{
+		UserID:         1,
+		FileURL:        "test.pdf",
+		Filename:       "test.pdf",
+		PageCount:      3,
+		FileSize:       100,
+		LastPageNumber: 1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+	page := 1
+	mockDB.CreateScanFromDocument(context.Background(), &models.Scan{
+		UserID:     1,
+		DocumentID: &docID,
+		PageNumber: &page,
+		CreatedAt:  now,
+	})
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/documents/1", nil)
+	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
+	rec := httptest.NewRecorder()
+
+	h.DocumentByIDAPI(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	doc, _ := mockDB.GetDocumentByID(context.Background(), 1)
+	if doc != nil {
+		t.Fatal("expected document to be deleted")
 	}
 }
 

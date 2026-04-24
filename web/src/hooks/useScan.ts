@@ -7,8 +7,12 @@ type UseScanOptions = {
   pollIntervalMs?: number
 }
 
-export function isScanOcrReady(scan: Pick<Scan, 'fullText'> | null | undefined): boolean {
-  return Boolean(scan?.fullText && scan.fullText.trim().length > 0)
+export function isScanOcrReady(scan: Pick<Scan, 'fullText' | 'status'> | null | undefined): boolean {
+  return scan?.status === 'ready' || Boolean(scan?.fullText && scan.fullText.trim().length > 0)
+}
+
+export function isScanFailed(scan: Pick<Scan, 'status'> | null | undefined): boolean {
+  return scan?.status === 'failed'
 }
 
 export function useScan(scanId: number | undefined, options: UseScanOptions = {}) {
@@ -25,6 +29,7 @@ export function useScan(scanId: number | undefined, options: UseScanOptions = {}
       const data = query.state.data as Scan | undefined
       if (!data) return false
       if (isScanOcrReady(data)) return false
+      if (isScanFailed(data)) return false
       if (pollIntervalMs <= 0) return false
       return pollIntervalMs
     },

@@ -55,11 +55,20 @@ type OCRResponse struct {
 }
 
 type AnnotationResponse struct {
-	Meaning             string `json:"meaning"`
-	UsageExample        string `json:"usage_example"`
-	WhenToUse           string `json:"when_to_use"`
-	WordBreakdown       string `json:"word_breakdown"`
-	AlternativeMeanings string `json:"alternative_meanings"`
+	Translation             string             `json:"translation"`
+	ContextualExplanation   string             `json:"contextual_explanation"`
+	UsageExample            string             `json:"usage_example"`
+	WhenToUse               string             `json:"when_to_use"`
+	WordBreakdown           string             `json:"word_breakdown"`
+	AlternativeMeanings     string             `json:"alternative_meanings"`
+	Pronunciation           Pronunciation      `json:"pronunciation"`
+	Meaning                 string             `json:"meaning"`
+	AlternativeMeaning      string             `json:"alternative_meaning"`
+}
+
+type Pronunciation struct {
+	Kana   string `json:"kana"`
+	Romaji string `json:"romaji,omitempty"`
 }
 
 type SpeechResponse struct {
@@ -181,41 +190,20 @@ Full OCR text:
 Selected text to annotate:
 %s
 
-Provide a detailed annotation in JSON format with these exact fields:
-- meaning: Direct translation of the selected text
+Provide a detailed annotation in English JSON format with these exact fields:
+- translation: Direct English translation of the selected text
+- contextual_explanation: Explanation of what the selected text means in the surrounding context
 - usage_example: Example sentence showing how to use this in a professional/work context
 - when_to_use: When and in what situation this phrase is used
 - word_breakdown: Explanation of each word/component in the selected text
 - alternative_meanings: Alternative meanings in different fields or contexts
+- pronunciation: object with kana reading and optional romaji
 
 Return only valid JSON, no markdown formatting.`, ocrText, selectedText)
 
 	cfg := &genai.GenerateContentConfig{
 		ResponseMIMEType: "application/json",
-		ResponseSchema: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{
-				"meaning":              {Type: genai.TypeString},
-				"usage_example":        {Type: genai.TypeString},
-				"when_to_use":          {Type: genai.TypeString},
-				"word_breakdown":       {Type: genai.TypeString},
-				"alternative_meanings": {Type: genai.TypeString},
-			},
-			Required: []string{
-				"meaning",
-				"usage_example",
-				"when_to_use",
-				"word_breakdown",
-				"alternative_meanings",
-			},
-			PropertyOrdering: []string{
-				"meaning",
-				"usage_example",
-				"when_to_use",
-				"word_breakdown",
-				"alternative_meanings",
-			},
-		},
+		ResponseSchema:   annotationResponseSchema(),
 	}
 
 	var result *genai.GenerateContentResponse
@@ -254,13 +242,13 @@ Return only valid JSON, no markdown formatting.`, ocrText, selectedText)
 		normalized := normalizeJSONCandidate(text)
 		if normalized != text {
 			if err2 := json.Unmarshal([]byte(normalized), &annotation); err2 == nil {
-				return &annotation, nil
+				return normalizeAnnotationResponse(&annotation), nil
 			}
 		}
 		return nil, fmt.Errorf("failed to parse annotation JSON: %w", err)
 	}
 
-	return &annotation, nil
+	return normalizeAnnotationResponse(&annotation), nil
 }
 
 func (c *client) AnnotateWithKnowledge(ctx context.Context, ocrText string, selectedText string, entries []knowledge.Entry) (*AnnotationResponse, error) {
@@ -275,30 +263,7 @@ func (c *client) AnnotateWithKnowledge(ctx context.Context, ocrText string, sele
 
 	cfg := &genai.GenerateContentConfig{
 		ResponseMIMEType: "application/json",
-		ResponseSchema: &genai.Schema{
-			Type: genai.TypeObject,
-			Properties: map[string]*genai.Schema{
-				"meaning":              {Type: genai.TypeString},
-				"usage_example":        {Type: genai.TypeString},
-				"when_to_use":          {Type: genai.TypeString},
-				"word_breakdown":       {Type: genai.TypeString},
-				"alternative_meanings": {Type: genai.TypeString},
-			},
-			Required: []string{
-				"meaning",
-				"usage_example",
-				"when_to_use",
-				"word_breakdown",
-				"alternative_meanings",
-			},
-			PropertyOrdering: []string{
-				"meaning",
-				"usage_example",
-				"when_to_use",
-				"word_breakdown",
-				"alternative_meanings",
-			},
-		},
+		ResponseSchema:   annotationResponseSchema(),
 	}
 
 	var result *genai.GenerateContentResponse
@@ -337,13 +302,74 @@ func (c *client) AnnotateWithKnowledge(ctx context.Context, ocrText string, sele
 		normalized := normalizeJSONCandidate(text)
 		if normalized != text {
 			if err2 := json.Unmarshal([]byte(normalized), &annotation); err2 == nil {
-				return &annotation, nil
+				return normalizeAnnotationResponse(&annotation), nil
 			}
 		}
 		return nil, fmt.Errorf("failed to parse annotation JSON: %w", err)
 	}
 
-	return &annotation, nil
+	return normalizeAnnotationResponse(&annotation), nil
+}
+
+func annotationResponseSchema() *genai.Schema {
+	return &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"translation":             {Type: genai.TypeString},
+			"contextual_explanation": {Type: genai.TypeString},
+			"usage_example":          {Type: genai.TypeString},
+			"when_to_use":            {Type: genai.TypeString},
+			"word_breakdown":         {Type: genai.TypeString},
+			"alternative_meanings":   {Type: genai.TypeString},
+			"pronunciation": {
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"kana":   {Type: genai.TypeString},
+					"romaji": {Type: genai.TypeString},
+				},
+				Required:         []string{"kana"},
+				PropertyOrdering: []string{"kana", "romaji"},
+			},
+		},
+		Required: []string{
+			"translation",
+			"contextual_explanation",
+			"usage_example",
+			"when_to_use",
+			"word_breakdown",
+			"alternative_meanings",
+			"pronunciation",
+		},
+		PropertyOrdering: []string{
+			"translation",
+			"contextual_explanation",
+			"usage_example",
+			"when_to_use",
+			"word_breakdown",
+			"alternative_meanings",
+			"pronunciation",
+		},
+	}
+}
+
+func normalizeAnnotationResponse(annotation *AnnotationResponse) *AnnotationResponse {
+	if annotation.Meaning == "" {
+		if annotation.ContextualExplanation != "" {
+			annotation.Meaning = annotation.ContextualExplanation
+		} else {
+			annotation.Meaning = annotation.Translation
+		}
+	}
+	if annotation.ContextualExplanation == "" {
+		annotation.ContextualExplanation = annotation.Meaning
+	}
+	if annotation.Translation == "" {
+		annotation.Translation = annotation.Meaning
+	}
+	if annotation.AlternativeMeanings == "" {
+		annotation.AlternativeMeanings = annotation.AlternativeMeaning
+	}
+	return annotation
 }
 
 func (c *client) SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*SpeechResponse, error) {
@@ -405,7 +431,7 @@ func (c *client) SynthesizeSpeech(ctx context.Context, highlightedText string, c
 func buildEnhancedPrompt(ocrText string, selectedText string, entries []knowledge.Entry) string {
 	var sb strings.Builder
 
-	sb.WriteString("You are helping a Japanese language learner understand text in a professional/work context.\n\n")
+	sb.WriteString("You are helping a Japanese language learner understand text in a professional/work context. Respond in English.\n\n")
 
 	// Add reference knowledge if available
 	if len(entries) > 0 {
@@ -439,15 +465,17 @@ func buildEnhancedPrompt(ocrText string, selectedText string, entries []knowledg
 	sb.WriteString("\n\n")
 
 	if len(entries) > 0 {
-		sb.WriteString("Using the reference knowledge above, provide a detailed annotation in JSON format with these exact fields:\n")
+		sb.WriteString("Using the reference knowledge above, provide a detailed annotation in English JSON format with these exact fields:\n")
 	} else {
-		sb.WriteString("Provide a detailed annotation in JSON format with these exact fields:\n")
+		sb.WriteString("Provide a detailed annotation in English JSON format with these exact fields:\n")
 	}
-	sb.WriteString("- meaning: Direct translation and explanation\n")
+	sb.WriteString("- translation: Direct English translation of the selected Japanese text\n")
+	sb.WriteString("- contextual_explanation: Explanation of what it means in this page/document context\n")
 	sb.WriteString("- usage_example: Example sentence showing how to use this in a professional/work context\n")
 	sb.WriteString("- when_to_use: When and in what situation this phrase is used\n")
 	sb.WriteString("- word_breakdown: Explanation of each word/component in the selected text\n")
-	sb.WriteString("- alternative_meanings: Alternative meanings in different fields or contexts\n\n")
+	sb.WriteString("- alternative_meanings: Alternative meanings in different fields or contexts\n")
+	sb.WriteString("- pronunciation: object with kana reading and optional romaji\n\n")
 	sb.WriteString("Return only valid JSON, no markdown formatting.")
 
 	return sb.String()

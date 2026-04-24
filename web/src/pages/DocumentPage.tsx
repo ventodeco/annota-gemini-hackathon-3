@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import { useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import ContinuousPDFViewer from '@/components/documentpage/ContinuousPDFViewer'
 import BottomActionBar from '@/components/layout/BottomActionBar'
@@ -7,7 +7,7 @@ import Header from '@/components/layout/Header'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import { DEFAULT_MAX_ANNOTATION_VERSIONS, useAnnotationDrawerFlow } from '@/hooks/useAnnotationDrawerFlow'
 import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
-import { useDocument } from '@/hooks/useDocument'
+import { useDocument, useUpdateDocumentProgress } from '@/hooks/useDocument'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { createScanFromPage, getDocumentFile } from '@/lib/api'
@@ -85,11 +85,13 @@ function DocumentPdfSection({
 
 export default function DocumentPage(): ReactElement {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const documentId = id ? parseInt(id, 10) : undefined
 
   const { data: document, isLoading, error } = useDocument(documentId)
-  const [currentPage, setCurrentPage] = useState(1)
+  const [pageOverride, setPageOverride] = useState<{ documentId: number; page: number } | null>(null)
   const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
+  const updateProgress = useUpdateDocumentProgress(documentId)
 
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
   const analyzeText = useAnalyzeText()
@@ -103,6 +105,17 @@ export default function DocumentPage(): ReactElement {
     clearSelection()
     setContextText('')
   }, [clearSelection])
+
+  const initialPage = useMemo(() => {
+    if (!document) return 1
+    const requestedPage = Number.parseInt(searchParams.get('page') || '', 10)
+    return Number.isInteger(requestedPage) && requestedPage >= 1 && requestedPage <= document.pageCount
+      ? requestedPage
+      : document.lastPageNumber || 1
+  }, [document, searchParams])
+
+  const currentPage =
+    pageOverride && pageOverride.documentId === documentId ? pageOverride.page : initialPage
 
   const resolveScanIdForExplain = useCallback(async (): Promise<number> => {
     if (!documentId) {
@@ -152,11 +165,16 @@ export default function DocumentPage(): ReactElement {
   }, [selectedText, speech])
 
   const handlePageChange = useCallback((page: number) => {
-    setCurrentPage(page)
+    if (documentId) {
+      setPageOverride({ documentId, page })
+    }
     clearSelection()
     resetAnnotationState()
     setBridgeScanId(null)
-  }, [clearSelection, resetAnnotationState])
+    if (document && page >= 1 && page <= document.pageCount) {
+      updateProgress.mutate(page)
+    }
+  }, [clearSelection, document, documentId, resetAnnotationState, updateProgress])
 
   const handleTextSelect = useCallback((selectedTextFromViewer: string) => {
     const selectedTextValue = selectedTextFromViewer.trim()

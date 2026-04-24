@@ -20,6 +20,7 @@ import type {
   AnnotationDetail,
   // Document types
   Document,
+  GetDocumentsResponse,
   UploadDocumentResponse,
   DocumentPageResponse,
   CreateScanFromPageResponse,
@@ -236,6 +237,8 @@ export async function getAnnotations(
   page = 1,
   size = 20,
   scanId?: number,
+  documentId?: number,
+  pageNumber?: number,
 ): Promise<GetAnnotationsResponse> {
   const params = new URLSearchParams({
     page: String(page),
@@ -243,6 +246,12 @@ export async function getAnnotations(
   })
   if (scanId !== undefined) {
     params.set('scanId', String(scanId))
+  }
+  if (documentId !== undefined) {
+    params.set('documentId', String(documentId))
+  }
+  if (pageNumber !== undefined) {
+    params.set('pageNumber', String(pageNumber))
   }
 
   const url = `${API_BASE_URL}/v1/annotations?${params.toString()}`
@@ -279,10 +288,34 @@ export async function uploadDocument(pdfFile: File): Promise<UploadDocumentRespo
   return handleResponse(response, 'POST', url)
 }
 
+export async function getDocuments(page = 1, size = 20): Promise<GetDocumentsResponse> {
+  const url = `${API_BASE_URL}/v1/documents?page=${page}&size=${size}`
+  const response = await fetchWithAuth(url)
+  return handleResponse(response, 'GET', url)
+}
+
 export async function getDocument(documentId: number): Promise<Document> {
   const url = `${API_BASE_URL}/v1/documents/${documentId}`
   const response = await fetchWithAuth(url)
   return handleResponse(response, 'GET', url)
+}
+
+export async function updateDocumentProgress(
+  documentId: number,
+  lastPageNumber: number,
+): Promise<{ status: 'saved' }> {
+  const url = `${API_BASE_URL}/v1/documents/${documentId}/progress`
+  const response = await fetchWithAuth(url, {
+    method: 'PATCH',
+    body: JSON.stringify({ lastPageNumber }),
+  })
+  return handleResponse(response, 'PATCH', url)
+}
+
+export async function deleteDocument(documentId: number): Promise<void> {
+  const url = `${API_BASE_URL}/v1/documents/${documentId}`
+  const response = await fetchWithAuth(url, { method: 'DELETE' })
+  return handleResponse(response, 'DELETE', url)
 }
 
 export async function getDocumentPage(

@@ -10,5 +10,8 @@ type Scan struct {
 	DetectedLanguage *string
 	DocumentID       *int64
 	PageNumber       *int
+	SourceType       string
+	Status           string
+	FailureReason    *string
 	CreatedAt        time.Time
 }

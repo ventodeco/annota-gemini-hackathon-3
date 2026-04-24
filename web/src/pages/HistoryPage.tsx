@@ -22,6 +22,8 @@ interface AnnotationItem {
   id: number
   highlightedText: string
   nuanceSummary: string
+  scanId?: number
+  sourceLabel?: string
   createdAt: string
 }
 
@@ -107,6 +109,11 @@ export default function HistoryPage() {
                   <p className="text-sm text-gray-500 mt-1 line-clamp-2">
                     {item.nuanceSummary}
                   </p>
+                  {item.sourceLabel && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      {item.sourceLabel}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400 mt-2">
                     {formatDate(item.createdAt)}
                   </p>

@@ -37,15 +37,23 @@ func NewScanHandlers(db storage.DB, fileStorage storage.FileStorage, geminiClien
 }
 
 type CreateScanResponse struct {
-	ScanID   int64  `json:"scanId"`
-	FullText string `json:"fullText,omitempty"`
-	ImageURL string `json:"imageUrl"`
+	ScanID        int64   `json:"scanId"`
+	FullText      string  `json:"fullText,omitempty"`
+	ImageURL      string  `json:"imageUrl"`
+	SourceType    string  `json:"sourceType"`
+	Status        string  `json:"status"`
+	FailureReason *string `json:"failureReason,omitempty"`
 }
 
 type ScanListItem struct {
 	ID               int64   `json:"id"`
 	ImageURL         string  `json:"imageUrl"`
 	DetectedLanguage *string `json:"detectedLanguage,omitempty"`
+	SourceType       string  `json:"sourceType"`
+	Status           string  `json:"status"`
+	FailureReason    *string `json:"failureReason,omitempty"`
+	DocumentID       *int64  `json:"documentId,omitempty"`
+	PageNumber       *int    `json:"pageNumber,omitempty"`
 	CreatedAt        string  `json:"createdAt"`
 }
 
@@ -66,6 +74,11 @@ type GetScanResponse struct {
 	FullText         string  `json:"fullText,omitempty"`
 	ImageURL         string  `json:"imageUrl"`
 	DetectedLanguage *string `json:"detectedLanguage,omitempty"`
+	SourceType       string  `json:"sourceType"`
+	Status           string  `json:"status"`
+	FailureReason    *string `json:"failureReason,omitempty"`
+	DocumentID       *int64  `json:"documentId,omitempty"`
+	PageNumber       *int    `json:"pageNumber,omitempty"`
 	CreatedAt        string  `json:"createdAt"`
 }
 
@@ -118,9 +131,11 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	scan := &models.Scan{
-		UserID:    userID,
-		ImageURL:  "",
-		CreatedAt: now,
+		UserID:     userID,
+		ImageURL:   "",
+		SourceType: "image",
+		Status:     "processing",
+		CreatedAt:  now,
 	}
 
 	scanID, err := h.db.CreateScan(r.Context(), scan)
@@ -152,9 +167,11 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 	go h.processOCR(context.Background(), scanID, imageData, mimeType, storagePath)
 
 	response := CreateScanResponse{
-		ScanID:   scanID,
-		FullText: "",
-		ImageURL: imageURL,
+		ScanID:     scanID,
+		FullText:   "",
+		ImageURL:   imageURL,
+		SourceType: "image",
+		Status:     "processing",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -193,6 +210,11 @@ func (h *ScanHandlers) GetScansAPI(w http.ResponseWriter, r *http.Request) {
 			ID:               scan.ID,
 			ImageURL:         scan.ImageURL,
 			DetectedLanguage: scan.DetectedLanguage,
+			SourceType:       sourceTypeOrDefault(scan),
+			Status:           statusOrDefault(scan),
+			FailureReason:    scan.FailureReason,
+			DocumentID:       scan.DocumentID,
+			PageNumber:       scan.PageNumber,
 			CreatedAt:        scan.CreatedAt.Format(time.RFC3339),
 		}
 	}
@@ -274,9 +296,11 @@ func (h *ScanHandlers) deleteScanHandler(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	imagePath := filepath.Join(h.config.UploadDir, filepath.Base(scan.ImageURL))
-	if err := h.fileStorage.DeleteImage(imagePath); err != nil {
-		log.Warnf("Failed to delete image file (continuing with DB delete): %v", err)
+	if scan.ImageURL != "" {
+		imagePath := filepath.Join(h.config.UploadDir, filepath.Base(scan.ImageURL))
+		if err := h.fileStorage.DeleteImage(imagePath); err != nil {
+			log.Warnf("Failed to delete image file (continuing with DB delete): %v", err)
+		}
 	}
 
 	if err := h.db.DeleteScan(r.Context(), scanID, userID); err != nil {
@@ -344,6 +368,11 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 		FullText:         fullText,
 		ImageURL:         scan.ImageURL,
 		DetectedLanguage: scan.DetectedLanguage,
+		SourceType:       sourceTypeOrDefault(scan),
+		Status:           statusOrDefault(scan),
+		FailureReason:    scan.FailureReason,
+		DocumentID:       scan.DocumentID,
+		PageNumber:       scan.PageNumber,
 		CreatedAt:        scan.CreatedAt.Format(time.RFC3339),
 	}
 
@@ -358,6 +387,10 @@ func (h *ScanHandlers) processOCR(ctx context.Context, scanID int64, imageData [
 	ocrResp, err := h.geminiClient.OCR(ctx, imageData, mimeType)
 	if err != nil {
 		log.ErrorWithErr(err, "OCR processing failed")
+		reason := "ocr_failed"
+		if err := h.db.UpdateScanStatus(ctx, scanID, "failed", &reason); err != nil {
+			log.ErrorWithErr(err, "Failed to persist OCR failure")
+		}
 		return
 	}
 	log.Infof("OCR completed successfully: language=%s, text_length=%d", ocrResp.Language, len(ocrResp.RawText))
@@ -382,6 +415,26 @@ func isValidImageType(mimeType string) bool {
 		}
 	}
 	return false
+}
+
+func sourceTypeOrDefault(scan *models.Scan) string {
+	if scan.SourceType != "" {
+		return scan.SourceType
+	}
+	if scan.DocumentID != nil {
+		return "pdf"
+	}
+	return "image"
+}
+
+func statusOrDefault(scan *models.Scan) string {
+	if scan.Status != "" {
+		return scan.Status
+	}
+	if scan.FullOCRText != nil && strings.TrimSpace(*scan.FullOCRText) != "" {
+		return "ready"
+	}
+	return "processing"
 }
 
 func (h *ScanHandlers) ScansAPI(w http.ResponseWriter, r *http.Request) {

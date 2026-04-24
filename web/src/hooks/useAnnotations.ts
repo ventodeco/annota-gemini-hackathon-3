@@ -13,10 +13,10 @@ import type {
   SynthesizeSpeechRequest,
 } from '@/lib/types'
 
-export function useAnnotations(page = 1, size = 20, scanId?: number) {
+export function useAnnotations(page = 1, size = 20, scanId?: number, documentId?: number, pageNumber?: number) {
   return useQuery({
-    queryKey: ['annotations', page, size, scanId],
-    queryFn: () => getAnnotations(page, size, scanId),
+    queryKey: ['annotations', page, size, scanId, documentId, pageNumber],
+    queryFn: () => getAnnotations(page, size, scanId, documentId, pageNumber),
   })
 }
 
@@ -56,8 +56,9 @@ export function useSynthesizeSpeech() {
 
 export function useNuanceSummary(nuance: NuanceData | undefined): string {
   if (!nuance) return ''
-  if (nuance.meaning.length > 100) {
-    return nuance.meaning.substring(0, 100) + '...'
+  const summary = nuance.translation || nuance.meaning || nuance.contextualExplanation || ''
+  if (summary.length > 100) {
+    return summary.substring(0, 100) + '...'
   }
-  return nuance.meaning
+  return summary
 }

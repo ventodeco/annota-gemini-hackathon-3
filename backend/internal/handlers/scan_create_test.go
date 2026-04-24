@@ -41,6 +41,10 @@ func (m *mockFileStorage) OpenPDF(path string) ([]byte, error) {
 	return nil, nil
 }
 
+func (m *mockFileStorage) DeletePDF(path string) error {
+	return nil
+}
+
 type mockGeminiClient struct{}
 
 func (m *mockGeminiClient) OCR(ctx context.Context, imageData []byte, mimeType string) (*gemini.OCRResponse, error) {

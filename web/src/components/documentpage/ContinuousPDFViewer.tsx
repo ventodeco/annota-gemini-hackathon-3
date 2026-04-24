@@ -203,6 +203,14 @@ export default function ContinuousPDFViewer({
     return () => window.removeEventListener('resize', updateWidth)
   }, [])
 
+  useEffect(() => {
+    if (!pdfDoc || !containerRef.current || currentPage < 1) return
+    const pageNode = containerRef.current.querySelector(`[data-page="${currentPage}"]`)
+    if (pageNode instanceof HTMLElement && typeof pageNode.scrollIntoView === 'function') {
+      pageNode.scrollIntoView({ block: 'start' })
+    }
+  }, [currentPage, pdfDoc])
+
   const handlePageVisible = useCallback(
     (pageNumber: number) => {
       setVisiblePages((prev) => {

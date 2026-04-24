@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gemini-hackathon/app/internal/gemini"
 	"github.com/gemini-hackathon/app/internal/httputil"
@@ -31,14 +32,20 @@ func NewAIHandlers(db storage.DB, geminiClient gemini.Client, knowledgeSvc knowl
 type AnalyzeRequest struct {
 	TextToAnalyze string `json:"textToAnalyze"`
 	Context       string `json:"context"`
+	ScanID        *int64 `json:"scanId,omitempty"`
 }
 
 type AnalyzeResponse struct {
-	Meaning            string `json:"meaning"`
-	UsageExample       string `json:"usageExample"`
-	UsageTiming        string `json:"usageTiming"`
-	WordBreakdown      string `json:"wordBreakdown"`
-	AlternativeMeaning string `json:"alternativeMeaning"`
+	Translation           string                   `json:"translation,omitempty"`
+	ContextualExplanation string                   `json:"contextualExplanation,omitempty"`
+	UsageExample          string                   `json:"usageExample"`
+	WhenToUse             string                   `json:"whenToUse,omitempty"`
+	WordBreakdown         string                   `json:"wordBreakdown"`
+	AlternativeMeanings   string                   `json:"alternativeMeanings,omitempty"`
+	Pronunciation         models.PronunciationData `json:"pronunciation,omitempty"`
+	Meaning               string                   `json:"meaning"`
+	UsageTiming           string                   `json:"usageTiming"`
+	AlternativeMeaning    string                   `json:"alternativeMeaning"`
 }
 
 type NuanceSummary struct {
@@ -86,16 +93,15 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetLanguage := user.PreferredLanguage
-	if targetLanguage == "" {
-		targetLanguage = "ID"
-	}
-
 	// Lookup knowledge context for the selected text
 	entries := h.knowledge.Lookup(req.TextToAnalyze)
+	contextText, ok := h.resolveAnalyzeContext(w, r, userID, req)
+	if !ok {
+		return
+	}
 
 	// Call Gemini with knowledge context
-	resp, err := h.geminiClient.AnnotateWithKnowledge(r.Context(), req.Context, req.TextToAnalyze, entries)
+	resp, err := h.geminiClient.AnnotateWithKnowledge(r.Context(), contextText, req.TextToAnalyze, entries)
 	if err != nil {
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to generate annotation")
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to analyze text")
@@ -103,10 +109,18 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := AnalyzeResponse{
+		Translation:           resp.Translation,
+		ContextualExplanation: resp.ContextualExplanation,
+		UsageExample:          resp.UsageExample,
+		WhenToUse:             resp.WhenToUse,
+		WordBreakdown:         resp.WordBreakdown,
+		AlternativeMeanings:   resp.AlternativeMeanings,
+		Pronunciation: models.PronunciationData{
+			Kana:   resp.Pronunciation.Kana,
+			Romaji: resp.Pronunciation.Romaji,
+		},
 		Meaning:            resp.Meaning,
-		UsageExample:       resp.UsageExample,
 		UsageTiming:        resp.WhenToUse,
-		WordBreakdown:      resp.WordBreakdown,
 		AlternativeMeaning: resp.AlternativeMeanings,
 	}
 
@@ -148,10 +162,18 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 	}
 
 	response := AnalyzeResponse{
+		Translation:           resp.Translation,
+		ContextualExplanation: resp.ContextualExplanation,
+		UsageExample:          resp.UsageExample,
+		WhenToUse:             resp.WhenToUse,
+		WordBreakdown:         resp.WordBreakdown,
+		AlternativeMeanings:   resp.AlternativeMeanings,
+		Pronunciation: models.PronunciationData{
+			Kana:   resp.Pronunciation.Kana,
+			Romaji: resp.Pronunciation.Romaji,
+		},
 		Meaning:            resp.Meaning,
-		UsageExample:       resp.UsageExample,
 		UsageTiming:        resp.WhenToUse,
-		WordBreakdown:      resp.WordBreakdown,
 		AlternativeMeaning: resp.AlternativeMeanings,
 	}
 
@@ -208,19 +230,80 @@ type AnnotationAnnotation struct {
 
 func toNuanceData(resp *gemini.AnnotationResponse) models.NuanceData {
 	return models.NuanceData{
+		Translation:           resp.Translation,
+		ContextualExplanation: resp.ContextualExplanation,
+		UsageExample:          resp.UsageExample,
+		WhenToUse:             resp.WhenToUse,
+		WordBreakdown:         resp.WordBreakdown,
+		AlternativeMeanings:   resp.AlternativeMeanings,
+		Pronunciation: models.PronunciationData{
+			Kana:   resp.Pronunciation.Kana,
+			Romaji: resp.Pronunciation.Romaji,
+		},
 		Meaning:            resp.Meaning,
-		UsageExample:       resp.UsageExample,
 		UsageTiming:        resp.WhenToUse,
-		WordBreakdown:      resp.WordBreakdown,
 		AlternativeMeaning: resp.AlternativeMeanings,
 	}
 }
 
 func summarizeNuance(nuance models.NuanceData) string {
+	if nuance.Translation != "" {
+		if len(nuance.Translation) > 100 {
+			return nuance.Translation[:100] + "..."
+		}
+		return nuance.Translation
+	}
 	if len(nuance.Meaning) > 100 {
 		return nuance.Meaning[:100] + "..."
 	}
 	return nuance.Meaning
+}
+
+func (h *AIHandlers) resolveAnalyzeContext(w http.ResponseWriter, r *http.Request, userID int64, req AnalyzeRequest) (string, bool) {
+	if req.ScanID == nil || *req.ScanID <= 0 {
+		return req.Context, true
+	}
+
+	scan, err := h.db.GetScanByID(r.Context(), *req.ScanID)
+	if err != nil || scan == nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
+		return "", false
+	}
+	if scan.UserID != userID {
+		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
+		return "", false
+	}
+	if scan.FullOCRText == nil || *scan.FullOCRText == "" {
+		return req.Context, true
+	}
+	return contextWindow(*scan.FullOCRText, req.TextToAnalyze, 12000), true
+}
+
+func contextWindow(fullText, selectedText string, maxRunes int) string {
+	full := []rune(fullText)
+	if len(full) <= maxRunes {
+		return fullText
+	}
+
+	selectedIndex := strings.Index(fullText, selectedText)
+	if selectedIndex < 0 {
+		return string(full[:maxRunes])
+	}
+
+	center := len([]rune(fullText[:selectedIndex]))
+	start := center - maxRunes/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + maxRunes
+	if end > len(full) {
+		end = len(full)
+		start = end - maxRunes
+		if start < 0 {
+			start = 0
+		}
+	}
+	return string(full[start:end])
 }
 
 func (h *AIHandlers) createAnalyzePrompt(targetLanguage, textToAnalyze, context string) string {

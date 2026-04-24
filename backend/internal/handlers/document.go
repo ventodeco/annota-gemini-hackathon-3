@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -47,6 +48,8 @@ func (h *DocumentHandlers) DocumentsAPI(w http.ResponseWriter, r *http.Request) 
 	switch r.Method {
 	case http.MethodPost:
 		h.uploadDocumentHandler(w, r)
+	case http.MethodGet:
+		h.listDocumentsHandler(w, r)
 	default:
 		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
@@ -95,12 +98,14 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 
 	now := time.Now()
 	doc := &models.Document{
-		UserID:    userID,
-		FileURL:   "",
-		Filename:  header.Filename,
-		PageCount: 0,
-		FileSize:  int64(len(pdfData)),
-		CreatedAt: now,
+		UserID:         userID,
+		FileURL:        "",
+		Filename:       header.Filename,
+		PageCount:      0,
+		FileSize:       int64(len(pdfData)),
+		LastPageNumber: 1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	docID, err := h.db.CreateDocument(r.Context(), doc)
@@ -135,10 +140,13 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 
 // GetDocumentResponse is the JSON response for retrieving document metadata.
 type GetDocumentResponse struct {
-	ID        int64  `json:"id"`
-	Filename  string `json:"filename"`
-	PageCount int    `json:"pageCount"`
-	CreatedAt string `json:"createdAt"`
+	ID             int64   `json:"id"`
+	Filename       string  `json:"filename"`
+	PageCount      int     `json:"pageCount"`
+	LastPageNumber int     `json:"lastPageNumber"`
+	LastOpenedAt   *string `json:"lastOpenedAt,omitempty"`
+	CreatedAt      string  `json:"createdAt"`
+	UpdatedAt      string  `json:"updatedAt"`
 }
 
 // GetPageResponse is the JSON response for retrieving a single page's text.
@@ -151,6 +159,15 @@ type GetPageResponse struct {
 // CreateScanFromPageResponse is the JSON response for creating a scan from a document page.
 type CreateScanFromPageResponse struct {
 	ScanID int64 `json:"scanId"`
+}
+
+type GetDocumentsResponse struct {
+	Data []GetDocumentResponse `json:"data"`
+	Meta PaginationMeta        `json:"meta"`
+}
+
+type UpdateDocumentProgressRequest struct {
+	LastPageNumber int `json:"lastPageNumber"`
 }
 
 // DocumentByIDAPI routes requests for /v1/documents/{id} and sub-resources.
@@ -187,11 +204,14 @@ func (h *DocumentHandlers) DocumentByIDAPI(w http.ResponseWriter, r *http.Reques
 
 	switch {
 	case len(parts) == 1:
-		if r.Method != http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
+			h.getDocumentHandler(w, doc)
+		case http.MethodDelete:
+			h.deleteDocumentHandler(w, r, doc)
+		default:
 			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
-			return
 		}
-		h.getDocumentHandler(w, doc)
 
 	case len(parts) == 3 && parts[1] == "pages":
 		pageNum, err := strconv.Atoi(parts[2])
@@ -224,17 +244,59 @@ func (h *DocumentHandlers) DocumentByIDAPI(w http.ResponseWriter, r *http.Reques
 		}
 		h.getDocumentFileHandler(w, r, doc)
 
+	case len(parts) == 2 && parts[1] == "progress":
+		if r.Method != http.MethodPatch {
+			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		h.updateDocumentProgressHandler(w, r, doc)
+
 	default:
 		httputil.WriteJSONError(w, http.StatusNotFound, "Not found")
 	}
 }
 
 func (h *DocumentHandlers) getDocumentHandler(w http.ResponseWriter, doc *models.Document) {
-	httputil.WriteJSON(w, http.StatusOK, GetDocumentResponse{
-		ID:        doc.ID,
-		Filename:  doc.Filename,
-		PageCount: doc.PageCount,
-		CreatedAt: doc.CreatedAt.Format(time.RFC3339),
+	httputil.WriteJSON(w, http.StatusOK, toDocumentResponse(doc))
+}
+
+func (h *DocumentHandlers) listDocumentsHandler(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == 0 {
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	page, size := httputil.ParsePagination(r, h.config.DefaultPageSize)
+	docs, err := h.db.GetDocumentsByUserID(r.Context(), userID, page, size)
+	if err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to retrieve documents")
+		return
+	}
+
+	data := make([]GetDocumentResponse, len(docs))
+	for i, doc := range docs {
+		data[i] = toDocumentResponse(doc)
+	}
+
+	var nextPage, prevPage *int
+	if len(docs) == size {
+		nextPageVal := page + 1
+		nextPage = &nextPageVal
+	}
+	if page > 1 {
+		prevPageVal := page - 1
+		prevPage = &prevPageVal
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, GetDocumentsResponse{
+		Data: data,
+		Meta: PaginationMeta{
+			CurrentPage:  page,
+			PageSize:     size,
+			NextPage:     nextPage,
+			PreviousPage: prevPage,
+		},
 	})
 }
 
@@ -267,6 +329,8 @@ func (h *DocumentHandlers) createScanFromPageHandler(w http.ResponseWriter, r *h
 		FullOCRText: &text,
 		DocumentID:  &doc.ID,
 		PageNumber:  &pageNumber,
+		SourceType:  "pdf",
+		Status:      "ready",
 		CreatedAt:   time.Now(),
 	}
 
@@ -277,6 +341,42 @@ func (h *DocumentHandlers) createScanFromPageHandler(w http.ResponseWriter, r *h
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, CreateScanFromPageResponse{ScanID: scanID})
+}
+
+func (h *DocumentHandlers) updateDocumentProgressHandler(w http.ResponseWriter, r *http.Request, doc *models.Document) {
+	userID := middleware.GetUserID(r.Context())
+	var req UpdateDocumentProgressRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if req.LastPageNumber < 1 || req.LastPageNumber > doc.PageCount {
+		httputil.WriteJSONError(w, http.StatusBadRequest, "lastPageNumber is out of range")
+		return
+	}
+	if err := h.db.UpdateDocumentProgress(r.Context(), doc.ID, userID, req.LastPageNumber); err != nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "Document not found")
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+func (h *DocumentHandlers) deleteDocumentHandler(w http.ResponseWriter, r *http.Request, doc *models.Document) {
+	userID := middleware.GetUserID(r.Context())
+	if err := h.db.DeleteScansByDocument(r.Context(), doc.ID, userID); err != nil {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete document scans")
+		return
+	}
+	if err := h.db.DeleteDocument(r.Context(), doc.ID, userID); err != nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "Document not found")
+		return
+	}
+	if err := h.fileStorage.DeletePDF(doc.FileURL); err != nil {
+		logger.GetDefaultLogger().
+			WithRequestID(middleware.GetRequestID(r.Context())).
+			Warnf("Failed to delete PDF file: %v", err)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *DocumentHandlers) getPageTextHandler(w http.ResponseWriter, doc *models.Document, pageNumber int) {
@@ -313,5 +413,26 @@ func (h *DocumentHandlers) getDocumentFileHandler(w http.ResponseWriter, r *http
 		logger.GetDefaultLogger().
 			WithRequestID(middleware.GetRequestID(r.Context())).
 			ErrorWithErr(err, "Failed to write PDF response")
+	}
+}
+
+func toDocumentResponse(doc *models.Document) GetDocumentResponse {
+	var lastOpenedAt *string
+	if doc.LastOpenedAt != nil {
+		value := doc.LastOpenedAt.Format(time.RFC3339)
+		lastOpenedAt = &value
+	}
+	lastPageNumber := doc.LastPageNumber
+	if lastPageNumber <= 0 {
+		lastPageNumber = 1
+	}
+	return GetDocumentResponse{
+		ID:             doc.ID,
+		Filename:       doc.Filename,
+		PageCount:      doc.PageCount,
+		LastPageNumber: lastPageNumber,
+		LastOpenedAt:   lastOpenedAt,
+		CreatedAt:      doc.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      doc.UpdatedAt.Format(time.RFC3339),
 	}
 }

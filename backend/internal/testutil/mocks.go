@@ -66,6 +66,12 @@ func (m *MockDB) UpdateUserLanguage(ctx context.Context, userID int64, language 
 }
 
 func (m *MockDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, error) {
+	if scan.SourceType == "" {
+		scan.SourceType = "image"
+	}
+	if scan.Status == "" {
+		scan.Status = "processing"
+	}
 	scan.ID = m.nextScanID
 	m.nextScanID++
 	m.scans[scan.ID] = scan
@@ -90,6 +96,16 @@ func (m *MockDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language
 	if scan, ok := m.scans[scanID]; ok {
 		scan.FullOCRText = &text
 		scan.DetectedLanguage = &language
+		scan.Status = "ready"
+		scan.FailureReason = nil
+	}
+	return nil
+}
+
+func (m *MockDB) UpdateScanStatus(ctx context.Context, scanID int64, status string, failureReason *string) error {
+	if scan, ok := m.scans[scanID]; ok {
+		scan.Status = status
+		scan.FailureReason = failureReason
 	}
 	return nil
 }
@@ -155,7 +171,34 @@ func (m *MockDB) GetAnnotationsByUserIDAndScanID(
 	return result, nil
 }
 
+func (m *MockDB) GetAnnotationsByUserIDAndDocumentPage(
+	ctx context.Context,
+	userID, documentID int64,
+	pageNumber *int,
+	page, size int,
+) ([]*models.Annotation, error) {
+	var result []*models.Annotation
+	for _, ann := range m.annotations {
+		if ann.UserID != userID || ann.DocumentID == nil || *ann.DocumentID != documentID {
+			continue
+		}
+		if pageNumber != nil {
+			if ann.PageNumber == nil || *ann.PageNumber != *pageNumber {
+				continue
+			}
+		}
+		result = append(result, ann)
+	}
+	return result, nil
+}
+
 func (m *MockDB) CreateDocument(ctx context.Context, doc *models.Document) (int64, error) {
+	if doc.LastPageNumber <= 0 {
+		doc.LastPageNumber = 1
+	}
+	if doc.UpdatedAt.IsZero() {
+		doc.UpdatedAt = doc.CreatedAt
+	}
 	doc.ID = m.nextDocID
 	m.nextDocID++
 	m.documents[doc.ID] = doc
@@ -166,12 +209,51 @@ func (m *MockDB) UpdateDocumentFileInfo(ctx context.Context, docID int64, fileUR
 	if doc, ok := m.documents[docID]; ok {
 		doc.FileURL = fileURL
 		doc.PageCount = pageCount
+		doc.UpdatedAt = time.Now()
 	}
 	return nil
 }
 
 func (m *MockDB) GetDocumentByID(ctx context.Context, docID int64) (*models.Document, error) {
 	return m.documents[docID], nil
+}
+
+func (m *MockDB) GetDocumentsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Document, error) {
+	var result []*models.Document
+	for _, doc := range m.documents {
+		if doc.UserID == userID {
+			result = append(result, doc)
+		}
+	}
+	return result, nil
+}
+
+func (m *MockDB) UpdateDocumentProgress(ctx context.Context, docID, userID int64, pageNumber int) error {
+	if doc, ok := m.documents[docID]; ok && doc.UserID == userID {
+		now := time.Now()
+		doc.LastPageNumber = pageNumber
+		doc.LastOpenedAt = &now
+		doc.UpdatedAt = now
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
+func (m *MockDB) DeleteScansByDocument(ctx context.Context, docID, userID int64) error {
+	for id, scan := range m.scans {
+		if scan.UserID == userID && scan.DocumentID != nil && *scan.DocumentID == docID {
+			delete(m.scans, id)
+		}
+	}
+	return nil
+}
+
+func (m *MockDB) DeleteDocument(ctx context.Context, docID, userID int64) error {
+	if doc, ok := m.documents[docID]; ok && doc.UserID == userID {
+		delete(m.documents, docID)
+		return nil
+	}
+	return sql.ErrNoRows
 }
 
 func (m *MockDB) GetScanByDocumentPage(ctx context.Context, documentID int64, pageNumber int) (*models.Scan, error) {
@@ -185,6 +267,12 @@ func (m *MockDB) GetScanByDocumentPage(ctx context.Context, documentID int64, pa
 }
 
 func (m *MockDB) CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error) {
+	if scan.SourceType == "" {
+		scan.SourceType = "pdf"
+	}
+	if scan.Status == "" {
+		scan.Status = "ready"
+	}
 	scan.ID = m.nextScanID
 	m.nextScanID++
 	m.scans[scan.ID] = scan

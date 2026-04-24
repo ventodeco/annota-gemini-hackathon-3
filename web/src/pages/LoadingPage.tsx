@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Hourglass } from 'lucide-react'
 import { getScan } from '@/lib/api'
-import { isScanOcrReady } from '@/hooks/useScan'
+import { isScanFailed, isScanOcrReady } from '@/hooks/useScan'
 import type { Scan } from '@/lib/types'
 
 export default function LoadingPage() {
@@ -31,6 +31,7 @@ export default function LoadingPage() {
       const currentScan = query.state.data as Scan | undefined
       if (!currentScan) return false
       if (isScanOcrReady(currentScan)) return false
+      if (isScanFailed(currentScan)) return false
       return 1000
     },
   })
@@ -63,13 +64,15 @@ export default function LoadingPage() {
     }
   }, [navigateToScan, scan])
 
-  const status: 'processing' | 'error' = error ? 'error' : 'processing'
+  const status: 'processing' | 'error' = error || isScanFailed(scan) ? 'error' : 'processing'
 
   if (status === 'error') {
     return (
       <div className="min-h-screen bg-white flex flex-col pb-20">
         <div className="flex-1 flex flex-col items-center justify-center p-6">
-          <p className="text-center text-red-600 text-sm">Failed to load scan</p>
+          <p className="text-center text-red-600 text-sm">
+            {scan?.failureReason ? `Scan failed: ${scan.failureReason}` : 'Failed to load scan'}
+          </p>
           <button
             onClick={() => navigate('/welcome')}
             className="mt-4 px-4 py-2 bg-gray-900 text-white rounded-full text-sm"

@@ -152,6 +152,23 @@ export default function ScanPage() {
   }
 
   if (!scan.fullText) {
+    if (scan.status === 'failed') {
+      return (
+        <div className="min-h-screen bg-white flex flex-col">
+          <Header
+            title="Scan Result"
+            rightAction="bookmark"
+            rightActionTo={scanHistoryPath}
+          />
+          <div className="flex-1 flex items-center justify-center p-6">
+            <p className="text-center text-red-600">
+              {scan.failureReason ? `Scan failed: ${scan.failureReason}` : 'Scan failed. Please try again.'}
+            </p>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="min-h-screen bg-white flex flex-col">
         <Header
