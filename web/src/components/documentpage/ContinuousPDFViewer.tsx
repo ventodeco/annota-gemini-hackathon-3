@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { TextLayer } from 'pdfjs-dist'
 import { ensurePdfjsWorker, getPdfDocumentLoadOptions } from '@/lib/pdf/initPdfWorker'
@@ -24,6 +24,20 @@ interface PageContainerProps {
 
 type PdfPageStyle = CSSProperties & Record<'--scale-factor' | '--total-scale-factor' | '--user-unit', string>
 
+function isSelectionInsideTextLayer(selection: Selection, textLayer: HTMLDivElement): boolean {
+  if (selection.rangeCount === 0) {
+    return false
+  }
+
+  const range = selection.getRangeAt(0)
+  const ancestor =
+    range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+      ? range.commonAncestorContainer.parentNode
+      : range.commonAncestorContainer
+
+  return ancestor ? textLayer.contains(ancestor) : false
+}
+
 function PageRenderer({
   pageNumber,
   pdfDoc,
@@ -31,14 +45,13 @@ function PageRenderer({
   onTextSelect,
   onVisible,
   isVisible,
-}: PageContainerProps) {
+}: PageContainerProps): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
   const textLayerInstance = useRef<TextLayer | null>(null)
   const [rendered, setRendered] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [pageStyle, setPageStyle] = useState<PdfPageStyle | null>(null)
-  const observerRef = useRef<IntersectionObserver | null>(null)
   const divRef = useRef<HTMLDivElement>(null)
 
   const renderPage = useCallback(async () => {
@@ -72,7 +85,7 @@ function PageRenderer({
   useEffect(() => {
     if (!divRef.current) return
 
-    observerRef.current = new IntersectionObserver(
+    const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && entry.intersectionRatio > 0.3) {
@@ -83,12 +96,10 @@ function PageRenderer({
       { threshold: 0.3 }
     )
 
-    observerRef.current.observe(divRef.current)
+    observer.observe(divRef.current)
 
     return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect()
-      }
+      observer.disconnect()
     }
   }, [pageNumber, onVisible])
 
@@ -115,13 +126,7 @@ function PageRenderer({
         return
       }
 
-      const range = selection.getRangeAt(0)
-      const ancestor =
-        range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-          ? range.commonAncestorContainer.parentNode
-          : range.commonAncestorContainer
-
-      if (ancestor && textLayer.contains(ancestor)) {
+      if (isSelectionInsideTextLayer(selection, textLayer)) {
         onTextSelect(selection.toString())
       }
     }
@@ -164,7 +169,7 @@ export default function ContinuousPDFViewer({
   onPageChange,
   onTextSelect,
   isLoading,
-}: ContinuousPDFViewerProps) {
+}: ContinuousPDFViewerProps): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set([1]))
@@ -173,7 +178,7 @@ export default function ContinuousPDFViewer({
   useEffect(() => {
     if (!pdfUrl) return
 
-    const loadPdf = async () => {
+    const loadPdf = async (): Promise<void> => {
       try {
         ensurePdfjsWorker()
         const loadingTask = pdfjsLib.getDocument(getPdfDocumentLoadOptions(pdfUrl))
@@ -242,18 +247,18 @@ export default function ContinuousPDFViewer({
         ref={containerRef}
         className="flex-1 overflow-y-auto"
       >
-        {[...Array(totalPages)].map((_, i) => {
-          const pageNum = i + 1
+        {Array.from({ length: totalPages }, (_, index) => {
+          const pageNum = index + 1
           return (
-          <PageRenderer
-            key={pageNum}
-            pageNumber={pageNum}
-            pdfDoc={pdfDoc}
-            containerWidth={containerWidth}
-            onTextSelect={onTextSelect}
-            onVisible={handlePageVisible}
-            isVisible={visiblePages.has(pageNum)}
-          />
+            <PageRenderer
+              key={pageNum}
+              pageNumber={pageNum}
+              pdfDoc={pdfDoc}
+              containerWidth={containerWidth}
+              onTextSelect={onTextSelect}
+              onVisible={handlePageVisible}
+              isVisible={visiblePages.has(pageNum)}
+            />
           )
         })}
       </div>

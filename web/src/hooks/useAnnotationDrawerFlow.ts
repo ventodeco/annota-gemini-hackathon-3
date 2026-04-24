@@ -11,17 +11,19 @@ import type {
 
 export const DEFAULT_MAX_ANNOTATION_VERSIONS = 2
 
-export function useAnnotationDrawerFlow(options: {
+type SpeechPlaybackControls = {
+  isPlaying: boolean
+  stop: () => void
+  play: (blob: Blob) => Promise<void>
+}
+
+type UseAnnotationDrawerFlowOptions = {
   selectedText: string
   contextText: string
   analyzeText: UseMutationResult<AnalyzeResponse, Error, AnalyzeRequest>
   createAnnotation: UseMutationResult<CreateAnnotationResponse, Error, CreateAnnotationRequest>
   synthesizeSpeech: UseMutationResult<Blob, Error, SynthesizeSpeechRequest>
-  speech: {
-    isPlaying: boolean
-    stop: () => void
-    play: (blob: Blob) => Promise<void>
-  }
+  speech: SpeechPlaybackControls
   clearSelection: () => void
   reportError: (message: string) => void
   resolveScanIdForExplain: () => Promise<number>
@@ -32,7 +34,24 @@ export function useAnnotationDrawerFlow(options: {
   saveErrorMessage?: string
   regenerateErrorMessage?: string
   speechErrorMessage?: string
-}) {
+}
+
+type UseAnnotationDrawerFlowResult = {
+  isDrawerOpen: boolean
+  currentAnnotation: Annotation | null
+  annotationVersion: number
+  isLoadingAnnotation: boolean
+  resetAnnotationState: () => void
+  handleExplain: () => Promise<void>
+  handleSaveAnnotation: () => Promise<void>
+  handleRegenerateAnnotation: () => Promise<void>
+  handleDrawerClose: () => void
+  handleSpeechToggle: () => Promise<void>
+}
+
+export function useAnnotationDrawerFlow(
+  options: UseAnnotationDrawerFlowOptions
+): UseAnnotationDrawerFlowResult {
   const {
     selectedText,
     contextText,

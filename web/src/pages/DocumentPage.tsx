@@ -1,16 +1,16 @@
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { useParams } from 'react-router-dom'
-import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
-import Header from '@/components/layout/Header'
-import BottomActionBar from '@/components/layout/BottomActionBar'
 import ContinuousPDFViewer from '@/components/documentpage/ContinuousPDFViewer'
+import BottomActionBar from '@/components/layout/BottomActionBar'
+import Header from '@/components/layout/Header'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
-import { useDocument } from '@/hooks/useDocument'
-import { useTextSelection } from '@/hooks/useTextSelection'
+import { DEFAULT_MAX_ANNOTATION_VERSIONS, useAnnotationDrawerFlow } from '@/hooks/useAnnotationDrawerFlow'
 import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
-import { createScanFromPage, getDocumentFile } from '@/lib/api'
+import { useDocument } from '@/hooks/useDocument'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
-import { useAnnotationDrawerFlow, DEFAULT_MAX_ANNOTATION_VERSIONS } from '@/hooks/useAnnotationDrawerFlow'
+import { useTextSelection } from '@/hooks/useTextSelection'
+import { createScanFromPage, getDocumentFile } from '@/lib/api'
 import type { Document } from '@/lib/types'
 
 type DocumentPdfSectionProps = {
@@ -31,7 +31,7 @@ function DocumentPdfSection({
   currentPage,
   onPageChange,
   onTextSelect,
-}: DocumentPdfSectionProps) {
+}: DocumentPdfSectionProps): ReactElement {
   const [pdfUrl, setPdfUrl] = useState('')
   const [loadError, setLoadError] = useState(false)
   const objectUrlRef = useRef('')
@@ -83,7 +83,7 @@ function DocumentPdfSection({
   )
 }
 
-export default function DocumentPage() {
+export default function DocumentPage(): ReactElement {
   const { id } = useParams<{ id: string }>()
   const documentId = id ? parseInt(id, 10) : undefined
 
@@ -99,7 +99,12 @@ export default function DocumentPage() {
 
   const [contextText, setContextText] = useState('')
 
-  const resolveScanIdForExplain = useCallback(async () => {
+  const resetTextSelectionState = useCallback(() => {
+    clearSelection()
+    setContextText('')
+  }, [clearSelection])
+
+  const resolveScanIdForExplain = useCallback(async (): Promise<number> => {
     if (!documentId) {
       throw new Error('Missing document')
     }
@@ -146,25 +151,23 @@ export default function DocumentPage() {
     }
   }, [selectedText, speech])
 
-  const handlePageChange = (page: number) => {
+  const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page)
     clearSelection()
     resetAnnotationState()
     setBridgeScanId(null)
-  }
+  }, [clearSelection, resetAnnotationState])
 
   const handleTextSelect = useCallback((selectedTextFromViewer: string) => {
     const selectedTextValue = selectedTextFromViewer.trim()
     if (selectedTextValue === '') {
-      clearSelection()
-      setContextText('')
+      resetTextSelectionState()
       return
     }
 
     const selectionResult = handleSelection(selectedTextValue)
     if (!selectionResult.valid) {
-      clearSelection()
-      setContextText('')
+      resetTextSelectionState()
       return
     }
 
@@ -177,7 +180,7 @@ export default function DocumentPage() {
     const range = selection.getRangeAt(0)
     const context = range.cloneContents().textContent?.trim() ?? ''
     setContextText(context || selectedTextValue)
-  }, [clearSelection, handleSelection])
+  }, [handleSelection, resetTextSelectionState])
 
   if (isLoading) {
     return (

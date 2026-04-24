@@ -309,5 +309,9 @@ func (h *DocumentHandlers) getDocumentFileHandler(w http.ResponseWriter, r *http
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", doc.Filename))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		logger.GetDefaultLogger().
+			WithRequestID(middleware.GetRequestID(r.Context())).
+			ErrorWithErr(err, "Failed to write PDF response")
+	}
 }
