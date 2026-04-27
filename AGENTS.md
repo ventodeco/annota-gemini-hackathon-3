@@ -13,6 +13,13 @@ This project uses specialized agent files for each part of the codebase:
 - **[`backend/AGENTS.md`](backend/AGENTS.md)** - Go backend development guidelines, build commands, code style, testing patterns, and best practices
 - **[`web/AGENTS.md`](web/AGENTS.md)** - React/TypeScript frontend development guidelines, bun commands, shadcn MCP usage, TypeScript best practices, and frontend patterns
 
+## Frontend and cross-cutting agent rules
+
+Agents working on the web app (or on shared conventions that affect the frontend) must also follow the frontend `AGENTS.md`, including:
+
+- **Vercel React best practices (mandatory)**: Before writing, editing, or reviewing React/TypeScript in `web/` (components, hooks, pages, data flow, effects, bundles), **read and apply the `vercel-react-best-practices` agent skill** (Vercel Engineering: performance, dependency arrays, effects, list rendering, and related patterns). This Vite + React SPA is not Next.js; use the parts of the skill that apply to client-rendered React. At the repository root, the same rule applies: any work that affects `web/` must invoke and follow that skill.
+- **TypeScript: no `as` assertions**: **Do not add** TypeScript type assertions (`expr as Type` / `as const` is allowed where it is a literal assertion, not a type cast — prefer `satisfies` for literal types when it fits). Prefer type guards, discriminated unions, `satisfies`, generics, and validated parsing (e.g. schema validation) over casting. When changing existing code, **replace** unnecessary `as` with proper narrowing or types instead of adding new assertions. This applies to all TypeScript in `web/`; details and examples are in [`web/AGENTS.md`](web/AGENTS.md).
+
 ## Branching
 
 - **`dev`**: Use for ongoing development, feature branches, and pull request bases.

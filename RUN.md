@@ -147,17 +147,17 @@ cd web && bun run preview
 ### Docker Commands
 
 ```bash
-# Start PostgreSQL
+# Start PostgreSQL and Redis
 docker-compose up -d
 
-# Stop PostgreSQL
+# Stop all services
 docker-compose down
 
 # Stop and remove volumes (deletes all data)
 docker-compose down -v
 
 # View logs
-docker-compose logs -f postgres
+docker-compose logs -f
 
 # Check status
 docker-compose ps
@@ -168,6 +168,8 @@ docker-compose ps
 Required:
 - `GEMINI_API_KEY` - Your Gemini API key
 - `JWT_SECRET` - At least 32 random characters
+- `GOOGLE_OAUTH_CLIENT_ID` - Google OAuth 2.0 client ID (from Google Cloud Console)
+- `GOOGLE_OAUTH_CLIENT_SECRET` - Google OAuth 2.0 client secret
 
 PostgreSQL (when using Docker Compose):
 - `POSTGRES_HOST` - Default: `localhost`
@@ -192,23 +194,30 @@ Optional:
 
 ### Backend won't start
 
-1. **Check PostgreSQL is running:**
+1. **Check PostgreSQL and Redis are running:**
    ```bash
    docker-compose ps
    ```
+   Both `db` and `redis` must show as `Up`.
 
 2. **Check database connection:**
    ```bash
-   docker-compose exec postgres psql -U gemini_user -d gemini_db -c "SELECT 1;"
+   docker-compose exec postgres psql -U postgres -d gemini_db -c "SELECT 1;"
    ```
 
-3. **Check environment variables:**
+3. **Check Redis connection:**
    ```bash
-   # Make sure .env file exists and has GEMINI_API_KEY
-   cat .env | grep GEMINI_API_KEY
+   docker-compose exec redis redis-cli ping
    ```
 
-4. **Check Go dependencies:**
+4. **Check environment variables:**
+   ```bash
+   # Make sure .env file exists in backend/ and has all required keys
+   cat backend/.env
+   ```
+   Required keys: `GEMINI_API_KEY`, `JWT_SECRET` (32+ chars), `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`.
+
+5. **Check Go dependencies:**
    ```bash
    cd backend && go mod tidy
    ```
@@ -262,8 +271,17 @@ hackathon-gemini-3/
 
 ## Next Steps
 
-1. Start PostgreSQL: `docker-compose up -d`
-2. Set up `.env` with your `GEMINI_API_KEY`
+1. Start PostgreSQL and Redis: `docker-compose up -d`
+2. Set up `backend/.env` from `backend/.env.example`, filling in all required keys including `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`
 3. Build frontend: `cd web && bun run build`
 4. Run backend: `cd backend && go run cmd/server/main.go`
 5. Open browser: `http://localhost:8080`
+
+### Google OAuth Setup
+
+To enable Google login:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Create an OAuth 2.0 Client ID (Web application type)
+3. Add authorized redirect URI: `http://localhost:8080/v1/auth/google/callback`
+4. Copy Client ID and Client Secret into `backend/.env`

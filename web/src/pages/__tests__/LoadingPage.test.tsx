@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import React, { StrictMode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { Scan } from '@/lib/types'
 import LoadingPage from '../LoadingPage'
 
 const navigateMock = vi.fn()
@@ -46,15 +47,18 @@ describe('LoadingPage', () => {
 
     renderPage()
 
+    expect(screen.getByRole('heading', { name: 'Scan Result' })).toBeInTheDocument()
     expect(screen.getByText('Scanning in Progress..')).toBeInTheDocument()
   })
 
   it('redirects to scan page when OCR is ready', async () => {
-    const readyScan = {
+    const readyScan: Scan = {
       id: 5,
       imageUrl: '/uploads/5.jpg',
       detectedLanguage: 'JP',
       fullText: 'OCR text',
+      sourceType: 'image',
+      status: 'ready',
       createdAt: '2026-02-08T20:30:41+07:00',
     }
     getScanMock.mockResolvedValueOnce(readyScan)
@@ -72,26 +76,23 @@ describe('LoadingPage', () => {
   it('schedules periodic polling when OCR is not ready', async () => {
     vi.useFakeTimers()
 
-    getScanMock.mockResolvedValueOnce({
+    const processingPartial: Scan = {
       id: 5,
       imageUrl: '/uploads/5.jpg',
       detectedLanguage: '',
       fullText: '',
+      sourceType: 'image',
+      status: 'processing',
       createdAt: '2026-02-08T20:30:41+07:00',
-    })
-    getScanMock.mockResolvedValue({
-      id: 5,
-      imageUrl: '/uploads/5.jpg',
-      detectedLanguage: '',
-      fullText: '',
-      createdAt: '2026-02-08T20:30:41+07:00',
-    })
+    }
+    getScanMock.mockResolvedValueOnce(processingPartial)
+    getScanMock.mockResolvedValue(processingPartial)
 
     renderPage()
 
     await act(async () => {
       await Promise.resolve()
-      await vi.advanceTimersByTimeAsync(2100)
+      await vi.advanceTimersByTimeAsync(3100)
     })
     expect(getScanMock.mock.calls.length).toBeGreaterThan(1)
   })
@@ -101,19 +102,23 @@ describe('LoadingPage', () => {
 
     renderPage()
 
+    expect(await screen.findByRole('heading', { name: 'Scan Result' })).toBeInTheDocument()
     expect(await screen.findByText('Failed to load scan')).toBeInTheDocument()
   })
 
   it('navigates to scan page when timeout is reached', async () => {
     vi.useFakeTimers()
 
-    getScanMock.mockResolvedValue({
+    const processingScan: Scan = {
       id: 5,
       imageUrl: '/uploads/5.jpg',
       detectedLanguage: '',
       fullText: '',
+      sourceType: 'image',
+      status: 'processing',
       createdAt: '2026-02-08T20:30:41+07:00',
-    })
+    }
+    getScanMock.mockResolvedValue(processingScan)
     renderPage()
 
     await act(async () => {
@@ -128,11 +133,13 @@ describe('LoadingPage', () => {
   })
 
   it('navigates once under StrictMode when OCR is already ready', async () => {
-    const readyScan = {
+    const readyScan: Scan = {
       id: 5,
       imageUrl: '/uploads/5.jpg',
       detectedLanguage: 'JP',
       fullText: 'OCR text',
+      sourceType: 'image',
+      status: 'ready',
       createdAt: '2026-02-08T20:30:41+07:00',
     }
     getScanMock.mockResolvedValue(readyScan)
