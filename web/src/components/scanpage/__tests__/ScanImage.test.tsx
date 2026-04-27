@@ -35,6 +35,15 @@ describe('ScanImage', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('should hide the previous blob when imageUrl is removed', async () => {
+    const { container, rerender } = render(<ScanImage imageUrl="/v1/scans/test-id/image" />)
+    await screen.findByRole('img')
+
+    rerender(<ScanImage imageUrl={undefined} />)
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('should revoke blob URLs on cleanup', async () => {
     const { unmount } = render(<ScanImage imageUrl="/v1/scans/test-id/image" />)
     await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled())
