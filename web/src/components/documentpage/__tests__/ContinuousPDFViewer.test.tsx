@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import ContinuousPDFViewer from '../ContinuousPDFViewer'
+import * as pdfjsLib from 'pdfjs-dist'
 
 const mockOnPageChange = vi.fn()
 const mockOnTextSelect = vi.fn()
@@ -116,6 +117,26 @@ describe('ContinuousPDFViewer', () => {
         />
       )
       expect(screen.getByText('Loading PDF...')).toBeInTheDocument()
+    })
+
+    it('should show recoverable PDF load error when PDF.js rejects', async () => {
+      vi.mocked(pdfjsLib.getDocument).mockReturnValueOnce({
+        promise: Promise.reject(new Error('bad pdf')),
+      } as unknown as pdfjsLib.PDFDocumentLoadingTask)
+
+      render(
+        <ContinuousPDFViewer
+          pdfUrl="broken.pdf"
+          currentPage={1}
+          totalPages={3}
+          onPageChange={mockOnPageChange}
+          onTextSelect={mockOnTextSelect}
+          isLoading={false}
+        />
+      )
+
+      expect(await screen.findByText('Unable to load this PDF.')).toBeInTheDocument()
+      expect(screen.getByText('Try uploading a text-based PDF or re-open the document.')).toBeInTheDocument()
     })
   })
 

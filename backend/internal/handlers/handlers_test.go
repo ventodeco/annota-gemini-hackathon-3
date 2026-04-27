@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,20 @@ import (
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/testutil"
 )
+
+var errDeleteFile = errors.New("delete file failed")
+
+type failingDeleteFileStorage struct {
+	mockFileStorage
+}
+
+func (m *failingDeleteFileStorage) DeleteImage(path string) error {
+	return errDeleteFile
+}
+
+func (m *failingDeleteFileStorage) DeletePDF(path string) error {
+	return errDeleteFile
+}
 
 func TestTokenService(t *testing.T) {
 	tokenService := auth.NewTokenService("test-secret-key", 30)
@@ -229,6 +244,82 @@ func TestUserHandlers(t *testing.T) {
 			t.Errorf("Expected status 400, got %d", rec.Code)
 		}
 	})
+}
+
+func TestDeleteAccountRemovesOwnedRowsAndFiles(t *testing.T) {
+	mockDB := testutil.NewMockDB()
+	cfg := &config.Config{UploadDir: "data/uploads"}
+	userHandlers := handlers.NewUserHandlersWithStorage(mockDB, &mockFileStorage{}, cfg)
+
+	user := &models.User{
+		Email:             "delete@example.com",
+		Provider:          "google",
+		ProviderID:        "delete-123",
+		PreferredLanguage: "EN",
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}
+	if err := mockDB.CreateUser(context.Background(), user); err != nil {
+		t.Fatalf("CreateUser returned error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me", nil)
+	req = req.WithContext(middleware.WithUserID(req.Context(), user.ID))
+	rec := httptest.NewRecorder()
+
+	userHandlers.UsersMeAPI(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	deleted, err := mockDB.GetUserByID(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID returned error: %v", err)
+	}
+	if deleted != nil {
+		t.Fatalf("expected user to be deleted")
+	}
+}
+
+func TestDeleteAccountFailsWhenOwnedFileDeletionFails(t *testing.T) {
+	mockDB := testutil.NewMockDB()
+	cfg := &config.Config{UploadDir: "data/uploads"}
+	userHandlers := handlers.NewUserHandlersWithStorage(mockDB, &failingDeleteFileStorage{}, cfg)
+
+	user := &models.User{
+		Email:             "delete-fail@example.com",
+		Provider:          "google",
+		ProviderID:        "delete-fail-123",
+		PreferredLanguage: "EN",
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}
+	if err := mockDB.CreateUser(context.Background(), user); err != nil {
+		t.Fatalf("CreateUser returned error: %v", err)
+	}
+	if _, err := mockDB.CreateScan(context.Background(), &models.Scan{
+		UserID:   user.ID,
+		ImageURL: "/v1/scans/1/image",
+	}); err != nil {
+		t.Fatalf("CreateScan returned error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me", nil)
+	req = req.WithContext(middleware.WithUserID(req.Context(), user.ID))
+	rec := httptest.NewRecorder()
+
+	userHandlers.UsersMeAPI(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	existing, err := mockDB.GetUserByID(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID returned error: %v", err)
+	}
+	if existing == nil {
+		t.Fatalf("expected user to remain when file purge fails")
+	}
 }
 
 func TestAuthMiddlewareWithXToken(t *testing.T) {

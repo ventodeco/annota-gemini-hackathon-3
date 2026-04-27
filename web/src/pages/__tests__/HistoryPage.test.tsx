@@ -37,7 +37,7 @@ describe('HistoryPage', () => {
       </MemoryRouter>,
     )
 
-    expect(useAnnotationsMock).toHaveBeenCalledWith(1, 20, undefined)
+    expect(useAnnotationsMock).toHaveBeenCalledWith(1, 20, undefined, undefined, undefined)
     expect(screen.getByText('History')).toBeInTheDocument()
   })
 
@@ -50,7 +50,20 @@ describe('HistoryPage', () => {
       </MemoryRouter>,
     )
 
-    expect(useAnnotationsMock).toHaveBeenCalledWith(1, 20, 5)
+    expect(useAnnotationsMock).toHaveBeenCalledWith(1, 20, 5, undefined, undefined)
     expect(screen.getByText('Annotations for OCR #5')).toBeInTheDocument()
+  })
+
+  it('requests document page annotation history when documentId and pageNumber are present', () => {
+    render(
+      <MemoryRouter initialEntries={['/history?documentId=9&pageNumber=3']}>
+        <Routes>
+          <Route path="/history" element={<HistoryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(useAnnotationsMock).toHaveBeenCalledWith(1, 20, undefined, 9, 3)
+    expect(screen.getByText('Annotations for document #9, page 3')).toBeInTheDocument()
   })
 })

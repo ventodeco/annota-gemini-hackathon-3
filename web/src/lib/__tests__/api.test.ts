@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { createScan, getScan, analyzeText, getScanImageUrl, getAnnotations, synthesizeSpeech } from '../api'
+import { createScan, deleteAccount, getScan, analyzeText, getScanImageBlob, getScanImageUrl, getAnnotations, synthesizeSpeech, trackEvent } from '../api'
 
 describe('API Client', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     global.fetch = vi.fn() as Mock
+    window.localStorage.getItem = vi.fn().mockReturnValue(null)
   })
 
   describe('createScan', () => {
@@ -77,6 +78,47 @@ describe('API Client', () => {
       })
 
       await expect(getScan(999)).rejects.toThrow('Scan not found')
+    })
+  })
+
+  describe('deleteAccount', () => {
+    it('sends authenticated account deletion request', async () => {
+      window.localStorage.getItem = vi.fn().mockReturnValue('test-token')
+      ;(global.fetch as Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+      })
+
+      await deleteAccount()
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/users/me'),
+        expect.objectContaining({
+          method: 'DELETE',
+          headers: expect.objectContaining({ 'x-token': 'test-token' }),
+        }),
+      )
+    })
+  })
+
+  describe('trackEvent', () => {
+    it('sends authenticated analytics events', async () => {
+      window.localStorage.getItem = vi.fn().mockReturnValue('test-token')
+      ;(global.fetch as Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+      })
+
+      await trackEvent('first_annotation', { source: 'pdf' })
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/events'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ 'x-token': 'test-token' }),
+          body: JSON.stringify({ name: 'first_annotation', properties: { source: 'pdf' } }),
+        }),
+      )
     })
   })
 
@@ -172,6 +214,27 @@ describe('API Client', () => {
     it('should return original URL for absolute URLs', () => {
       const url = getScanImageUrl('http://example.com/image.jpg')
       expect(url).toBe('http://example.com/image.jpg')
+    })
+  })
+
+  describe('getScanImageBlob', () => {
+    it('fetches private scan images with auth headers', async () => {
+      window.localStorage.getItem = vi.fn().mockReturnValue('test-token')
+      const image = new Blob(['private image'], { type: 'image/jpeg' })
+      ;(global.fetch as Mock).mockResolvedValueOnce({
+        ok: true,
+        blob: async () => image,
+      })
+
+      const result = await getScanImageBlob('/v1/scans/1/image')
+
+      expect(result).toBe(image)
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/scans/1/image'),
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'x-token': 'test-token' }),
+        }),
+      )
     })
   })
 

@@ -16,6 +16,7 @@ import DocumentPage from '@/pages/DocumentPage'
 import DocumentsPage from '@/pages/DocumentsPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 import OAuthCallbackPage from '@/pages/OAuthCallbackPage'
+import LegalPage from '@/pages/LegalPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,6 +86,22 @@ function App() {
               element={
                 <PageErrorBoundary>
                   <OAuthCallbackPage />
+                </PageErrorBoundary>
+              }
+            />
+            <Route
+              path="/privacy"
+              element={
+                <PageErrorBoundary>
+                  <LegalPage kind="privacy" />
+                </PageErrorBoundary>
+              }
+            />
+            <Route
+              path="/terms"
+              element={
+                <PageErrorBoundary>
+                  <LegalPage kind="terms" />
                 </PageErrorBoundary>
               }
             />

@@ -172,6 +172,7 @@ export default function ContinuousPDFViewer({
 }: ContinuousPDFViewerProps): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
+  const [loadError, setLoadError] = useState<boolean>(false)
   const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set([1]))
   const [containerWidth, setContainerWidth] = useState<number>(400)
 
@@ -179,6 +180,8 @@ export default function ContinuousPDFViewer({
     if (!pdfUrl) return
 
     const loadPdf = async (): Promise<void> => {
+      setLoadError(false)
+      setPdfDoc(null)
       try {
         ensurePdfjsWorker()
         const loadingTask = pdfjsLib.getDocument(getPdfDocumentLoadOptions(pdfUrl))
@@ -186,6 +189,7 @@ export default function ContinuousPDFViewer({
         setPdfDoc(pdf)
       } catch (err) {
         console.error('Failed to load PDF:', err)
+        setLoadError(true)
       }
     }
     loadPdf()
@@ -237,6 +241,19 @@ export default function ContinuousPDFViewer({
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-gray-500">No PDF loaded</p>
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6 text-center">
+        <div>
+          <p className="font-medium text-gray-900">Unable to load this PDF.</p>
+          <p className="mt-2 text-sm text-gray-500">
+            Try uploading a text-based PDF or re-open the document.
+          </p>
+        </div>
       </div>
     )
   }

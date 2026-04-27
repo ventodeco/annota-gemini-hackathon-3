@@ -65,6 +65,29 @@ func (m *MockDB) UpdateUserLanguage(ctx context.Context, userID int64, language 
 	return nil
 }
 
+func (m *MockDB) DeleteUser(ctx context.Context, userID int64) error {
+	if _, ok := m.users[userID]; !ok {
+		return sql.ErrNoRows
+	}
+	delete(m.users, userID)
+	for id, scan := range m.scans {
+		if scan.UserID == userID {
+			delete(m.scans, id)
+		}
+	}
+	for id, annotation := range m.annotations {
+		if annotation.UserID == userID {
+			delete(m.annotations, id)
+		}
+	}
+	for id, document := range m.documents {
+		if document.UserID == userID {
+			delete(m.documents, id)
+		}
+	}
+	return nil
+}
+
 func (m *MockDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, error) {
 	if scan.SourceType == "" {
 		scan.SourceType = "image"

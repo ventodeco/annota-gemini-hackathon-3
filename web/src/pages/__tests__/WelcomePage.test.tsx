@@ -9,6 +9,9 @@ import WelcomePage from '../WelcomePage'
 const navigateMock = vi.fn()
 const createScanMock = vi.fn()
 const uploadDocumentMock = vi.fn()
+const deleteAccountMock = vi.fn()
+const trackEventMock = vi.fn()
+const logoutMock = vi.fn()
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -21,18 +24,21 @@ vi.mock('react-router-dom', async () => {
 vi.mock('@/lib/api', () => ({
   createScan: (...args: unknown[]) => createScanMock(...args),
   uploadDocument: (...args: unknown[]) => uploadDocumentMock(...args),
+  deleteAccount: (...args: unknown[]) => deleteAccountMock(...args),
+  trackEvent: (...args: unknown[]) => trackEventMock(...args),
 }))
 
 vi.mock('@/contexts/useAuth', () => ({
   useAuth: () => ({
     user: { email: 'test@example.com' },
-    logout: vi.fn(),
+    logout: logoutMock,
   }),
 }))
 
 describe('WelcomePage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    trackEventMock.mockResolvedValue(undefined)
   })
 
   function renderPage() {
@@ -99,6 +105,20 @@ describe('WelcomePage', () => {
     await waitFor(() => {
       expect(uploadDocumentMock).toHaveBeenCalledTimes(1)
       expect(navigateMock).toHaveBeenCalledWith('/documents/7')
+    })
+  })
+
+  it('deletes account after confirmation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    deleteAccountMock.mockResolvedValueOnce(undefined)
+    renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: /delete account/i }))
+
+    await waitFor(() => {
+      expect(deleteAccountMock).toHaveBeenCalledTimes(1)
+      expect(logoutMock).toHaveBeenCalledTimes(1)
+      expect(navigateMock).toHaveBeenCalledWith('/login')
     })
   })
 })

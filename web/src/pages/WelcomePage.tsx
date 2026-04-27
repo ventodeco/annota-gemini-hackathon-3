@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Camera, FileText, Image as ImageIcon, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/useAuth'
-import { createScan, uploadDocument } from '@/lib/api'
+import { createScan, deleteAccount, trackEvent, uploadDocument } from '@/lib/api'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 
 export default function WelcomePage() {
@@ -17,6 +17,7 @@ export default function WelcomePage() {
   const uploadMutation = useMutation({
     mutationFn: createScan,
     onSuccess: (data) => {
+      void trackEvent('reader_activation', { source: 'image' }).catch(() => undefined)
       navigate(`/loading/${data.scanId}`)
     },
     onError: (error: Error) => {
@@ -27,10 +28,22 @@ export default function WelcomePage() {
   const pdfUploadMutation = useMutation({
     mutationFn: uploadDocument,
     onSuccess: (data) => {
+      void trackEvent('reader_activation', { source: 'pdf' }).catch(() => undefined)
       navigate(`/documents/${data.documentId}`)
     },
     onError: (error: Error) => {
       setUploadError(error.message || 'Failed to upload PDF')
+    },
+  })
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: deleteAccount,
+    onSuccess: () => {
+      logout()
+      navigate('/login')
+    },
+    onError: (error: Error) => {
+      setUploadError(error.message || 'Failed to delete account')
     },
   })
 
@@ -77,6 +90,13 @@ export default function WelcomePage() {
   const handleLogout = () => {
     logout()
     navigate('/login')
+  }
+
+  const handleDeleteAccount = () => {
+    if (!window.confirm('Delete your account and all stored ANNOTA data? This cannot be undone.')) {
+      return
+    }
+    deleteAccountMutation.mutate()
   }
 
   return (
@@ -139,6 +159,14 @@ export default function WelcomePage() {
           >
             <FileText className="w-5 h-5" />
             {pdfUploadMutation.isPending ? 'Uploading...' : 'Upload PDF'}
+          </Button>
+          <Button
+            onClick={handleDeleteAccount}
+            variant="ghost"
+            disabled={isAnyPending || deleteAccountMutation.isPending}
+            className="mt-4 text-xs text-red-600 hover:text-red-700"
+          >
+            {deleteAccountMutation.isPending ? 'Deleting account...' : 'Delete account'}
           </Button>
         </div>
       </div>
