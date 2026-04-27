@@ -6,12 +6,16 @@ interface ScanImageProps {
   alt?: string
 }
 
+interface BlobImageState {
+  sourceUrl: string
+  blobUrl: string
+}
+
 export default function ScanImage({ imageUrl, alt = 'Scanned image' }: ScanImageProps) {
-  const [blobUrl, setBlobUrl] = useState<string>('')
+  const [blobImage, setBlobImage] = useState<BlobImageState | null>(null)
 
   useEffect(() => {
     if (!imageUrl) {
-      setBlobUrl('')
       return
     }
 
@@ -22,10 +26,10 @@ export default function ScanImage({ imageUrl, alt = 'Scanned image' }: ScanImage
       .then((blob) => {
         if (!isActive) return
         objectUrl = URL.createObjectURL(blob)
-        setBlobUrl(objectUrl)
+        setBlobImage({ sourceUrl: imageUrl, blobUrl: objectUrl })
       })
       .catch(() => {
-        if (isActive) setBlobUrl('')
+        if (isActive) setBlobImage(null)
       })
 
     return () => {
@@ -40,14 +44,14 @@ export default function ScanImage({ imageUrl, alt = 'Scanned image' }: ScanImage
     return null
   }
 
-  if (!blobUrl) {
+  if (!blobImage || blobImage.sourceUrl !== imageUrl) {
     return null
   }
 
   return (
     <div className="mb-6">
       <img
-        src={blobUrl}
+        src={blobImage.blobUrl}
         alt={alt}
         className="w-full h-auto rounded-lg border border-gray-200"
       />
