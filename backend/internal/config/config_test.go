@@ -97,3 +97,65 @@ func TestConfig_IsOriginAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadReadsRateLimitConfig(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
+	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
+	t.Setenv("AI_RATE_LIMIT", "7")
+	t.Setenv("AI_RATE_LIMIT_WINDOW_SECONDS", "30")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.AIRateLimit != 7 {
+		t.Fatalf("AIRateLimit = %d, want 7", cfg.AIRateLimit)
+	}
+	if cfg.AIRateLimitWindowSeconds != 30 {
+		t.Fatalf("AIRateLimitWindowSeconds = %d, want 30", cfg.AIRateLimitWindowSeconds)
+	}
+}
+
+func TestConfigValidateRequiresStrongJWTSecret(t *testing.T) {
+	cfg := &Config{
+		GeminiAPIKey:             "test-key",
+		DBConnectionString:       "postgres://test",
+		UploadDir:                "data/uploads",
+		MaxUploadSize:            1,
+		FrontendBaseURL:          "http://localhost:5173",
+		TokenExpiryMinutes:       30,
+		DefaultPageSize:          20,
+		JWTSecret:                "short",
+		AIRateLimit:              60,
+		AIRateLimitWindowSeconds: 3600,
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatalf("expected weak JWT_SECRET to fail validation")
+	}
+}
+
+func TestConfigValidateRejectsWildcardProductionOrigins(t *testing.T) {
+	cfg := &Config{
+		GeminiAPIKey:             "test-key",
+		DBConnectionString:       "postgres://test",
+		UploadDir:                "data/uploads",
+		MaxUploadSize:            1,
+		FrontendBaseURL:          "https://annota.example.com",
+		TokenExpiryMinutes:       30,
+		DefaultPageSize:          20,
+		JWTSecret:                "01234567890123456789012345678912",
+		AllowedOrigins:           "*",
+		AppEnv:                   "production",
+		AIRateLimit:              60,
+		AIRateLimitWindowSeconds: 3600,
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatalf("expected wildcard ALLOWED_ORIGINS to fail in production")
+	}
+}

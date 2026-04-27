@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 
@@ -73,14 +74,20 @@ func main() {
 	googleOAuth := auth.NewGoogleOAuthService(cfg, redisClient)
 
 	authHandlers := handlers.NewAuthHandlers(googleOAuth, tokenService, storageDB, cfg)
-	userHandlers := handlers.NewUserHandlers(storageDB)
+	userHandlers := handlers.NewUserHandlersWithStorage(storageDB, fileStorage, cfg)
 	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, geminiClient, cfg)
 	aiHandlers := handlers.NewAIHandlers(storageDB, geminiClient, knowledgeSvc)
 	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg)
+	analyticsHandlers := handlers.NewAnalyticsHandlers()
+	entitlementHandlers := handlers.NewEntitlementHandlers(cfg)
 	pdfExtractor := pdf.NewExtractor()
 	documentHandlers := handlers.NewDocumentHandlers(storageDB, fileStorage, pdfExtractor, cfg)
 
 	authMiddleware := middleware.NewAuthMiddleware(tokenService)
+	aiRateLimiter := middleware.NewRateLimiter(
+		cfg.AIRateLimit,
+		time.Duration(cfg.AIRateLimitWindowSeconds)*time.Second,
+	)
 
 	mux := http.NewServeMux()
 
@@ -95,17 +102,18 @@ func main() {
 	authMux := http.NewServeMux()
 	authMux.HandleFunc("/v1/users/me/languages", userHandlers.GetLanguagesAPI)
 	authMux.HandleFunc("/v1/users/me", userHandlers.UsersMeAPI)
-	authMux.HandleFunc("/v1/scans", scanHandlers.ScansAPI)
+	authMux.Handle("/v1/scans", aiRateLimiter.Handle(http.HandlerFunc(scanHandlers.ScansAPI)))
 	authMux.HandleFunc("/v1/scans/", scanHandlers.GetScanAPI)
-	authMux.HandleFunc("/v1/ai/analyze", aiHandlers.AnalyzeAPI)
-	authMux.HandleFunc("/v1/ai/speech", aiHandlers.SpeakAPI)
+	authMux.Handle("/v1/ai/analyze", aiRateLimiter.Handle(http.HandlerFunc(aiHandlers.AnalyzeAPI)))
+	authMux.Handle("/v1/ai/speech", aiRateLimiter.Handle(http.HandlerFunc(aiHandlers.SpeakAPI)))
 	authMux.HandleFunc("/v1/annotations", annotationHandlers.AnnotationsAPI)
 	authMux.HandleFunc("/v1/annotations/", annotationHandlers.AnnotationByIDAPI)
-	authMux.HandleFunc("/v1/documents", documentHandlers.DocumentsAPI)
-	authMux.HandleFunc("/v1/documents/", documentHandlers.DocumentByIDAPI)
+	authMux.HandleFunc("/v1/events", analyticsHandlers.EventsAPI)
+	authMux.HandleFunc("/v1/entitlements/me", entitlementHandlers.MeAPI)
+	authMux.Handle("/v1/documents", aiRateLimiter.Handle(http.HandlerFunc(documentHandlers.DocumentsAPI)))
+	authMux.Handle("/v1/documents/", aiRateLimiter.Handle(http.HandlerFunc(documentHandlers.DocumentByIDAPI)))
 
 	mux.Handle("/v1/", authMiddleware.Handle(authMux))
-	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))
 
 	reactFS := http.FileServer(http.Dir("web/dist"))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

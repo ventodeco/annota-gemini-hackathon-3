@@ -9,8 +9,9 @@ import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hook
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
-import { getScanImageUrl, formatDate } from '@/lib/api'
+import { formatDate } from '@/lib/api'
 import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
+import ScanImage from '@/components/scanpage/ScanImage'
 import type { Scan } from '@/lib/types'
 import { SelectionSpeechButton } from '@/components/scanpage/SelectionSpeechButton'
 import { useAnnotationDrawerFlow, DEFAULT_MAX_ANNOTATION_VERSIONS } from '@/hooks/useAnnotationDrawerFlow'
@@ -188,8 +189,6 @@ export default function ScanPage(): ReactElement {
     )
   }
 
-  const imageUrl = getScanImageUrl(scan.imageUrl)
-
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <Header
@@ -199,13 +198,7 @@ export default function ScanPage(): ReactElement {
       />
       <ScrollArea className="flex-1">
         <div className="p-6">
-          {imageUrl && (
-            <img
-              src={imageUrl}
-              alt="Scanned document"
-              className="w-full mb-6 rounded-lg"
-            />
-          )}
+          <ScanImage imageUrl={scan.imageUrl} alt="Scanned document" />
           {scan.fullText && (
             <p
               className="text-base leading-relaxed text-gray-900 whitespace-pre-wrap"

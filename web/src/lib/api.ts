@@ -154,6 +154,23 @@ export async function updateUserPreferences(
   return handleResponse(response, 'PATCH', url)
 }
 
+export async function deleteAccount(): Promise<void> {
+  const url = `${API_BASE_URL}/v1/users/me`
+  const response = await fetchWithAuth(url, { method: 'DELETE' })
+  return handleResponse(response, 'DELETE', url)
+}
+
+export async function trackEvent(name: string, properties: Record<string, unknown> = {}): Promise<void> {
+  const url = `${API_BASE_URL}/v1/events`
+  const response = await fetchWithAuth(url, {
+    method: 'POST',
+    body: JSON.stringify({ name, properties }),
+  })
+  const startTime = Date.now()
+  await throwIfNotOk(response, 'POST', url, startTime)
+  logger.apiCall('POST', url, response.status, Date.now() - startTime)
+}
+
 export async function getLanguages(): Promise<GetLanguagesResponse> {
   const url = `${API_BASE_URL}/v1/users/me/languages`
   const response = await fetchWithAuth(url)
@@ -355,6 +372,15 @@ export function getScanImageUrl(imageUrl: string | undefined): string {
     return `${API_BASE_URL}${imageUrl}`
   }
   return imageUrl
+}
+
+export async function getScanImageBlob(imageUrl: string): Promise<Blob> {
+  const url = getScanImageUrl(imageUrl)
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  })
+  return handleBlobResponse(response, 'GET', url, 'Failed to fetch scan image')
 }
 
 export function formatDate(dateString: string): string {

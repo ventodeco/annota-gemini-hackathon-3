@@ -16,6 +16,7 @@ type DB interface {
 	GetUserByProvider(ctx context.Context, provider, providerID string) (*models.User, error)
 	GetUserByID(ctx context.Context, userID int64) (*models.User, error)
 	UpdateUserLanguage(ctx context.Context, userID int64, language string) error
+	DeleteUser(ctx context.Context, userID int64) error
 
 	CreateScan(ctx context.Context, scan *models.Scan) (int64, error)
 	GetScanByID(ctx context.Context, scanID int64) (*models.Scan, error)
@@ -116,6 +117,21 @@ func (s *postgresDB) UpdateUserLanguage(ctx context.Context, userID int64, langu
 	`
 	_, err := s.db.ExecContext(ctx, query, language, time.Now(), userID)
 	return err
+}
+
+func (s *postgresDB) DeleteUser(ctx context.Context, userID int64) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *postgresDB) scanUser(row *sql.Row) (*models.User, error) {

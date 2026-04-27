@@ -3,18 +3,30 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
+	"strconv"
+	"strings"
 
+	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/httputil"
+	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
+	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/storage"
 )
 
 type UserHandlers struct {
-	db storage.DB
+	db          storage.DB
+	fileStorage storage.FileStorage
+	config      *config.Config
 }
 
 func NewUserHandlers(db storage.DB) *UserHandlers {
 	return &UserHandlers{db: db}
+}
+
+func NewUserHandlersWithStorage(db storage.DB, fileStorage storage.FileStorage, cfg *config.Config) *UserHandlers {
+	return &UserHandlers{db: db, fileStorage: fileStorage, config: cfg}
 }
 
 type Language struct {
@@ -125,9 +137,64 @@ func (h *UserHandlers) UsersMeAPI(w http.ResponseWriter, r *http.Request) {
 		h.GetUserProfileAPI(w, r)
 	case http.MethodPatch:
 		h.UpdateUserPreferencesAPI(w, r)
+	case http.MethodDelete:
+		h.DeleteAccountAPI(w, r)
 	default:
 		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
+}
+
+func (h *UserHandlers) DeleteAccountAPI(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == 0 {
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	h.deleteOwnedFiles(r, userID)
+	if err := h.db.DeleteUser(r.Context(), userID); err != nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *UserHandlers) deleteOwnedFiles(r *http.Request, userID int64) {
+	if h.fileStorage == nil || h.config == nil {
+		return
+	}
+	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
+
+	scans, err := h.db.GetScansByUserID(r.Context(), userID, 1, 10000)
+	if err == nil {
+		for _, scan := range scans {
+			for _, path := range userScanImagePaths(h.config.UploadDir, scan) {
+				if err := h.fileStorage.DeleteImage(path); err != nil {
+					log.Warnf("Failed to delete scan image during account deletion: %v", err)
+				}
+			}
+		}
+	}
+
+	docs, err := h.db.GetDocumentsByUserID(r.Context(), userID, 1, 10000)
+	if err == nil {
+		for _, doc := range docs {
+			if doc.FileURL == "" {
+				continue
+			}
+			if err := h.fileStorage.DeletePDF(doc.FileURL); err != nil {
+				log.Warnf("Failed to delete PDF during account deletion: %v", err)
+			}
+		}
+	}
+}
+
+func userScanImagePaths(uploadDir string, scan *models.Scan) []string {
+	if scan.ImageURL != "" && strings.HasPrefix(scan.ImageURL, "/uploads/") {
+		return []string{filepath.Join(uploadDir, filepath.Base(scan.ImageURL))}
+	}
+	base := filepath.Join(uploadDir, strconv.FormatInt(scan.ID, 10))
+	return []string{base + ".jpg", base + ".png", base + ".webp"}
 }
 
 func isValidLanguage(lang string) bool {

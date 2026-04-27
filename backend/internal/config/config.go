@@ -11,6 +11,7 @@ import (
 type Config struct {
 	GeminiAPIKey       string
 	AppBaseURL         string
+	AppEnv             string
 	FrontendBaseURL    string
 	Port               string
 	DBConnectionString string
@@ -19,14 +20,16 @@ type Config struct {
 	SessionCookieName  string
 	SessionSecure      bool
 
-	GoogleOAuthClientID     string
-	GoogleOAuthClientSecret string
-	RedisAddr               string
-	JWTSecret               string
-	TokenExpiryMinutes      int
-	DefaultPageSize         int
-	KnowledgeCSVPath        string
-	AllowedOrigins          string // comma-separated list, * for wildcard
+	GoogleOAuthClientID      string
+	GoogleOAuthClientSecret  string
+	RedisAddr                string
+	JWTSecret                string
+	TokenExpiryMinutes       int
+	DefaultPageSize          int
+	KnowledgeCSVPath         string
+	AllowedOrigins           string // comma-separated list, * for wildcard
+	AIRateLimit              int
+	AIRateLimitWindowSeconds int
 }
 
 func Load() (*Config, error) {
@@ -62,23 +65,26 @@ func Load() (*Config, error) {
 	frontendBaseURL := getEnvOrDefault("FRONTEND_BASE_URL", appBaseURL)
 
 	cfg := &Config{
-		GeminiAPIKey:            geminiAPIKey,
-		AppBaseURL:              appBaseURL,
-		FrontendBaseURL:         frontendBaseURL,
-		Port:                    getEnvOrDefault("PORT", "8080"),
-		DBConnectionString:      dbConnStr,
-		UploadDir:               getEnvOrDefault("UPLOAD_DIR", "data/uploads"),
-		MaxUploadSize:           getEnvAsInt64OrDefault("MAX_UPLOAD_SIZE", 10*1024*1024),
-		SessionCookieName:       getEnvOrDefault("SESSION_COOKIE_NAME", "sid"),
-		SessionSecure:           getEnvAsBoolOrDefault("SESSION_SECURE", false),
-		GoogleOAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
-		GoogleOAuthClientSecret: os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
-		RedisAddr:               getEnvOrDefault("REDIS_ADDR", "localhost:6379"),
-		JWTSecret:               os.Getenv("JWT_SECRET"),
-		TokenExpiryMinutes:      getEnvAsIntOrDefault("TOKEN_EXPIRY_MINUTES", 30),
-		DefaultPageSize:         getEnvAsIntOrDefault("DEFAULT_PAGE_SIZE", 20),
-		KnowledgeCSVPath:        getEnvOrDefault("KNOWLEDGE_CSV_PATH", "data/knowledge.csv"),
-		AllowedOrigins:          getEnvOrDefault("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
+		GeminiAPIKey:             geminiAPIKey,
+		AppBaseURL:               appBaseURL,
+		AppEnv:                   strings.ToLower(getEnvOrDefault("APP_ENV", "development")),
+		FrontendBaseURL:          frontendBaseURL,
+		Port:                     getEnvOrDefault("PORT", "8080"),
+		DBConnectionString:       dbConnStr,
+		UploadDir:                getEnvOrDefault("UPLOAD_DIR", "data/uploads"),
+		MaxUploadSize:            getEnvAsInt64OrDefault("MAX_UPLOAD_SIZE", 10*1024*1024),
+		SessionCookieName:        getEnvOrDefault("SESSION_COOKIE_NAME", "sid"),
+		SessionSecure:            getEnvAsBoolOrDefault("SESSION_SECURE", false),
+		GoogleOAuthClientID:      os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
+		GoogleOAuthClientSecret:  os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+		RedisAddr:                getEnvOrDefault("REDIS_ADDR", "localhost:6379"),
+		JWTSecret:                os.Getenv("JWT_SECRET"),
+		TokenExpiryMinutes:       getEnvAsIntOrDefault("TOKEN_EXPIRY_MINUTES", 30),
+		DefaultPageSize:          getEnvAsIntOrDefault("DEFAULT_PAGE_SIZE", 20),
+		KnowledgeCSVPath:         getEnvOrDefault("KNOWLEDGE_CSV_PATH", "data/knowledge.csv"),
+		AllowedOrigins:           getEnvOrDefault("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
+		AIRateLimit:              getEnvAsIntOrDefault("AI_RATE_LIMIT", 60),
+		AIRateLimitWindowSeconds: getEnvAsIntOrDefault("AI_RATE_LIMIT_WINDOW_SECONDS", 3600),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -95,6 +101,9 @@ func (c *Config) Validate() error {
 	if c.DBConnectionString == "" {
 		return fmt.Errorf("DB_CONNECTION_STRING or PostgreSQL connection details are required")
 	}
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	}
 	if c.UploadDir == "" {
 		return fmt.Errorf("UPLOAD_DIR cannot be empty")
 	}
@@ -109,6 +118,15 @@ func (c *Config) Validate() error {
 	}
 	if c.DefaultPageSize <= 0 {
 		return fmt.Errorf("DEFAULT_PAGE_SIZE must be positive")
+	}
+	if c.AIRateLimit < 0 {
+		return fmt.Errorf("AI_RATE_LIMIT cannot be negative")
+	}
+	if c.AIRateLimitWindowSeconds < 0 {
+		return fmt.Errorf("AI_RATE_LIMIT_WINDOW_SECONDS cannot be negative")
+	}
+	if c.AppEnv == "production" && c.AllowedOrigins == "*" {
+		return fmt.Errorf("ALLOWED_ORIGINS cannot be wildcard in production")
 	}
 	return nil
 }

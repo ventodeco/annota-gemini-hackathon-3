@@ -15,9 +15,9 @@ Quick reference guide for running the application.
 
 ```bash
 # Copy environment template
-cp .env.example .env
+cp backend/.env.example backend/.env
 
-# Edit .env and add your Gemini API key
+# Edit backend/.env and add your Gemini API key
 # GEMINI_API_KEY=your_actual_api_key_here
 ```
 
@@ -167,6 +167,7 @@ docker-compose ps
 
 Required:
 - `GEMINI_API_KEY` - Your Gemini API key
+- `JWT_SECRET` - At least 32 random characters
 
 PostgreSQL (when using Docker Compose):
 - `POSTGRES_HOST` - Default: `localhost`
@@ -176,6 +177,7 @@ PostgreSQL (when using Docker Compose):
 - `POSTGRES_DB` - Default: `gemini_db`
 
 Optional:
+- `APP_ENV` - `development` or `production` (production rejects wildcard CORS origins)
 - `PORT` - Backend port (default: `8080`)
 - `APP_BASE_URL` - Base URL (default: `http://localhost:8080`)
 - `FRONTEND_BASE_URL` - Frontend callback URL for OAuth redirect (default: `APP_BASE_URL`)
@@ -183,6 +185,8 @@ Optional:
 - `MAX_UPLOAD_SIZE` - Max upload size in bytes (default: `10485760` = 10MB)
 - `SESSION_COOKIE_NAME` - Session cookie name (default: `sid`)
 - `SESSION_SECURE` - Secure cookies (default: `false`)
+- `AI_RATE_LIMIT` - Gemini-backed action limit per user/path/window (default: `60`, `0` disables)
+- `AI_RATE_LIMIT_WINDOW_SECONDS` - Rate-limit window in seconds (default: `3600`)
 
 ## Troubleshooting
 

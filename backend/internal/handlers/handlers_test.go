@@ -231,6 +231,41 @@ func TestUserHandlers(t *testing.T) {
 	})
 }
 
+func TestDeleteAccountRemovesOwnedRowsAndFiles(t *testing.T) {
+	mockDB := testutil.NewMockDB()
+	cfg := &config.Config{UploadDir: "data/uploads"}
+	userHandlers := handlers.NewUserHandlersWithStorage(mockDB, &mockFileStorage{}, cfg)
+
+	user := &models.User{
+		Email:             "delete@example.com",
+		Provider:          "google",
+		ProviderID:        "delete-123",
+		PreferredLanguage: "EN",
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}
+	if err := mockDB.CreateUser(context.Background(), user); err != nil {
+		t.Fatalf("CreateUser returned error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/users/me", nil)
+	req = req.WithContext(middleware.WithUserID(req.Context(), user.ID))
+	rec := httptest.NewRecorder()
+
+	userHandlers.UsersMeAPI(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	deleted, err := mockDB.GetUserByID(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID returned error: %v", err)
+	}
+	if deleted != nil {
+		t.Fatalf("expected user to be deleted")
+	}
+}
+
 func TestAuthMiddlewareWithXToken(t *testing.T) {
 	tokenService := auth.NewTokenService("test-secret", 30)
 	authMiddleware := middleware.NewAuthMiddleware(tokenService)

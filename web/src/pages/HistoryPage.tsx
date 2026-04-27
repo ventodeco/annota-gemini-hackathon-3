@@ -33,13 +33,23 @@ export default function HistoryPage() {
   const scanIdParam = searchParams.get('scanId')
   const parsedScanId = scanIdParam ? Number.parseInt(scanIdParam, 10) : undefined
   const scanId = Number.isInteger(parsedScanId) && parsedScanId! > 0 ? parsedScanId : undefined
+  const documentIdParam = searchParams.get('documentId')
+  const parsedDocumentId = documentIdParam ? Number.parseInt(documentIdParam, 10) : undefined
+  const documentId = Number.isInteger(parsedDocumentId) && parsedDocumentId! > 0 ? parsedDocumentId : undefined
+  const pageNumberParam = searchParams.get('pageNumber')
+  const parsedPageNumber = pageNumberParam ? Number.parseInt(pageNumberParam, 10) : undefined
+  const pageNumber = Number.isInteger(parsedPageNumber) && parsedPageNumber! > 0 ? parsedPageNumber : undefined
   const [page, setPage] = useState(1)
-  const { data, isLoading, error } = useAnnotations(page, 20, scanId)
+  const { data, isLoading, error } = useAnnotations(page, 20, scanId, documentId, pageNumber)
   const deleteAnnotation = useDeleteAnnotation()
   const [annotationToDelete, setAnnotationToDelete] = useState<AnnotationItem | null>(null)
 
   const handleAnnotationClick = (item: AnnotationItem) => {
-    const detailPath = scanId ? `/annotations/${item.id}?scanId=${scanId}` : `/annotations/${item.id}`
+    const detailPath = scanId
+      ? `/annotations/${item.id}?scanId=${scanId}`
+      : documentId
+        ? `/annotations/${item.id}?documentId=${documentId}${pageNumber ? `&pageNumber=${pageNumber}` : ''}`
+        : `/annotations/${item.id}`
     navigate(detailPath, { state: item })
   }
 
@@ -69,7 +79,17 @@ export default function HistoryPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
-      <Header title={scanId ? `Annotations for OCR #${scanId}` : 'History'} />
+      <Header
+        title={
+          scanId
+            ? `Annotations for OCR #${scanId}`
+            : documentId && pageNumber
+              ? `Annotations for document #${documentId}, page ${pageNumber}`
+              : documentId
+                ? `Annotations for document #${documentId}`
+                : 'History'
+        }
+      />
       <main className="pt-4 px-4">
         {isLoading && (
           <div className="flex justify-center py-8">
