@@ -464,6 +464,13 @@ func TestAnnotationHandlers(t *testing.T) {
 	})
 
 	t.Run("CreateAnnotationAPI_Success", func(t *testing.T) {
+		mockDB.CreateScan(context.Background(), &models.Scan{
+			UserID:     1,
+			ImageURL:   "/uploads/test.jpg",
+			SourceType: "image",
+			Status:     "ready",
+			CreatedAt:  time.Now(),
+		})
 		body := `{"scanId": 1, "highlightedText": "test text", "contextText": "test context", "nuanceData": {"meaning": "test meaning", "usageExample": "test example", "usageTiming": "test timing", "wordBreakdown": "test breakdown", "alternativeMeaning": "test alt"}}`
 		req := httptest.NewRequest("POST", "/v1/annotations", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

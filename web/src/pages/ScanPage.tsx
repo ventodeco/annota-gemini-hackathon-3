@@ -1,23 +1,23 @@
+import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useScan, isScanOcrReady } from '@/hooks/useScans'
 import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
-import type { Annotation } from '@/lib/types'
 import { useTextSelection } from '@/hooks/useTextSelection'
+import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { getScanImageUrl, formatDate } from '@/lib/api'
 import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
 import type { Scan } from '@/lib/types'
 import { SelectionSpeechButton } from '@/components/scanpage/SelectionSpeechButton'
+import { useAnnotationDrawerFlow, DEFAULT_MAX_ANNOTATION_VERSIONS } from '@/hooks/useAnnotationDrawerFlow'
 
 type ScanPageLocationState = {
   preloadedScan?: Scan
 }
-
-const MAX_ANNOTATION_VERSIONS = 2
 
 type SelectionRect = {
   top: number
@@ -26,10 +26,10 @@ type SelectionRect = {
   height: number
 }
 
-export default function ScanPage() {
+export default function ScanPage(): ReactElement {
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
-  const scanId = id ? parseInt(id, 10) : 0
+  const scanId = id ? Number.parseInt(id, 10) : 0
   const scanHistoryPath = scanId > 0 ? `/history?scanId=${scanId}` : '/history'
   const preloadedScan = (location.state as ScanPageLocationState | null)?.preloadedScan
   const hasReadyPreloadedScan =
@@ -43,53 +43,71 @@ export default function ScanPage() {
   const analyzeText = useAnalyzeText()
   const createAnnotation = useCreateAnnotation()
   const synthesizeSpeech = useSynthesizeSpeech()
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
-  const [annotationVersion, setAnnotationVersion] = useState(1)
-  const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
-  const [isPlayingSpeech, setIsPlayingSpeech] = useState(false)
-  const [contextText, setContextText] = useState('')
+  const [contextText, setContextText] = useState<string>('')
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const audioUrlRef = useRef<string | null>(null)
-  const speechRequestIdRef = useRef(0)
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
+  const speech = useSpeechPlayback()
 
-  const stopSpeechPlayback = useCallback(() => {
-    speechRequestIdRef.current += 1
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.onended = null
-      audioRef.current = null
+  const resolveScanIdForExplain = useCallback(async () => {
+    if (!scanId) {
+      throw new Error('Missing scan')
     }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current)
-      audioUrlRef.current = null
-    }
-    setIsPlayingSpeech(false)
-  }, [])
+    return scanId
+  }, [scanId])
 
-  useEffect(() => {
-    return () => stopSpeechPlayback()
-  }, [stopSpeechPlayback])
+  const {
+    isDrawerOpen,
+    currentAnnotation,
+    annotationVersion,
+    isLoadingAnnotation,
+    handleExplain,
+    handleSaveAnnotation: saveAnnotation,
+    handleRegenerateAnnotation,
+    handleDrawerClose,
+    handleSpeechToggle,
+  } = useAnnotationDrawerFlow({
+    selectedText,
+    contextText,
+    analyzeText,
+    createAnnotation,
+    synthesizeSpeech,
+    speech,
+    clearSelection,
+    reportError: toast.error,
+    resolveScanIdForExplain,
+    onAfterSave: () => {
+      setSelectionRect(null)
+      speech.stop()
+    },
+    onDrawerCloseExtra: () => {
+      setSelectionRect(null)
+      speech.stop()
+    },
+  })
 
   useEffect(() => {
     if (!selectedText) {
-      setSelectionRect(null)
-      stopSpeechPlayback()
+      speech.stop()
     }
-  }, [selectedText, stopSpeechPlayback])
+  }, [selectedText, speech])
 
-  const handleTextSelect = () => {
+  const effectiveSelectionRect = selectedText ? selectionRect : null
+
+  const clearSelectedText = useCallback((): void => {
+    clearSelection()
+    setContextText('')
+    setSelectionRect(null)
+    speech.stop()
+  }, [clearSelection, speech])
+
+  const handleTextSelect = useCallback((): void => {
     const selection = window.getSelection()
-    if (!selection || selection.toString().trim() === '') {
-      clearSelection()
-      setContextText('')
-      setSelectionRect(null)
-      stopSpeechPlayback()
+    const selectedTextValue = selection?.toString() ?? ''
+    if (!selection || selectedTextValue.trim() === '') {
+      clearSelectedText()
       return
     }
-    handleSelection(selection.toString())
+    handleSelection(selectedTextValue)
 
     const range = selection.getRangeAt(0)
     const context = range.endContainer.textContent || ''
@@ -101,139 +119,11 @@ export default function ScanPage() {
       width: rect.width,
       height: rect.height,
     })
-  }
+  }, [clearSelectedText, handleSelection])
 
-  const handleExplain = async () => {
-    if (!selectedText) return
-
-    setIsLoadingAnnotation(true)
-
-    try {
-      const result = await analyzeText.mutateAsync({
-        textToAnalyze: selectedText,
-        context: contextText,
-      })
-
-      const annotation: Annotation = {
-        id: Date.now(),
-        user_id: 0,
-        scan_id: scanId,
-        highlighted_text: selectedText,
-        context_text: contextText,
-        nuance_data: result,
-        is_bookmarked: true,
-        created_at: new Date().toISOString(),
-      }
-
-      setCurrentAnnotation(annotation)
-      setAnnotationVersion(1)
-      setIsDrawerOpen(true)
-    } catch (err) {
-      console.error('Failed to analyze text:', err)
-      alert('Failed to analyze text. Please try again.')
-    } finally {
-      setIsLoadingAnnotation(false)
-    }
-  }
-
-  const handleSaveAnnotation = async () => {
-    if (!currentAnnotation || !scan) return
-
-    try {
-      await createAnnotation.mutateAsync({
-        scanId: scan.id,
-        highlightedText: currentAnnotation.highlighted_text,
-        contextText: currentAnnotation.context_text,
-        nuanceData: currentAnnotation.nuance_data,
-      })
-      setIsDrawerOpen(false)
-      setCurrentAnnotation(null)
-      setAnnotationVersion(1)
-      clearSelection()
-      setSelectionRect(null)
-      stopSpeechPlayback()
-    } catch (err) {
-      console.error('Failed to save annotation:', err)
-      alert('Failed to save annotation. Please try again.')
-    }
-  }
-
-  const handleRegenerateAnnotation = async () => {
-    if (!currentAnnotation || analyzeText.isPending || annotationVersion >= MAX_ANNOTATION_VERSIONS) {
-      return
-    }
-
-    try {
-      const result = await analyzeText.mutateAsync({
-        textToAnalyze: currentAnnotation.highlighted_text,
-        context: currentAnnotation.context_text ?? '',
-      })
-
-      setCurrentAnnotation({
-        ...currentAnnotation,
-        nuance_data: result,
-        created_at: new Date().toISOString(),
-      })
-      setAnnotationVersion((prev) => Math.min(prev + 1, MAX_ANNOTATION_VERSIONS))
-    } catch (err) {
-      console.error('Failed to regenerate annotation:', err)
-      alert('Failed to regenerate annotation. Please try again.')
-    }
-  }
-
-  const handleDrawerClose = () => {
-    setIsDrawerOpen(false)
-    setCurrentAnnotation(null)
-    setAnnotationVersion(1)
-    clearSelection()
-    setSelectionRect(null)
-    stopSpeechPlayback()
-  }
-
-  const handleSpeechToggle = async () => {
-    if (!selectedText) {
-      return
-    }
-    if (isPlayingSpeech || synthesizeSpeech.isPending) {
-      stopSpeechPlayback()
-      return
-    }
-
-    const requestId = speechRequestIdRef.current + 1
-    speechRequestIdRef.current = requestId
-    setIsPlayingSpeech(true)
-
-    try {
-      const audioBlob = await synthesizeSpeech.mutateAsync({
-        highlightedText: selectedText,
-        contextText,
-      })
-
-      if (speechRequestIdRef.current != requestId) {
-        setIsPlayingSpeech(false)
-        return
-      }
-
-      const audioUrl = URL.createObjectURL(audioBlob)
-      const audio = new Audio(audioUrl)
-      audioUrlRef.current = audioUrl
-      audioRef.current = audio
-      audio.onended = () => {
-        if (audioRef.current) {
-          audioRef.current = null
-        }
-        if (audioUrlRef.current) {
-          URL.revokeObjectURL(audioUrlRef.current)
-          audioUrlRef.current = null
-        }
-        setIsPlayingSpeech(false)
-      }
-      await audio.play()
-    } catch (err) {
-      stopSpeechPlayback()
-      console.error('Failed to synthesize speech:', err)
-      alert('Failed to synthesize speech. Please try again.')
-    }
+  const handleSaveAnnotation = async (): Promise<void> => {
+    if (!scan) return
+    await saveAnnotation()
   }
 
   if (isLoading) {
@@ -267,6 +157,23 @@ export default function ScanPage() {
   }
 
   if (!scan.fullText) {
+    if (scan.status === 'failed') {
+      return (
+        <div className="min-h-screen bg-white flex flex-col">
+          <Header
+            title="Scan Result"
+            rightAction="bookmark"
+            rightActionTo={scanHistoryPath}
+          />
+          <div className="flex-1 flex items-center justify-center p-6">
+            <p className="text-center text-red-600">
+              {scan.failureReason ? `Scan failed: ${scan.failureReason}` : 'Scan failed. Please try again.'}
+            </p>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="min-h-screen bg-white flex flex-col">
         <Header
@@ -321,9 +228,9 @@ export default function ScanPage() {
       />
       {selectedText && (
         <SelectionSpeechButton
-          selectionRect={selectionRect}
+          selectionRect={effectiveSelectionRect}
           isLoading={synthesizeSpeech.isPending}
-          isPlaying={isPlayingSpeech}
+          isPlaying={speech.isPlaying}
           onClick={handleSpeechToggle}
         />
       )}
@@ -336,7 +243,7 @@ export default function ScanPage() {
         isRegenerating={analyzeText.isPending}
         isSaving={createAnnotation.isPending}
         version={annotationVersion}
-        maxVersions={MAX_ANNOTATION_VERSIONS}
+        maxVersions={DEFAULT_MAX_ANNOTATION_VERSIONS}
       />
     </div>
   )

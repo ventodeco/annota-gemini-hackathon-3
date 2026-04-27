@@ -33,6 +33,18 @@ func (m *mockFileStorage) DeleteImage(path string) error {
 	return nil
 }
 
+func (m *mockFileStorage) SavePDF(documentID string, data []byte) (string, error) {
+	return "data/uploads/documents/" + documentID + ".pdf", nil
+}
+
+func (m *mockFileStorage) OpenPDF(path string) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockFileStorage) DeletePDF(path string) error {
+	return nil
+}
+
 type mockGeminiClient struct{}
 
 func (m *mockGeminiClient) OCR(ctx context.Context, imageData []byte, mimeType string) (*gemini.OCRResponse, error) {

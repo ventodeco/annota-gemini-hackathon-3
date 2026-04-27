@@ -202,3 +202,38 @@ if err := <-errCh; err != nil {
 - Use standard `log` package for now
 - Include correlation IDs where applicable
 - Log errors with context before returning
+
+## Issue Tracking Workflow
+
+All work must be tracked via GitHub Issues using the GitHub CLI (`gh`).
+
+See the complete workflow documentation: [`docs/github-workflow.md`](../docs/github-workflow.md)
+
+### Quick Start
+
+```bash
+# Create issue for your work
+gh issue create --label backend --title "[TASK] Description"
+
+# Work on main (or create feature branch - see workflow doc)
+git checkout main
+git pull origin main
+
+# Commit with issue reference
+git commit -m "feat: description (#42)"
+
+# Push
+git push origin main
+
+# Close issue when done
+gh issue close #42
+```
+
+### Backend-Specific Labels
+
+- `backend` - Backend related
+- `api` - API changes
+- `database` - Database/schema changes
+- `gemini` - Gemini API integration
+- `security` - Security-related
+- `performance` - Performance optimization

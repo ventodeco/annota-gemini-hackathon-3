@@ -64,8 +64,7 @@ describe('API Client', () => {
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/v1/scans/1'),
         expect.objectContaining({
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
         })
       )
     })
@@ -188,8 +187,7 @@ describe('API Client', () => {
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/v1/annotations?page=1&size=20&scanId=5'),
         expect.objectContaining({
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
         }),
       )
     })

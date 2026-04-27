@@ -1,0 +1,1219 @@
+openapi: "3.0.3"
+info:
+  title: Gemini OCR+Annotation PWA API
+  description: |
+    Backend API for a mobile-first PWA that uses Gemini Flash for OCR and
+    contextual annotations of Japanese text. Users scan book pages, convert
+    content to digital text via OCR, and interactively highlight words or
+    sentences to receive contextual explanations.
+  version: "1.0.0"
+  contact:
+    name: Gemini Hackathon Team
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Health
+    description: Service health checks
+  - name: Auth
+    description: Google OAuth 2.0 authentication
+  - name: Users
+    description: User profile and preferences
+  - name: Scans
+    description: Image upload and OCR processing
+  - name: AI
+    description: Text analysis and speech synthesis via Gemini
+  - name: Annotations
+    description: Saved annotation management
+
+security: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns a simple health status to verify the service is running.
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /v1/auth/google/state:
+    get:
+      tags: [Auth]
+      summary: Get Google OAuth URL
+      description: |
+        Generates an OAuth 2.0 state token, stores it in Redis, and returns
+        the full Google SSO redirect URL for the client to navigate to.
+      operationId: getGoogleAuthState
+      responses:
+        "200":
+          description: OAuth redirect URL generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleStateResponse"
+              example:
+                ssoRedirection: "https://accounts.google.com/o/oauth2/v2/auth?client_id=...&state=abc123"
+        "500":
+          description: Failed to store state in Redis
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Internal server error
+
+  /v1/auth/google/callback:
+    get:
+      tags: [Auth]
+      summary: Server-side OAuth redirect
+      description: |
+        Handles the redirect from Google after the user authorizes the
+        application. Redirects the browser to the frontend callback URL
+        with the authorization code and state as query parameters.
+      operationId: googleCallbackRedirect
+      parameters:
+        - name: state
+          in: query
+          required: true
+          description: OAuth state token for CSRF protection
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: true
+          description: Authorization code from Google
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirects to the frontend callback URL
+          headers:
+            Location:
+              description: Frontend callback URL with state and code parameters
+              schema:
+                type: string
+        "400":
+          description: Missing state or code parameter
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Missing state or code
+    post:
+      tags: [Auth]
+      summary: Client-side OAuth token exchange
+      description: |
+        Exchanges the Google authorization code for a JWT access token.
+        Validates the OAuth state against Redis, exchanges the code with
+        Google, retrieves user info, creates or retrieves the user record,
+        and returns a signed JWT.
+      operationId: googleCallbackExchange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleCallbackRequest"
+            example:
+              code: "4/0AX4XfWh..."
+              state: "abc123def456"
+      responses:
+        "200":
+          description: Token exchange successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleCallbackResponse"
+              example:
+                token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                expirySeconds: 86400
+                expiresAt: "2026-03-13T12:00:00Z"
+        "400":
+          description: Invalid request body, missing code/state, or invalid state
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Code is required
+        "500":
+          description: Failed to exchange code or generate token
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Failed to exchange code
+
+  /v1/users/me:
+    get:
+      tags: [Users]
+      summary: Get user profile
+      description: Returns the authenticated user's profile information.
+      operationId: getUserProfile
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        "200":
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetUserProfileResponse"
+              example:
+                preferredLanguage: "ID"
+        "401":
+          description: Unauthorized - missing or invalid token
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Unauthorized
+        "404":
+          description: User not found
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: User not found
+    patch:
+      tags: [Users]
+      summary: Update user preferences
+      description: |
+        Updates the authenticated user's preferences. Currently supports
+        changing the preferred language for annotation explanations.
+        Valid languages are: ID (Indonesian), JP (Japanese), EN (English).
+      operationId: updateUserPreferences
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserPreferencesRequest"
+            example:
+              preferredLanguage: "EN"
+      responses:
+        "200":
+          description: Preferences updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateUserPreferencesResponse"
+              example:
+                preferredLanguage: "EN"
+        "400":
+          description: Invalid request body or unsupported language
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Invalid language
+        "401":
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Unauthorized
+
+  /v1/users/me/languages:
+    get:
+      tags: [Users]
+      summary: List supported languages
+      description: Returns the list of supported languages for annotation explanations.
+      operationId: getLanguages
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Languages retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetLanguagesResponse"
+              example:
+                languages:
+                  - caption: "ID"
+                    imageUrl: "https://flagcdn.com/w40/id.png"
+                  - caption: "JP"
+                    imageUrl: "https://flagcdn.com/w40/jp.png"
+                  - caption: "EN"
+                    imageUrl: "https://flagcdn.com/w40/gb.png"
+
+  /v1/scans:
+    post:
+      tags: [Scans]
+      summary: Upload image for OCR
+      description: |
+        Uploads an image file for OCR processing. The image is saved to
+        storage and OCR processing is started asynchronously in the
+        background via Gemini Flash. Supported formats: JPEG, PNG, WebP.
+      operationId: createScan
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file (JPEG, PNG, or WebP)
+      responses:
+        "201":
+          description: Scan created, OCR processing started in background
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateScanResponse"
+              example:
+                scanId: 42
+                fullText: ""
+                imageUrl: "/uploads/42.jpg"
+        "400":
+          description: Invalid form data or image type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Bad Request"
+                message: "Invalid image type. Please use JPEG, PNG, or WebP."
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Unauthorized"
+                message: "Unauthorized"
+        "413":
+          description: File too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Request Entity Too Large"
+                message: "File too large. Maximum size is 10 MB."
+    get:
+      tags: [Scans]
+      summary: List scans
+      description: |
+        Returns a paginated list of scans belonging to the authenticated
+        user, ordered by creation date (newest first).
+      operationId: listScans
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: Page number (1-based, defaults to 1)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          required: false
+          description: Number of items per page (defaults to server config, max 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Scans retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetScansResponse"
+              example:
+                data:
+                  - id: 42
+                    imageUrl: "/uploads/42.jpg"
+                    detectedLanguage: "ja"
+                    createdAt: "2026-03-12T10:30:00Z"
+                  - id: 41
+                    imageUrl: "/uploads/41.png"
+                    createdAt: "2026-03-12T09:15:00Z"
+                meta:
+                  currentPage: 1
+                  pageSize: 20
+                  nextPage: 2
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/scans/{id}:
+    get:
+      tags: [Scans]
+      summary: Get scan details
+      description: |
+        Returns the full details of a scan including the OCR text (if
+        processing is complete) and detected language.
+      operationId: getScan
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      responses:
+        "200":
+          description: Scan details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetScanResponse"
+              example:
+                id: 42
+                fullText: "Japanese text extracted by OCR..."
+                imageUrl: "/uploads/42.jpg"
+                detectedLanguage: "ja"
+                createdAt: "2026-03-12T10:30:00Z"
+        "400":
+          description: Invalid scan ID format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied - scan belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Forbidden"
+                message: "Access denied"
+        "404":
+          description: Scan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Not Found"
+                message: "Scan not found"
+    delete:
+      tags: [Scans]
+      summary: Delete scan
+      description: |
+        Deletes a scan and its associated image file. The scan must belong
+        to the authenticated user.
+      operationId: deleteScan
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      responses:
+        "204":
+          description: Scan deleted successfully
+        "400":
+          description: Invalid scan ID format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied - scan belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Scan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/ai/analyze:
+    post:
+      tags: [AI]
+      summary: Analyze highlighted text
+      description: |
+        Sends highlighted text and its surrounding context to Gemini for
+        contextual analysis. Returns meaning, usage examples, timing,
+        word breakdown, and alternative meanings in the user's preferred
+        language.
+      operationId: analyzeText
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeRequest"
+            example:
+              textToAnalyze: "お疲れ様です"
+              context: "会議が終わった後、同僚にお疲れ様ですと言いました。"
+      responses:
+        "200":
+          description: Analysis completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyzeResponse"
+              example:
+                meaning: "Good work / Thank you for your hard work"
+                usageExample: "会議後に上司に「お疲れ様です」と挨拶した。"
+                usageTiming: "Used when greeting colleagues after work or at the end of a meeting."
+                wordBreakdown: "お (honorific prefix) + 疲れ (tiredness) + 様 (formal suffix) + です (polite copula)"
+                alternativeMeaning: "Can also be used as a casual greeting among coworkers."
+        "400":
+          description: Invalid request body or missing required field
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "textToAnalyze is required"
+        "401":
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Unauthorized
+        "500":
+          description: Failed to analyze text via Gemini
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Failed to analyze text"
+
+  /v1/ai/speech:
+    post:
+      tags: [AI]
+      summary: Text-to-speech synthesis
+      description: |
+        Synthesizes speech audio from the provided text using Gemini.
+        Returns raw audio binary data (typically WAV format).
+      operationId: synthesizeSpeech
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpeakRequest"
+            example:
+              highlightedText: "お疲れ様です"
+              contextText: "会議が終わった後"
+              tone: "polite"
+      responses:
+        "200":
+          description: Audio synthesized successfully
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+            audio/*:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid request body or missing required field
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "highlightedText is required"
+        "401":
+          description: Unauthorized
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Unauthorized
+        "500":
+          description: Failed to synthesize speech
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Failed to synthesize speech"
+
+  /v1/annotations:
+    post:
+      tags: [Annotations]
+      summary: Create annotation
+      description: |
+        Saves an annotation with the highlighted text, context, and
+        nuance data (analysis results). Optionally linked to a scan.
+      operationId: createAnnotation
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAnnotationRequest"
+            example:
+              scanId: 42
+              highlightedText: "お疲れ様です"
+              contextText: "会議が終わった後、同僚にお疲れ様ですと言いました。"
+              nuanceData:
+                meaning: "Good work / Thank you for your hard work"
+                usageExample: "会議後に上司に「お疲れ様です」と挨拶した。"
+                usageTiming: "Used when greeting colleagues after work."
+                wordBreakdown: "お + 疲れ + 様 + です"
+                alternativeMeaning: "Casual greeting among coworkers."
+      responses:
+        "201":
+          description: Annotation created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAnnotationResponse"
+              example:
+                annotationId: 7
+                status: "saved"
+        "400":
+          description: Invalid request body or missing required field
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Bad Request"
+                message: "highlightedText is required"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to create annotation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      tags: [Annotations]
+      summary: List annotations
+      description: |
+        Returns a paginated list of annotations belonging to the
+        authenticated user. Optionally filter by scan ID.
+      operationId: listAnnotations
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: Page number (1-based, defaults to 1)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: size
+          in: query
+          required: false
+          description: Number of items per page (defaults to server config, max 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: scanId
+          in: query
+          required: false
+          description: Filter annotations by scan ID
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Annotations retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAnnotationsResponse"
+              example:
+                data:
+                  - id: 7
+                    highlightedText: "お疲れ様です"
+                    nuanceSummary: "Good work / Thank you for your hard work"
+                    createdAt: "2026-03-12T11:00:00Z"
+                  - id: 6
+                    highlightedText: "よろしくお願いします"
+                    nuanceSummary: "Please take care of it / Best regards"
+                    createdAt: "2026-03-12T10:45:00Z"
+                meta:
+                  currentPage: 1
+                  pageSize: 20
+                  nextPage: null
+        "400":
+          description: Invalid scanId parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Bad Request"
+                message: "scanId must be a positive integer"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/annotations/{id}:
+    get:
+      tags: [Annotations]
+      summary: Get annotation details
+      description: |
+        Returns the full details of an annotation including the complete
+        nuance data. The annotation must belong to the authenticated user.
+      operationId: getAnnotation
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AnnotationId"
+      responses:
+        "200":
+          description: Annotation details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAnnotationResponse"
+              example:
+                id: 7
+                highlightedText: "お疲れ様です"
+                contextText: "会議が終わった後、同僚にお疲れ様ですと言いました。"
+                nuanceData:
+                  meaning: "Good work / Thank you for your hard work"
+                  usageExample: "会議後に上司に「お疲れ様です」と挨拶した。"
+                  usageTiming: "Used when greeting colleagues after work."
+                  wordBreakdown: "お + 疲れ + 様 + です"
+                  alternativeMeaning: "Casual greeting among coworkers."
+                createdAt: "2026-03-12T11:00:00Z"
+        "400":
+          description: Invalid annotation ID format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied - annotation belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Forbidden"
+                message: "Access denied"
+        "404":
+          description: Annotation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Not Found"
+                message: "Annotation not found"
+    delete:
+      tags: [Annotations]
+      summary: Delete annotation
+      description: |
+        Deletes an annotation. The annotation must belong to the
+        authenticated user.
+      operationId: deleteAnnotation
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AnnotationId"
+      responses:
+        "204":
+          description: Annotation deleted successfully
+        "400":
+          description: Invalid annotation ID format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Annotation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-token
+      description: JWT token passed via the x-token header
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token passed via the Authorization header
+
+  parameters:
+    ScanId:
+      name: id
+      in: path
+      required: true
+      description: Unique scan identifier
+      schema:
+        type: integer
+        format: int64
+        example: 42
+    AnnotationId:
+      name: id
+      in: path
+      required: true
+      description: Unique annotation identifier
+      schema:
+        type: integer
+        format: int64
+        example: 7
+
+  schemas:
+    # --- Auth schemas ---
+    GoogleStateResponse:
+      type: object
+      required:
+        - ssoRedirection
+      properties:
+        ssoRedirection:
+          type: string
+          description: Full Google OAuth 2.0 authorization URL
+
+    GoogleCallbackRequest:
+      type: object
+      required:
+        - code
+        - state
+      properties:
+        code:
+          type: string
+          description: Authorization code received from Google
+        state:
+          type: string
+          description: OAuth state token for CSRF protection
+
+    GoogleCallbackResponse:
+      type: object
+      required:
+        - token
+        - expirySeconds
+        - expiresAt
+      properties:
+        token:
+          type: string
+          description: Signed JWT access token
+        expirySeconds:
+          type: integer
+          description: Token lifetime in seconds
+          example: 86400
+        expiresAt:
+          type: string
+          format: date-time
+          description: Token expiration timestamp in RFC 3339 format
+
+    # --- User schemas ---
+    GetUserProfileResponse:
+      type: object
+      required:
+        - preferredLanguage
+      properties:
+        preferredLanguage:
+          type: string
+          description: "User's preferred language code (ID, JP, or EN)"
+          enum: [ID, JP, EN]
+
+    UpdateUserPreferencesRequest:
+      type: object
+      required:
+        - preferredLanguage
+      properties:
+        preferredLanguage:
+          type: string
+          description: "Language code to set as preferred"
+          enum: [ID, JP, EN]
+
+    UpdateUserPreferencesResponse:
+      type: object
+      required:
+        - preferredLanguage
+      properties:
+        preferredLanguage:
+          type: string
+          description: "Updated preferred language code"
+          enum: [ID, JP, EN]
+
+    Language:
+      type: object
+      required:
+        - caption
+        - imageUrl
+      properties:
+        caption:
+          type: string
+          description: Language code
+          example: "ID"
+        imageUrl:
+          type: string
+          format: uri
+          description: URL to the language flag icon
+          example: "https://flagcdn.com/w40/id.png"
+
+    GetLanguagesResponse:
+      type: object
+      required:
+        - languages
+      properties:
+        languages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Language"
+
+    # --- Scan schemas ---
+    CreateScanResponse:
+      type: object
+      required:
+        - scanId
+        - imageUrl
+      properties:
+        scanId:
+          type: integer
+          format: int64
+          description: Unique identifier for the created scan
+        fullText:
+          type: string
+          description: "OCR text (empty initially; populated asynchronously)"
+        imageUrl:
+          type: string
+          description: Relative URL path to the uploaded image
+
+    ScanListItem:
+      type: object
+      required:
+        - id
+        - imageUrl
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        imageUrl:
+          type: string
+          description: Relative URL path to the scan image
+        detectedLanguage:
+          type: string
+          nullable: true
+          description: Language detected by OCR (e.g. "ja")
+        createdAt:
+          type: string
+          format: date-time
+
+    GetScansResponse:
+      type: object
+      required:
+        - data
+        - meta
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanListItem"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    GetScanResponse:
+      type: object
+      required:
+        - id
+        - imageUrl
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        fullText:
+          type: string
+          description: Full OCR text extracted from the image
+        imageUrl:
+          type: string
+          description: Relative URL path to the scan image
+        detectedLanguage:
+          type: string
+          nullable: true
+          description: Language detected by OCR
+        createdAt:
+          type: string
+          format: date-time
+
+    # --- AI schemas ---
+    AnalyzeRequest:
+      type: object
+      required:
+        - textToAnalyze
+      properties:
+        textToAnalyze:
+          type: string
+          description: The highlighted text to analyze
+        context:
+          type: string
+          description: Surrounding context text from the scanned page
+
+    AnalyzeResponse:
+      type: object
+      required:
+        - meaning
+        - usageExample
+        - usageTiming
+        - wordBreakdown
+        - alternativeMeaning
+      properties:
+        meaning:
+          type: string
+          description: Translation and explanation in the user's preferred language
+        usageExample:
+          type: string
+          description: Example sentence demonstrating usage
+        usageTiming:
+          type: string
+          description: When and in what situation this phrase is used
+        wordBreakdown:
+          type: string
+          description: Individual word-by-word breakdown with translations
+        alternativeMeaning:
+          type: string
+          description: Alternative meanings or interpretations
+
+    SpeakRequest:
+      type: object
+      required:
+        - highlightedText
+      properties:
+        highlightedText:
+          type: string
+          description: Text to synthesize into speech
+        contextText:
+          type: string
+          description: Surrounding context for pronunciation guidance
+        tone:
+          type: string
+          description: Desired tone for the speech synthesis
+
+    # --- Annotation schemas ---
+    NuanceData:
+      type: object
+      required:
+        - meaning
+        - usageExample
+        - usageTiming
+        - wordBreakdown
+        - alternativeMeaning
+      properties:
+        meaning:
+          type: string
+          description: Translation and explanation
+        usageExample:
+          type: string
+          description: Example sentence demonstrating usage
+        usageTiming:
+          type: string
+          description: When and in what situation this phrase is used
+        wordBreakdown:
+          type: string
+          description: Word-by-word breakdown
+        alternativeMeaning:
+          type: string
+          description: Alternative meanings or interpretations
+
+    CreateAnnotationRequest:
+      type: object
+      required:
+        - highlightedText
+        - nuanceData
+      properties:
+        scanId:
+          type: integer
+          format: int64
+          description: "ID of the scan this annotation belongs to (optional)"
+        highlightedText:
+          type: string
+          description: The text that was highlighted
+        contextText:
+          type: string
+          description: Surrounding context from the scan
+        nuanceData:
+          $ref: "#/components/schemas/NuanceData"
+
+    CreateAnnotationResponse:
+      type: object
+      required:
+        - annotationId
+        - status
+      properties:
+        annotationId:
+          type: integer
+          format: int64
+          description: Unique identifier for the created annotation
+        status:
+          type: string
+          description: Creation status
+          example: "saved"
+
+    AnnotationListItem:
+      type: object
+      required:
+        - id
+        - highlightedText
+        - nuanceSummary
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        highlightedText:
+          type: string
+          description: The highlighted text
+        nuanceSummary:
+          type: string
+          description: Truncated summary of the meaning (max 100 characters)
+        createdAt:
+          type: string
+          format: date-time
+
+    GetAnnotationResponse:
+      type: object
+      required:
+        - id
+        - highlightedText
+        - nuanceData
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        highlightedText:
+          type: string
+        contextText:
+          type: string
+          description: Surrounding context text (may be empty)
+        nuanceData:
+          $ref: "#/components/schemas/NuanceData"
+        createdAt:
+          type: string
+          format: date-time
+
+    GetAnnotationsResponse:
+      type: object
+      required:
+        - data
+        - meta
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnnotationListItem"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    # --- Shared schemas ---
+    PaginationMeta:
+      type: object
+      required:
+        - currentPage
+        - pageSize
+      properties:
+        currentPage:
+          type: integer
+          description: Current page number (1-based)
+          example: 1
+        pageSize:
+          type: integer
+          description: Number of items per page
+          example: 20
+        nextPage:
+          type: integer
+          nullable: true
+          description: Next page number (null if on last page)
+        previousPage:
+          type: integer
+          nullable: true
+          description: Previous page number (null if on first page)
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: HTTP status text (e.g. "Bad Request", "Not Found")
+        message:
+          type: string
+          description: Human-readable error message with actionable detail

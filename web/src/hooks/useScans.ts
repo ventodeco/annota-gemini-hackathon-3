@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createScan, deleteScan, getScans } from '@/lib/api'
 import type { Scan } from '@/lib/types'
-export { useScan, isScanOcrReady } from './useScan'
+export { useScan, isScanFailed, isScanOcrReady } from './useScan'
 
 export function useScans(page = 1, size = 20) {
   return useQuery({

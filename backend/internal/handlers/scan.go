@@ -3,8 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/gemini"
+	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
@@ -36,15 +37,23 @@ func NewScanHandlers(db storage.DB, fileStorage storage.FileStorage, geminiClien
 }
 
 type CreateScanResponse struct {
-	ScanID   int64  `json:"scanId"`
-	FullText string `json:"fullText,omitempty"`
-	ImageURL string `json:"imageUrl"`
+	ScanID        int64   `json:"scanId"`
+	FullText      string  `json:"fullText,omitempty"`
+	ImageURL      string  `json:"imageUrl"`
+	SourceType    string  `json:"sourceType"`
+	Status        string  `json:"status"`
+	FailureReason *string `json:"failureReason,omitempty"`
 }
 
 type ScanListItem struct {
 	ID               int64   `json:"id"`
 	ImageURL         string  `json:"imageUrl"`
 	DetectedLanguage *string `json:"detectedLanguage,omitempty"`
+	SourceType       string  `json:"sourceType"`
+	Status           string  `json:"status"`
+	FailureReason    *string `json:"failureReason,omitempty"`
+	DocumentID       *int64  `json:"documentId,omitempty"`
+	PageNumber       *int    `json:"pageNumber,omitempty"`
 	CreatedAt        string  `json:"createdAt"`
 }
 
@@ -65,61 +74,56 @@ type GetScanResponse struct {
 	FullText         string  `json:"fullText,omitempty"`
 	ImageURL         string  `json:"imageUrl"`
 	DetectedLanguage *string `json:"detectedLanguage,omitempty"`
+	SourceType       string  `json:"sourceType"`
+	Status           string  `json:"status"`
+	FailureReason    *string `json:"failureReason,omitempty"`
+	DocumentID       *int64  `json:"documentId,omitempty"`
+	PageNumber       *int    `json:"pageNumber,omitempty"`
 	CreatedAt        string  `json:"createdAt"`
-}
-
-type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message"`
 }
 
 func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context()))
 
 	if r.Method != http.MethodPost {
-		h.writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	log = log.WithUserID(userID)
 
-	if err := r.ParseMultipartForm(h.config.MaxUploadSize); err != nil {
-		log.Warnf("Failed to parse multipart form: %v", err)
-		h.writeJSONError(w, http.StatusBadRequest, "Failed to parse form")
-		return
-	}
-
-	file, header, err := r.FormFile("image")
+	imageData, header, err := readFormFile(r, h.config.MaxUploadSize, "image")
 	if err != nil {
-		log.Warnf("Failed to get image from form: %v", err)
-		h.writeJSONError(w, http.StatusBadRequest, "Please select an image to upload")
+		switch {
+		case errors.Is(err, ErrMultipartParse):
+			log.Warnf("Failed to parse multipart form: %v", err)
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")
+		case errors.Is(err, ErrMultipartField):
+			log.Warnf("Failed to get image from form: %v", err)
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Please select an image to upload")
+		default:
+			log.ErrorWithErr(err, "Failed to read uploaded file")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to read uploaded file")
+		}
 		return
 	}
-	defer file.Close()
 
 	mimeType := header.Header.Get("Content-Type")
 	if !isValidImageType(mimeType) {
 		log.Warnf("Invalid image type received: %s", mimeType)
-		h.writeJSONError(w, http.StatusBadRequest, "Invalid image type. Please use JPEG, PNG, or WebP.")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid image type. Please use JPEG, PNG, or WebP.")
 		return
 	}
 
 	if header.Size > h.config.MaxUploadSize {
 		log.Warnf("Image size %d exceeds max size %d", header.Size, h.config.MaxUploadSize)
-		h.writeJSONError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("File too large. Maximum size is %v MB.", h.config.MaxUploadSize/(1024*1024)))
-		return
-	}
-
-	imageData, err := io.ReadAll(file)
-	if err != nil {
-		log.ErrorWithErr(err, "Failed to read uploaded file")
-		h.writeJSONError(w, http.StatusBadRequest, "Failed to read uploaded file")
+		httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fileTooLargeMBMessage(h.config.MaxUploadSize))
 		return
 	}
 
@@ -127,22 +131,24 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	scan := &models.Scan{
-		UserID:    userID,
-		ImageURL:  "",
-		CreatedAt: now,
+		UserID:     userID,
+		ImageURL:   "",
+		SourceType: "image",
+		Status:     "processing",
+		CreatedAt:  now,
 	}
 
 	scanID, err := h.db.CreateScan(r.Context(), scan)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to create scan in database")
-		h.writeJSONError(w, http.StatusInternalServerError, "Failed to initialize scan")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to initialize scan")
 		return
 	}
 
 	storagePath, _, err := h.fileStorage.SaveImage(strconv.FormatInt(scanID, 10), imageData, mimeType)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to save image to storage")
-		h.writeJSONError(w, http.StatusInternalServerError, "Failed to save uploaded image")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save uploaded image")
 		return
 	}
 
@@ -161,9 +167,11 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 	go h.processOCR(context.Background(), scanID, imageData, mimeType, storagePath)
 
 	response := CreateScanResponse{
-		ScanID:   scanID,
-		FullText: "",
-		ImageURL: imageURL,
+		ScanID:     scanID,
+		FullText:   "",
+		ImageURL:   imageURL,
+		SourceType: "image",
+		Status:     "processing",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -173,35 +181,24 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 
 func (h *ScanHandlers) GetScansAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		h.writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size < 1 {
-		size = h.config.DefaultPageSize
-	}
-	if size > 100 {
-		size = 100
-	}
+	page, size := httputil.ParsePagination(r, h.config.DefaultPageSize)
 
 	scans, err := h.db.GetScansByUserID(r.Context(), userID, page, size)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to get scans from database")
-		h.writeJSONError(w, http.StatusInternalServerError, "Failed to get scans")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to get scans")
 		return
 	}
 
@@ -213,6 +210,11 @@ func (h *ScanHandlers) GetScansAPI(w http.ResponseWriter, r *http.Request) {
 			ID:               scan.ID,
 			ImageURL:         scan.ImageURL,
 			DetectedLanguage: scan.DetectedLanguage,
+			SourceType:       sourceTypeOrDefault(scan),
+			Status:           statusOrDefault(scan),
+			FailureReason:    scan.FailureReason,
+			DocumentID:       scan.DocumentID,
+			PageNumber:       scan.PageNumber,
 			CreatedAt:        scan.CreatedAt.Format(time.RFC3339),
 		}
 	}
@@ -254,14 +256,14 @@ func (h *ScanHandlers) ScanByIDAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		h.deleteScanHandler(w, r, log)
 	default:
-		h.writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
 func (h *ScanHandlers) deleteScanHandler(w http.ResponseWriter, r *http.Request, log *logger.Logger) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
@@ -272,7 +274,7 @@ func (h *ScanHandlers) deleteScanHandler(w http.ResponseWriter, r *http.Request,
 	scanID, err := strconv.ParseInt(scanIDStr, 10, 64)
 	if err != nil || scanID <= 0 {
 		log.Warnf("Invalid scan ID format: %s", scanIDStr)
-		h.writeJSONError(w, http.StatusBadRequest, "Invalid scan ID")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid scan ID")
 		return
 	}
 
@@ -281,27 +283,29 @@ func (h *ScanHandlers) deleteScanHandler(w http.ResponseWriter, r *http.Request,
 	scan, err := h.db.GetScanByID(r.Context(), scanID)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to get scan by ID")
-		h.writeJSONError(w, http.StatusNotFound, "Scan not found")
+		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
 		return
 	}
 	if scan == nil {
-		h.writeJSONError(w, http.StatusNotFound, "Scan not found")
+		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
 		return
 	}
 	if scan.UserID != userID {
 		log.Warn("User attempted to delete scan belonging to another user")
-		h.writeJSONError(w, http.StatusForbidden, "Access denied")
+		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
 		return
 	}
 
-	imagePath := filepath.Join(h.config.UploadDir, filepath.Base(scan.ImageURL))
-	if err := h.fileStorage.DeleteImage(imagePath); err != nil {
-		log.Warnf("Failed to delete image file (continuing with DB delete): %v", err)
+	if scan.ImageURL != "" {
+		imagePath := filepath.Join(h.config.UploadDir, filepath.Base(scan.ImageURL))
+		if err := h.fileStorage.DeleteImage(imagePath); err != nil {
+			log.Warnf("Failed to delete image file (continuing with DB delete): %v", err)
+		}
 	}
 
 	if err := h.db.DeleteScan(r.Context(), scanID, userID); err != nil {
 		log.ErrorWithErr(err, "Failed to delete scan")
-		h.writeJSONError(w, http.StatusInternalServerError, "Failed to delete scan")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete scan")
 		return
 	}
 
@@ -312,7 +316,7 @@ func (h *ScanHandlers) deleteScanHandler(w http.ResponseWriter, r *http.Request,
 func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, log *logger.Logger) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == 0 {
-		h.writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
@@ -323,7 +327,7 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 	scanID, err := strconv.ParseInt(scanIDStr, 10, 64)
 	if err != nil {
 		log.Warnf("Invalid scan ID format: %s", scanIDStr)
-		h.writeJSONError(w, http.StatusBadRequest, "Invalid scan ID")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid scan ID")
 		return
 	}
 
@@ -332,19 +336,19 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 	scan, err := h.db.GetScanByID(r.Context(), scanID)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to get scan by ID from database")
-		h.writeJSONError(w, http.StatusNotFound, "Scan not found")
+		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
 		return
 	}
 
 	if scan == nil {
 		log.Warn("Scan not found")
-		h.writeJSONError(w, http.StatusNotFound, "Scan not found")
+		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
 		return
 	}
 
 	if scan.UserID != userID {
 		log.Warn("User attempted to access scan belonging to another user")
-		h.writeJSONError(w, http.StatusForbidden, "Access denied")
+		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
 		return
 	}
 
@@ -354,9 +358,9 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 	}
 
 	log.WithFields(map[string]any{
-		"has_ocr":          fullText != "",
-		"ocr_text_length":  len(fullText),
-		"language":         scan.DetectedLanguage,
+		"has_ocr":         fullText != "",
+		"ocr_text_length": len(fullText),
+		"language":        scan.DetectedLanguage,
 	}).Infof("Successfully retrieved scan: id=%d", scanID)
 
 	response := GetScanResponse{
@@ -364,6 +368,11 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 		FullText:         fullText,
 		ImageURL:         scan.ImageURL,
 		DetectedLanguage: scan.DetectedLanguage,
+		SourceType:       sourceTypeOrDefault(scan),
+		Status:           statusOrDefault(scan),
+		FailureReason:    scan.FailureReason,
+		DocumentID:       scan.DocumentID,
+		PageNumber:       scan.PageNumber,
 		CreatedAt:        scan.CreatedAt.Format(time.RFC3339),
 	}
 
@@ -378,6 +387,10 @@ func (h *ScanHandlers) processOCR(ctx context.Context, scanID int64, imageData [
 	ocrResp, err := h.geminiClient.OCR(ctx, imageData, mimeType)
 	if err != nil {
 		log.ErrorWithErr(err, "OCR processing failed")
+		reason := "ocr_failed"
+		if err := h.db.UpdateScanStatus(ctx, scanID, "failed", &reason); err != nil {
+			log.ErrorWithErr(err, "Failed to persist OCR failure")
+		}
 		return
 	}
 	log.Infof("OCR completed successfully: language=%s, text_length=%d", ocrResp.Language, len(ocrResp.RawText))
@@ -394,15 +407,6 @@ func (h *ScanHandlers) processOCR(ctx context.Context, scanID int64, imageData [
 	log.Infof("OCR results saved to database successfully")
 }
 
-func (h *ScanHandlers) writeJSONError(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   http.StatusText(statusCode),
-		Message: message,
-	})
-}
-
 func isValidImageType(mimeType string) bool {
 	validTypes := []string{"image/jpeg", "image/jpg", "image/png", "image/webp"}
 	for _, valid := range validTypes {
@@ -413,6 +417,26 @@ func isValidImageType(mimeType string) bool {
 	return false
 }
 
+func sourceTypeOrDefault(scan *models.Scan) string {
+	if scan.SourceType != "" {
+		return scan.SourceType
+	}
+	if scan.DocumentID != nil {
+		return "pdf"
+	}
+	return "image"
+}
+
+func statusOrDefault(scan *models.Scan) string {
+	if scan.Status != "" {
+		return scan.Status
+	}
+	if scan.FullOCRText != nil && strings.TrimSpace(*scan.FullOCRText) != "" {
+		return "ready"
+	}
+	return "processing"
+}
+
 func (h *ScanHandlers) ScansAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -420,6 +444,6 @@ func (h *ScanHandlers) ScansAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		h.GetScansAPI(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }

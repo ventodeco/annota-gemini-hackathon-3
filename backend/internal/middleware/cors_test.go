@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/gemini-hackathon/app/internal/config"
 )
 
 func TestCORSMiddleware_PreflightAllowedOrigin(t *testing.T) {
@@ -21,6 +23,9 @@ func TestCORSMiddleware_PreflightAllowedOrigin(t *testing.T) {
 		},
 	}
 
+	cfg := &config.Config{AllowedOrigins: "http://localhost:5173,http://localhost:3000"}
+	corsMiddleware := NewCORSMiddleware(cfg)
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			nextCalled := false
@@ -28,7 +33,7 @@ func TestCORSMiddleware_PreflightAllowedOrigin(t *testing.T) {
 				nextCalled = true
 			})
 
-			handler := CORSMiddleware(next)
+			handler := corsMiddleware.Handle(next)
 			req := httptest.NewRequest(http.MethodOptions, "/v1/auth/google/state", nil)
 			req.Header.Set("Origin", tt.origin)
 			recorder := httptest.NewRecorder()
@@ -45,6 +50,10 @@ func TestCORSMiddleware_PreflightAllowedOrigin(t *testing.T) {
 
 			if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != tt.origin {
 				t.Fatalf("expected Access-Control-Allow-Origin %q, got %q", tt.origin, got)
+			}
+
+			if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+				t.Fatalf("expected Access-Control-Allow-Credentials to be true, got %q", got)
 			}
 
 			if got := recorder.Header().Get("Access-Control-Allow-Methods"); got != "GET, POST, PUT, PATCH, DELETE, OPTIONS" {
@@ -65,7 +74,10 @@ func TestCORSMiddleware_NonOptionsPassesThrough(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	})
 
-	handler := CORSMiddleware(next)
+	cfg := &config.Config{AllowedOrigins: "http://localhost:5173,http://localhost:3000"}
+	corsMiddleware := NewCORSMiddleware(cfg)
+
+	handler := corsMiddleware.Handle(next)
 	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/state", nil)
 	req.Header.Set("Origin", "http://localhost:5173")
 	recorder := httptest.NewRecorder()
@@ -92,7 +104,10 @@ func TestCORSMiddleware_DisallowedOriginDoesNotSetHeaders(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := CORSMiddleware(next)
+	cfg := &config.Config{AllowedOrigins: "http://localhost:5173,http://localhost:3000"}
+	corsMiddleware := NewCORSMiddleware(cfg)
+
+	handler := corsMiddleware.Handle(next)
 	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/state", nil)
 	req.Header.Set("Origin", "http://example.com")
 	recorder := httptest.NewRecorder()
@@ -109,5 +124,35 @@ func TestCORSMiddleware_DisallowedOriginDoesNotSetHeaders(t *testing.T) {
 
 	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("expected Access-Control-Allow-Origin to be empty, got %q", got)
+	}
+}
+
+func TestCORSMiddleware_WildcardAllowsAnyOrigin(t *testing.T) {
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cfg := &config.Config{AllowedOrigins: "*"}
+	corsMiddleware := NewCORSMiddleware(cfg)
+
+	handler := corsMiddleware.Handle(next)
+	req := httptest.NewRequest(http.MethodGet, "/v1/auth/google/state", nil)
+	req.Header.Set("Origin", "https://any-domain.com")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if !nextCalled {
+		t.Fatalf("expected next handler to be called")
+	}
+
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("expected Access-Control-Allow-Origin to be '*', got %q", got)
+	}
+
+	if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("expected Access-Control-Allow-Credentials to be omitted for wildcard origins, got %q", got)
 	}
 }
