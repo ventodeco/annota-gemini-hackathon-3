@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
+import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { useAuth } from '@/contexts/useAuth'
 import LoginPage from '@/pages/LoginPage'
@@ -53,88 +54,146 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return isAuthenticated ? <Navigate to="/welcome" replace /> : <>{children}</>
 }
 
+function PageErrorBoundary({ children }: { children: React.ReactNode }) {
+  const location = useLocation()
+
+  return (
+    <ErrorBoundary resetKey={location.pathname}>
+      {children}
+    </ErrorBoundary>
+  )
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-            <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+            <Route
+              path="/login"
+              element={
+                <PageErrorBoundary>
+                  <PublicRoute>
+                    <LoginPage />
+                  </PublicRoute>
+                </PageErrorBoundary>
+              }
+            />
+            <Route
+              path="/auth/callback"
+              element={
+                <PageErrorBoundary>
+                  <OAuthCallbackPage />
+                </PageErrorBoundary>
+              }
+            />
             <Route
               path="/welcome"
               element={
-                <ProtectedRoute>
-                  <WelcomePage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <WelcomePage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
             <Route
               path="/camera"
               element={
-                <ProtectedRoute>
-                  <CameraPage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <CameraPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
             <Route
               path="/loading/:id"
               element={
-                <ProtectedRoute>
-                  <LoadingPage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <LoadingPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
             <Route
               path="/history"
               element={
-                <ProtectedRoute>
-                  <HistoryPage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <HistoryPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
             <Route
               path="/scans-history"
               element={
-                <ProtectedRoute>
-                  <OCRHistoryPage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <OCRHistoryPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
             <Route
               path="/scans/:id"
               element={
-                <ProtectedRoute>
-                  <ScanPage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <ScanPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
             <Route
               path="/documents"
               element={
-                <ProtectedRoute>
-                  <DocumentsPage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <DocumentsPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
             <Route
               path="/documents/:id"
               element={
-                <ProtectedRoute>
-                  <DocumentPage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <DocumentPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
             <Route
               path="/annotations/:id"
               element={
-                <ProtectedRoute>
-                  <AnnotationDetailPage />
-                </ProtectedRoute>
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <AnnotationDetailPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
               }
             />
-            <Route path="/" element={<Navigate to="/login" replace />} />
-            <Route path="*" element={<NotFoundPage />} />
+            <Route
+              path="/"
+              element={
+                <PageErrorBoundary>
+                  <Navigate to="/login" replace />
+                </PageErrorBoundary>
+              }
+            />
+            <Route
+              path="*"
+              element={
+                <PageErrorBoundary>
+                  <NotFoundPage />
+                </PageErrorBoundary>
+              }
+            />
           </Routes>
           <Toaster />
         </BrowserRouter>
