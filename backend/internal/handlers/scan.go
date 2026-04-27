@@ -98,9 +98,12 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 
 	log = log.WithUserID(userID)
 
-	imageData, header, err := readFormFile(r, h.config.MaxUploadSize, "image")
+	imageData, header, err := readFormFile(w, r, h.config.MaxUploadSize, "image")
 	if err != nil {
 		switch {
+		case errors.Is(err, ErrUploadTooLarge):
+			log.Warnf("Image upload exceeds max size %d: %v", h.config.MaxUploadSize, err)
+			httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fileTooLargeMBMessage(h.config.MaxUploadSize))
 		case errors.Is(err, ErrMultipartParse):
 			log.Warnf("Failed to parse multipart form: %v", err)
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")

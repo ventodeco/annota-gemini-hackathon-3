@@ -64,9 +64,12 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 
 	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
 
-	pdfData, header, err := readFormFile(r, h.config.MaxUploadSize, "file")
+	pdfData, header, err := readFormFile(w, r, h.config.MaxUploadSize, "file")
 	if err != nil {
 		switch {
+		case errors.Is(err, ErrUploadTooLarge):
+			log.Warnf("PDF upload exceeds max size %d: %v", h.config.MaxUploadSize, err)
+			httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fileTooLargeMBMessage(h.config.MaxUploadSize))
 		case errors.Is(err, ErrMultipartParse):
 			log.Warnf("Failed to parse multipart form: %v", err)
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")

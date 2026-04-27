@@ -85,11 +85,11 @@ func (l *RateLimiter) allow(key string) (bool, time.Duration) {
 
 func rateLimitKey(r *http.Request) string {
 	if userID := GetUserID(r.Context()); userID > 0 {
-		return fmt.Sprintf("user:%d:%s", userID, r.URL.Path)
+		return fmt.Sprintf("user:%d", userID)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil && host != "" {
-		return "ip:" + host + ":" + r.URL.Path
+		return "ip:" + host
 	}
-	return "ip:" + r.RemoteAddr + ":" + r.URL.Path
+	return "ip:" + r.RemoteAddr
 }

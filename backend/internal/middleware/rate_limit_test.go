@@ -67,3 +67,26 @@ func TestRateLimiterKeepsUsersSeparate(t *testing.T) {
 		t.Fatalf("expected second user request 200, got %d", secondRec.Code)
 	}
 }
+
+func TestRateLimiterSharesQuotaAcrossPathsForUser(t *testing.T) {
+	limiter := NewRateLimiter(1, time.Minute)
+	handler := limiter.Handle(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/v1/ai/analyze", nil)
+	firstReq = firstReq.WithContext(WithUserID(firstReq.Context(), 42))
+	firstRec := httptest.NewRecorder()
+	handler.ServeHTTP(firstRec, firstReq)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("expected first request 200, got %d", firstRec.Code)
+	}
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/v1/ai/speech", nil)
+	secondReq = secondReq.WithContext(WithUserID(secondReq.Context(), 42))
+	secondRec := httptest.NewRecorder()
+	handler.ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected shared quota to return 429, got %d", secondRec.Code)
+	}
+}

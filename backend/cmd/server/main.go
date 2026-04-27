@@ -110,8 +110,8 @@ func main() {
 	authMux.HandleFunc("/v1/annotations/", annotationHandlers.AnnotationByIDAPI)
 	authMux.HandleFunc("/v1/events", analyticsHandlers.EventsAPI)
 	authMux.HandleFunc("/v1/entitlements/me", entitlementHandlers.MeAPI)
-	authMux.Handle("/v1/documents", aiRateLimiter.Handle(http.HandlerFunc(documentHandlers.DocumentsAPI)))
-	authMux.Handle("/v1/documents/", aiRateLimiter.Handle(http.HandlerFunc(documentHandlers.DocumentByIDAPI)))
+	authMux.HandleFunc("/v1/documents", documentHandlers.DocumentsAPI)
+	authMux.HandleFunc("/v1/documents/", documentHandlers.DocumentByIDAPI)
 
 	mux.Handle("/v1/", authMiddleware.Handle(authMux))
 

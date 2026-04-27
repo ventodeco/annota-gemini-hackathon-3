@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -151,7 +153,14 @@ func (h *UserHandlers) DeleteAccountAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.deleteOwnedFiles(r, userID)
+	if err := h.deleteOwnedFiles(r, userID); err != nil {
+		logger.GetDefaultLogger().
+			WithRequestID(middleware.GetRequestID(r.Context())).
+			WithUserID(userID).
+			ErrorWithErr(err, "Failed to purge owned files during account deletion")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete account data")
+		return
+	}
 	if err := h.db.DeleteUser(r.Context(), userID); err != nil {
 		httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
 		return
@@ -159,34 +168,50 @@ func (h *UserHandlers) DeleteAccountAPI(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *UserHandlers) deleteOwnedFiles(r *http.Request, userID int64) {
+func (h *UserHandlers) deleteOwnedFiles(r *http.Request, userID int64) error {
 	if h.fileStorage == nil || h.config == nil {
-		return
+		return nil
 	}
-	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
 
-	scans, err := h.db.GetScansByUserID(r.Context(), userID, 1, 10000)
-	if err == nil {
+	const pageSize = 100
+	var purgeErr error
+
+	for page := 1; ; page++ {
+		scans, err := h.db.GetScansByUserID(r.Context(), userID, page, pageSize)
+		if err != nil {
+			return fmt.Errorf("list scans: %w", err)
+		}
 		for _, scan := range scans {
 			for _, path := range userScanImagePaths(h.config.UploadDir, scan) {
 				if err := h.fileStorage.DeleteImage(path); err != nil {
-					log.Warnf("Failed to delete scan image during account deletion: %v", err)
+					purgeErr = errors.Join(purgeErr, fmt.Errorf("delete scan image %q: %w", path, err))
 				}
 			}
 		}
+		if len(scans) < pageSize {
+			break
+		}
 	}
 
-	docs, err := h.db.GetDocumentsByUserID(r.Context(), userID, 1, 10000)
-	if err == nil {
+	for page := 1; ; page++ {
+		docs, err := h.db.GetDocumentsByUserID(r.Context(), userID, page, pageSize)
+		if err != nil {
+			return fmt.Errorf("list documents: %w", err)
+		}
 		for _, doc := range docs {
 			if doc.FileURL == "" {
 				continue
 			}
 			if err := h.fileStorage.DeletePDF(doc.FileURL); err != nil {
-				log.Warnf("Failed to delete PDF during account deletion: %v", err)
+				purgeErr = errors.Join(purgeErr, fmt.Errorf("delete PDF %q: %w", doc.FileURL, err))
 			}
 		}
+		if len(docs) < pageSize {
+			break
+		}
 	}
+
+	return purgeErr
 }
 
 func userScanImagePaths(uploadDir string, scan *models.Scan) []string {
