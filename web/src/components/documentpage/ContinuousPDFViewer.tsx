@@ -30,10 +30,10 @@ function isSelectionInsideTextLayer(selection: Selection, textLayer: HTMLDivElem
   }
 
   const range = selection.getRangeAt(0)
-  const ancestor =
-    range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-      ? range.commonAncestorContainer.parentNode
-      : range.commonAncestorContainer
+  let ancestor: Node | null = range.commonAncestorContainer
+  if (ancestor.nodeType === Node.TEXT_NODE) {
+    ancestor = ancestor.parentNode
+  }
 
   return ancestor ? textLayer.contains(ancestor) : false
 }
@@ -49,12 +49,12 @@ function PageRenderer({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
   const textLayerInstance = useRef<TextLayer | null>(null)
-  const [rendered, setRendered] = useState(false)
-  const [rendering, setRendering] = useState(false)
+  const [rendered, setRendered] = useState<boolean>(false)
+  const [rendering, setRendering] = useState<boolean>(false)
   const [pageStyle, setPageStyle] = useState<PdfPageStyle | null>(null)
   const divRef = useRef<HTMLDivElement>(null)
 
-  const renderPage = useCallback(async () => {
+  const renderPage = useCallback(async (): Promise<void> => {
     if (!canvasRef.current || !textLayerRef.current || !pdfDoc) return
 
     setRendering(true)
@@ -86,7 +86,7 @@ function PageRenderer({
     if (!divRef.current) return
 
     const observer = new IntersectionObserver(
-      (entries) => {
+      (entries): void => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && entry.intersectionRatio > 0.3) {
             onVisible(pageNumber)
@@ -109,13 +109,13 @@ function PageRenderer({
     }
   }, [isVisible, rendered, rendering, renderPage])
 
-  const handleTextSelection = useCallback(() => {
+  const handleTextSelection = useCallback((): void => {
     const selection = window.getSelection()
     onTextSelect(selection ? selection.toString() : '')
   }, [onTextSelect])
 
   useEffect(() => {
-    const handleSelectionChange = () => {
+    const handleSelectionChange = (): void => {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0 || selection.toString().trim() === '') {
         return
@@ -173,7 +173,7 @@ export default function ContinuousPDFViewer({
   const containerRef = useRef<HTMLDivElement>(null)
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set([1]))
-  const [containerWidth, setContainerWidth] = useState(400)
+  const [containerWidth, setContainerWidth] = useState<number>(400)
 
   useEffect(() => {
     if (!pdfUrl) return
@@ -192,7 +192,7 @@ export default function ContinuousPDFViewer({
   }, [pdfUrl])
 
   useEffect(() => {
-    const updateWidth = () => {
+    const updateWidth = (): void => {
       if (containerRef.current) {
         setContainerWidth(containerRef.current.clientWidth)
       }

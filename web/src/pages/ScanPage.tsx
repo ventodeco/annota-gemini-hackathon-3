@@ -1,5 +1,5 @@
+import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
-import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
@@ -26,10 +26,10 @@ type SelectionRect = {
   height: number
 }
 
-export default function ScanPage() {
+export default function ScanPage(): ReactElement {
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
-  const scanId = id ? parseInt(id, 10) : 0
+  const scanId = id ? Number.parseInt(id, 10) : 0
   const scanHistoryPath = scanId > 0 ? `/history?scanId=${scanId}` : '/history'
   const preloadedScan = (location.state as ScanPageLocationState | null)?.preloadedScan
   const hasReadyPreloadedScan =
@@ -43,7 +43,7 @@ export default function ScanPage() {
   const analyzeText = useAnalyzeText()
   const createAnnotation = useCreateAnnotation()
   const synthesizeSpeech = useSynthesizeSpeech()
-  const [contextText, setContextText] = useState('')
+  const [contextText, setContextText] = useState<string>('')
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null)
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
   const speech = useSpeechPlayback()
@@ -93,16 +93,21 @@ export default function ScanPage() {
 
   const effectiveSelectionRect = selectedText ? selectionRect : null
 
-  const handleTextSelect = () => {
+  const clearSelectedText = useCallback((): void => {
+    clearSelection()
+    setContextText('')
+    setSelectionRect(null)
+    speech.stop()
+  }, [clearSelection, speech])
+
+  const handleTextSelect = useCallback((): void => {
     const selection = window.getSelection()
-    if (!selection || selection.toString().trim() === '') {
-      clearSelection()
-      setContextText('')
-      setSelectionRect(null)
-      speech.stop()
+    const selectedTextValue = selection?.toString() ?? ''
+    if (!selection || selectedTextValue.trim() === '') {
+      clearSelectedText()
       return
     }
-    handleSelection(selection.toString())
+    handleSelection(selectedTextValue)
 
     const range = selection.getRangeAt(0)
     const context = range.endContainer.textContent || ''
@@ -114,9 +119,9 @@ export default function ScanPage() {
       width: rect.width,
       height: rect.height,
     })
-  }
+  }, [clearSelectedText, handleSelection])
 
-  const handleSaveAnnotation = async () => {
+  const handleSaveAnnotation = async (): Promise<void> => {
     if (!scan) return
     await saveAnnotation()
   }

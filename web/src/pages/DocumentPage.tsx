@@ -32,8 +32,8 @@ function DocumentPdfSection({
   onPageChange,
   onTextSelect,
 }: DocumentPdfSectionProps): ReactElement {
-  const [pdfUrl, setPdfUrl] = useState('')
-  const [loadError, setLoadError] = useState(false)
+  const [pdfUrl, setPdfUrl] = useState<string>('')
+  const [loadError, setLoadError] = useState<boolean>(false)
   const objectUrlRef = useRef('')
 
   const isPdfLoading = !pdfUrl && !loadError
@@ -85,10 +85,10 @@ function DocumentPdfSection({
 
 export default function DocumentPage(): ReactElement {
   const { id } = useParams<{ id: string }>()
-  const documentId = id ? parseInt(id, 10) : undefined
+  const documentId = id ? Number.parseInt(id, 10) : undefined
 
   const { data: document, isLoading, error } = useDocument(documentId)
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState<number>(1)
   const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
 
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
@@ -97,7 +97,7 @@ export default function DocumentPage(): ReactElement {
   const synthesizeSpeech = useSynthesizeSpeech()
   const speech = useSpeechPlayback()
 
-  const [contextText, setContextText] = useState('')
+  const [contextText, setContextText] = useState<string>('')
 
   const resetTextSelectionState = useCallback(() => {
     clearSelection()
@@ -151,14 +151,14 @@ export default function DocumentPage(): ReactElement {
     }
   }, [selectedText, speech])
 
-  const handlePageChange = useCallback((page: number) => {
+  const handlePageChange = useCallback((page: number): void => {
     setCurrentPage(page)
     clearSelection()
     resetAnnotationState()
     setBridgeScanId(null)
   }, [clearSelection, resetAnnotationState])
 
-  const handleTextSelect = useCallback((selectedTextFromViewer: string) => {
+  const handleTextSelect = useCallback((selectedTextFromViewer: string): void => {
     const selectedTextValue = selectedTextFromViewer.trim()
     if (selectedTextValue === '') {
       resetTextSelectionState()
