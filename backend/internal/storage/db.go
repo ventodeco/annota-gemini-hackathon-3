@@ -204,29 +204,7 @@ func (s *postgresDB) GetScanByID(ctx context.Context, scanID int64) (*models.Sca
 		return nil, err
 	}
 
-	if fullOCRText.Valid {
-		scan.FullOCRText = &fullOCRText.String
-	}
-	if detectedLanguage.Valid {
-		scan.DetectedLanguage = &detectedLanguage.String
-	}
-	if documentID.Valid {
-		scan.DocumentID = &documentID.Int64
-	}
-	if pageNumber.Valid {
-		pn := int(pageNumber.Int32)
-		scan.PageNumber = &pn
-	}
-	if sourceType.Valid {
-		scan.SourceType = sourceType.String
-	}
-	if status.Valid {
-		scan.Status = status.String
-	}
-	if failureReason.Valid {
-		scan.FailureReason = &failureReason.String
-	}
-	scan.CreatedAt = createdAt
+	applyScanFields(&scan, fullOCRText, detectedLanguage, documentID, pageNumber, sourceType, status, failureReason, createdAt)
 
 	return &scan, nil
 }
@@ -271,29 +249,7 @@ func (s *postgresDB) GetScansByUserID(ctx context.Context, userID int64, page, s
 			return nil, err
 		}
 
-		if fullOCRText.Valid {
-			scan.FullOCRText = &fullOCRText.String
-		}
-		if detectedLanguage.Valid {
-			scan.DetectedLanguage = &detectedLanguage.String
-		}
-		if documentID.Valid {
-			scan.DocumentID = &documentID.Int64
-		}
-		if pageNumber.Valid {
-			pn := int(pageNumber.Int32)
-			scan.PageNumber = &pn
-		}
-		if sourceType.Valid {
-			scan.SourceType = sourceType.String
-		}
-		if status.Valid {
-			scan.Status = status.String
-		}
-		if failureReason.Valid {
-			scan.FailureReason = &failureReason.String
-		}
-		scan.CreatedAt = createdAt
+		applyScanFields(&scan, fullOCRText, detectedLanguage, documentID, pageNumber, sourceType, status, failureReason, createdAt)
 
 		scans = append(scans, &scan)
 	}
@@ -526,29 +482,7 @@ func (s *postgresDB) GetScanByDocumentPage(ctx context.Context, documentID int64
 		return nil, err
 	}
 
-	if fullOCRText.Valid {
-		scan.FullOCRText = &fullOCRText.String
-	}
-	if detectedLanguage.Valid {
-		scan.DetectedLanguage = &detectedLanguage.String
-	}
-	if docID.Valid {
-		scan.DocumentID = &docID.Int64
-	}
-	if pageNum.Valid {
-		pn := int(pageNum.Int32)
-		scan.PageNumber = &pn
-	}
-	if sourceType.Valid {
-		scan.SourceType = sourceType.String
-	}
-	if status.Valid {
-		scan.Status = status.String
-	}
-	if failureReason.Valid {
-		scan.FailureReason = &failureReason.String
-	}
-	scan.CreatedAt = createdAt
+	applyScanFields(&scan, fullOCRText, detectedLanguage, docID, pageNum, sourceType, status, failureReason, createdAt)
 
 	return &scan, nil
 }
@@ -638,29 +572,9 @@ func (s *postgresDB) GetAnnotationByID(ctx context.Context, annotationID int64) 
 		return nil, err
 	}
 
-	if scanID.Valid {
-		annotation.ScanID = &scanID.Int64
-	}
-	if sourceType.Valid {
-		annotation.SourceType = &sourceType.String
-	}
-	if documentID.Valid {
-		annotation.DocumentID = &documentID.Int64
-	}
-	if pageNumber.Valid {
-		pn := int(pageNumber.Int32)
-		annotation.PageNumber = &pn
-	}
-	if sourceLabel.Valid {
-		annotation.SourceLabel = &sourceLabel.String
-	}
-	if contextText.Valid {
-		annotation.ContextText = &contextText.String
-	}
-	if err := json.Unmarshal(nuanceData, &annotation.NuanceData); err != nil {
+	if err := applyAnnotationFields(&annotation, scanID, sourceType, documentID, pageNumber, sourceLabel, contextText, nuanceData, createdAt); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal nuance_data: %w", err)
 	}
-	annotation.CreatedAt = createdAt
 
 	return &annotation, nil
 }
@@ -777,31 +691,84 @@ func scanAnnotationRows(rows *sql.Rows) ([]*models.Annotation, error) {
 			return nil, err
 		}
 
-		if scanID.Valid {
-			annotation.ScanID = &scanID.Int64
-		}
-		if sourceType.Valid {
-			annotation.SourceType = &sourceType.String
-		}
-		if documentID.Valid {
-			annotation.DocumentID = &documentID.Int64
-		}
-		if pageNumber.Valid {
-			pn := int(pageNumber.Int32)
-			annotation.PageNumber = &pn
-		}
-		if sourceLabel.Valid {
-			annotation.SourceLabel = &sourceLabel.String
-		}
-		if contextText.Valid {
-			annotation.ContextText = &contextText.String
-		}
-		if err := json.Unmarshal(nuanceData, &annotation.NuanceData); err != nil {
+		if err := applyAnnotationFields(&annotation, scanID, sourceType, documentID, pageNumber, sourceLabel, contextText, nuanceData, createdAt); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal nuance_data: %w", err)
 		}
-		annotation.CreatedAt = createdAt
 
 		annotations = append(annotations, &annotation)
 	}
 	return annotations, rows.Err()
+}
+
+func applyScanFields(
+	scan *models.Scan,
+	fullOCRText sql.NullString,
+	detectedLanguage sql.NullString,
+	documentID sql.NullInt64,
+	pageNumber sql.NullInt32,
+	sourceType sql.NullString,
+	status sql.NullString,
+	failureReason sql.NullString,
+	createdAt time.Time,
+) {
+	if fullOCRText.Valid {
+		scan.FullOCRText = &fullOCRText.String
+	}
+	if detectedLanguage.Valid {
+		scan.DetectedLanguage = &detectedLanguage.String
+	}
+	if documentID.Valid {
+		scan.DocumentID = &documentID.Int64
+	}
+	if pageNumber.Valid {
+		pn := int(pageNumber.Int32)
+		scan.PageNumber = &pn
+	}
+	if sourceType.Valid {
+		scan.SourceType = sourceType.String
+	}
+	if status.Valid {
+		scan.Status = status.String
+	}
+	if failureReason.Valid {
+		scan.FailureReason = &failureReason.String
+	}
+	scan.CreatedAt = createdAt
+}
+
+func applyAnnotationFields(
+	annotation *models.Annotation,
+	scanID sql.NullInt64,
+	sourceType sql.NullString,
+	documentID sql.NullInt64,
+	pageNumber sql.NullInt32,
+	sourceLabel sql.NullString,
+	contextText sql.NullString,
+	nuanceData []byte,
+	createdAt time.Time,
+) error {
+	if scanID.Valid {
+		annotation.ScanID = &scanID.Int64
+	}
+	if sourceType.Valid {
+		annotation.SourceType = &sourceType.String
+	}
+	if documentID.Valid {
+		annotation.DocumentID = &documentID.Int64
+	}
+	if pageNumber.Valid {
+		pn := int(pageNumber.Int32)
+		annotation.PageNumber = &pn
+	}
+	if sourceLabel.Valid {
+		annotation.SourceLabel = &sourceLabel.String
+	}
+	if contextText.Valid {
+		annotation.ContextText = &contextText.String
+	}
+	if err := json.Unmarshal(nuanceData, &annotation.NuanceData); err != nil {
+		return err
+	}
+	annotation.CreatedAt = createdAt
+	return nil
 }

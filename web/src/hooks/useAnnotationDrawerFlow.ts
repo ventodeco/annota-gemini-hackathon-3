@@ -50,7 +50,7 @@ type UseAnnotationDrawerFlowResult = {
 }
 
 export function useAnnotationDrawerFlow(
-  options: UseAnnotationDrawerFlowOptions
+  options: UseAnnotationDrawerFlowOptions,
 ): UseAnnotationDrawerFlowResult {
   const {
     selectedText,
@@ -71,12 +71,12 @@ export function useAnnotationDrawerFlow(
     speechErrorMessage = 'Failed to play audio. Please try again.',
   } = options
 
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false)
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
-  const [annotationVersion, setAnnotationVersion] = useState(1)
-  const [isLoadingAnnotation, setIsLoadingAnnotation] = useState(false)
+  const [annotationVersion, setAnnotationVersion] = useState<number>(1)
+  const [isLoadingAnnotation, setIsLoadingAnnotation] = useState<boolean>(false)
 
-  const handleExplain = useCallback(async () => {
+  const handleExplain = useCallback(async (): Promise<void> => {
     if (!selectedText) return
 
     setIsLoadingAnnotation(true)
@@ -117,13 +117,13 @@ export function useAnnotationDrawerFlow(
     analyzeErrorMessage,
   ])
 
-  const resetAnnotationState = useCallback(() => {
+  const resetAnnotationState = useCallback((): void => {
     setIsDrawerOpen(false)
     setCurrentAnnotation(null)
     setAnnotationVersion(1)
   }, [])
 
-  const handleSaveAnnotation = useCallback(async () => {
+  const handleSaveAnnotation = useCallback(async (): Promise<void> => {
     if (!currentAnnotation?.scan_id) return
 
     try {
@@ -150,7 +150,7 @@ export function useAnnotationDrawerFlow(
     resetAnnotationState,
   ])
 
-  const handleRegenerateAnnotation = useCallback(async () => {
+  const handleRegenerateAnnotation = useCallback(async (): Promise<void> => {
     if (!currentAnnotation || analyzeText.isPending || annotationVersion >= maxVersions) {
       return
     }
@@ -180,13 +180,13 @@ export function useAnnotationDrawerFlow(
     regenerateErrorMessage,
   ])
 
-  const handleDrawerClose = useCallback(() => {
+  const handleDrawerClose = useCallback((): void => {
     resetAnnotationState()
     clearSelection()
     onDrawerCloseExtra?.()
   }, [resetAnnotationState, clearSelection, onDrawerCloseExtra])
 
-  const handleSpeechToggle = useCallback(async () => {
+  const handleSpeechToggle = useCallback(async (): Promise<void> => {
     if (!selectedText) return
 
     if (speech.isPlaying || synthesizeSpeech.isPending) {
