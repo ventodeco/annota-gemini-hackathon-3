@@ -17,14 +17,15 @@ type DocumentPdfSectionProps = {
   documentId: number
   document: Document
   currentPage: number
-  onPageChange: (page: number) => void
+  onPageChange: (page: number, change: PageChange) => void
   onTextSelect: (selectedText: string) => void
 }
 
-/**
- * Loads the PDF blob when `documentId` changes (`key` on parent resets state).
- * Loading UI is derived: no synchronous setState in the fetch effect body.
- */
+type PageChangeSource = 'scroll' | 'navigation'
+type PageChange = { source: PageChangeSource }
+
+const DOCUMENT_PROGRESS_SAVE_DELAY_MS = 500
+
 function DocumentPdfSection({
   documentId,
   document,
@@ -92,6 +93,9 @@ export default function DocumentPage(): ReactElement {
   const [pageOverride, setPageOverride] = useState<{ documentId: number; page: number } | null>(null)
   const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
   const updateProgress = useUpdateDocumentProgress(documentId)
+  const progressSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const lastRequestedProgressRef = useRef<number | null>(null)
+  const lastSavedProgressRef = useRef<number | null>(null)
 
   const { selectedText, handleSelection, clearSelection } = useTextSelection()
   const analyzeText = useAnalyzeText()
@@ -116,6 +120,19 @@ export default function DocumentPage(): ReactElement {
 
   const currentPage =
     pageOverride && pageOverride.documentId === documentId ? pageOverride.page : initialPage
+
+  useEffect(() => {
+    lastRequestedProgressRef.current = document?.lastPageNumber ?? null
+    lastSavedProgressRef.current = document?.lastPageNumber ?? null
+  }, [document?.id, document?.lastPageNumber])
+
+  useEffect(() => {
+    return () => {
+      if (progressSaveTimerRef.current !== null) {
+        window.clearTimeout(progressSaveTimerRef.current)
+      }
+    }
+  }, [])
 
   const resolveScanIdForExplain = useCallback(async (): Promise<number> => {
     if (!documentId) {
@@ -164,17 +181,50 @@ export default function DocumentPage(): ReactElement {
     }
   }, [selectedText, speech])
 
-  const handlePageChange = useCallback((page: number): void => {
-    if (documentId) {
+  const scheduleProgressSave = useCallback((page: number): void => {
+    if (!document || page < 1 || page > document.pageCount) {
+      return
+    }
+    if (lastRequestedProgressRef.current === page) {
+      return
+    }
+
+    lastRequestedProgressRef.current = page
+    if (progressSaveTimerRef.current !== null) {
+      window.clearTimeout(progressSaveTimerRef.current)
+      progressSaveTimerRef.current = null
+    }
+
+    if (lastSavedProgressRef.current === page) {
+      return
+    }
+
+    progressSaveTimerRef.current = window.setTimeout(() => {
+      progressSaveTimerRef.current = null
+      updateProgress.mutate(page, {
+        onSuccess: () => {
+          lastSavedProgressRef.current = page
+        },
+      })
+    }, DOCUMENT_PROGRESS_SAVE_DELAY_MS)
+  }, [document, updateProgress])
+
+  const handlePageChange = useCallback((page: number, change: PageChange): void => {
+    const pageChanged = page !== currentPage
+    if (documentId && pageChanged) {
       setPageOverride({ documentId, page })
     }
-    clearSelection()
-    resetAnnotationState()
-    setBridgeScanId(null)
-    if (document && page >= 1 && page <= document.pageCount) {
-      updateProgress.mutate(page)
+
+    if (change.source === 'navigation') {
+      clearSelection()
+      resetAnnotationState()
+      setBridgeScanId(null)
     }
-  }, [clearSelection, document, documentId, resetAnnotationState, updateProgress])
+
+    if (pageChanged) {
+      scheduleProgressSave(page)
+    }
+  }, [clearSelection, currentPage, documentId, resetAnnotationState, scheduleProgressSave])
 
   const handleTextSelect = useCallback((selectedTextFromViewer: string): void => {
     const selectedTextValue = selectedTextFromViewer.trim()

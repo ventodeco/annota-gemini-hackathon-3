@@ -44,6 +44,14 @@ export default function HistoryPage() {
   const deleteAnnotation = useDeleteAnnotation()
   const [annotationToDelete, setAnnotationToDelete] = useState<AnnotationItem | null>(null)
 
+  const headerTitle = scanId
+    ? `Annotations for OCR #${scanId}`
+    : documentId && pageNumber
+      ? `Annotations for document #${documentId}, page ${pageNumber}`
+      : documentId
+        ? `Annotations for document #${documentId}`
+        : 'History'
+
   const handleAnnotationClick = (item: AnnotationItem) => {
     const detailPath = scanId
       ? `/annotations/${item.id}?scanId=${scanId}`
@@ -79,18 +87,8 @@ export default function HistoryPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
-      <Header
-        title={
-          scanId
-            ? `Annotations for OCR #${scanId}`
-            : documentId && pageNumber
-              ? `Annotations for document #${documentId}, page ${pageNumber}`
-              : documentId
-                ? `Annotations for document #${documentId}`
-                : 'History'
-        }
-      />
-      <main className="pt-4 px-4">
+      <Header title={headerTitle} />
+      <main className="pt-4 px-4 max-w-md mx-auto">
         {isLoading && (
           <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />

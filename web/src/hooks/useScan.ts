@@ -5,6 +5,7 @@ import type { Scan } from '@/lib/types'
 type UseScanOptions = {
   enabled?: boolean
   pollIntervalMs?: number
+  retry?: boolean | number
 }
 
 export function isScanOcrReady(scan: Pick<Scan, 'fullText' | 'status'> | null | undefined): boolean {
@@ -16,21 +17,21 @@ export function isScanFailed(scan: Pick<Scan, 'status'> | null | undefined): boo
 }
 
 export function useScan(scanId: number | undefined, options: UseScanOptions = {}) {
-  const { enabled = true, pollIntervalMs = 2000 } = options
+  const { enabled = true, pollIntervalMs = 2000, retry } = options
 
-  return useQuery({
+  return useQuery<Scan, Error>({
     queryKey: ['scan', scanId],
     queryFn: () => {
       if (!scanId) throw new Error('Scan ID is required')
       return getScan(scanId)
     },
     enabled: enabled && !!scanId,
+    ...(retry !== undefined ? { retry } : {}),
     refetchInterval: (query) => {
-      const data = query.state.data as Scan | undefined
-      if (!data) return false
-      if (isScanOcrReady(data)) return false
-      if (isScanFailed(data)) return false
-      if (pollIntervalMs <= 0) return false
+      const data = query.state.data
+      if (!data || isScanOcrReady(data) || isScanFailed(data) || pollIntervalMs <= 0) {
+        return false
+      }
       return pollIntervalMs
     },
   })

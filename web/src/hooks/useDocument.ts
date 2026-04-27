@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { deleteDocument, getDocument, getDocumentPage, getDocuments, updateDocumentProgress } from '@/lib/api'
+import type { Document, GetDocumentsResponse } from '@/lib/types'
 
 export function useDocument(documentId: number | undefined) {
   return useQuery({
@@ -33,9 +34,21 @@ export function useUpdateDocumentProgress(documentId: number | undefined) {
       if (!documentId) throw new Error('Document ID is required')
       return updateDocumentProgress(documentId, lastPageNumber)
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['document', documentId] })
-      queryClient.invalidateQueries({ queryKey: ['documents'] })
+    onSuccess: (_data, lastPageNumber) => {
+      queryClient.setQueryData<Document>(['document', documentId], (document) => {
+        return document ? { ...document, lastPageNumber } : document
+      })
+      queryClient.setQueriesData<GetDocumentsResponse>({ queryKey: ['documents'] }, (documents) => {
+        if (!documentId || !documents) {
+          return documents
+        }
+        return {
+          ...documents,
+          data: documents.data.map((doc) =>
+            doc.id === documentId ? { ...doc, lastPageNumber } : doc
+          ),
+        }
+      })
     },
   })
 }
