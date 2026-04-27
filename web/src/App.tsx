@@ -17,6 +17,7 @@ import DocumentsPage from '@/pages/DocumentsPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 import OAuthCallbackPage from '@/pages/OAuthCallbackPage'
 import LegalPage from '@/pages/LegalPage'
+import ProfilePage from '@/pages/ProfilePage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -181,6 +182,16 @@ function App() {
                 <PageErrorBoundary>
                   <ProtectedRoute>
                     <DocumentPage />
+                  </ProtectedRoute>
+                </PageErrorBoundary>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <PageErrorBoundary>
+                  <ProtectedRoute>
+                    <ProfilePage />
                   </ProtectedRoute>
                 </PageErrorBoundary>
               }

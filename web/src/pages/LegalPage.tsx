@@ -7,7 +7,7 @@ export default function LegalPage({ kind }: LegalPageProps) {
 
   return (
     <main className="min-h-screen bg-white px-6 py-10 text-slate-900">
-      <div className="mx-auto max-w-3xl space-y-6">
+      <div className="mx-auto max-w-md space-y-6">
         <a href="/login" className="text-sm font-medium text-slate-500 hover:text-slate-900">
           Back to ANNOTA
         </a>

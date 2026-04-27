@@ -197,7 +197,7 @@ export default function ScanPage(): ReactElement {
         rightActionTo={scanHistoryPath}
       />
       <ScrollArea className="flex-1">
-        <div className="p-6">
+        <div className="p-6 max-w-md mx-auto">
           <ScanImage imageUrl={scan.imageUrl} alt="Scanned document" />
           {scan.fullText && (
             <p

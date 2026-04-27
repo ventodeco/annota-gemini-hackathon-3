@@ -102,6 +102,8 @@ func TestLoadReadsRateLimitConfig(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "test-key")
 	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
 	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")
 	t.Setenv("AI_RATE_LIMIT", "7")
 	t.Setenv("AI_RATE_LIMIT_WINDOW_SECONDS", "30")
 
@@ -120,16 +122,18 @@ func TestLoadReadsRateLimitConfig(t *testing.T) {
 
 func TestConfigValidateRequiresStrongJWTSecret(t *testing.T) {
 	cfg := &Config{
-		GeminiAPIKey:             "test-key",
-		DBConnectionString:       "postgres://test",
-		UploadDir:                "data/uploads",
-		MaxUploadSize:            1,
-		FrontendBaseURL:          "http://localhost:5173",
-		TokenExpiryMinutes:       30,
-		DefaultPageSize:          20,
-		JWTSecret:                "short",
-		AIRateLimit:              60,
-		AIRateLimitWindowSeconds: 3600,
+		GeminiAPIKey:              "test-key",
+		DBConnectionString:        "postgres://test",
+		UploadDir:                 "data/uploads",
+		MaxUploadSize:             1,
+		FrontendBaseURL:           "http://localhost:5173",
+		TokenExpiryMinutes:        30,
+		DefaultPageSize:            20,
+		JWTSecret:                 "short",
+		GoogleOAuthClientID:       "client-id",
+		GoogleOAuthClientSecret:   "client-secret",
+		AIRateLimit:               60,
+		AIRateLimitWindowSeconds:  3600,
 	}
 
 	err := cfg.Validate()
@@ -138,20 +142,66 @@ func TestConfigValidateRequiresStrongJWTSecret(t *testing.T) {
 	}
 }
 
+func TestConfigValidateRequiresGoogleOAuthClientID(t *testing.T) {
+	cfg := &Config{
+		GeminiAPIKey:              "test-key",
+		DBConnectionString:        "postgres://test",
+		UploadDir:                 "data/uploads",
+		MaxUploadSize:             1,
+		FrontendBaseURL:           "http://localhost:5173",
+		TokenExpiryMinutes:        30,
+		DefaultPageSize:           20,
+		JWTSecret:                 "01234567890123456789012345678912",
+		GoogleOAuthClientID:       "",
+		GoogleOAuthClientSecret:   "some-secret",
+		AIRateLimit:               60,
+		AIRateLimitWindowSeconds:  3600,
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatalf("expected missing GOOGLE_OAUTH_CLIENT_ID to fail validation")
+	}
+}
+
+func TestConfigValidateRequiresGoogleOAuthClientSecret(t *testing.T) {
+	cfg := &Config{
+		GeminiAPIKey:              "test-key",
+		DBConnectionString:        "postgres://test",
+		UploadDir:                 "data/uploads",
+		MaxUploadSize:             1,
+		FrontendBaseURL:           "http://localhost:5173",
+		TokenExpiryMinutes:        30,
+		DefaultPageSize:           20,
+		JWTSecret:                 "01234567890123456789012345678912",
+		GoogleOAuthClientID:       "client-id",
+		GoogleOAuthClientSecret:   "",
+		AIRateLimit:               60,
+		AIRateLimitWindowSeconds:  3600,
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatalf("expected missing GOOGLE_OAUTH_CLIENT_SECRET to fail validation")
+	}
+}
+
 func TestConfigValidateRejectsWildcardProductionOrigins(t *testing.T) {
 	cfg := &Config{
-		GeminiAPIKey:             "test-key",
-		DBConnectionString:       "postgres://test",
-		UploadDir:                "data/uploads",
-		MaxUploadSize:            1,
-		FrontendBaseURL:          "https://annota.example.com",
-		TokenExpiryMinutes:       30,
-		DefaultPageSize:          20,
-		JWTSecret:                "01234567890123456789012345678912",
-		AllowedOrigins:           "*",
-		AppEnv:                   "production",
-		AIRateLimit:              60,
-		AIRateLimitWindowSeconds: 3600,
+		GeminiAPIKey:              "test-key",
+		DBConnectionString:        "postgres://test",
+		UploadDir:                 "data/uploads",
+		MaxUploadSize:             1,
+		FrontendBaseURL:           "https://annota.example.com",
+		TokenExpiryMinutes:        30,
+		DefaultPageSize:            20,
+		JWTSecret:                 "01234567890123456789012345678912",
+		GoogleOAuthClientID:       "client-id",
+		GoogleOAuthClientSecret:   "client-secret",
+		AllowedOrigins:            "*",
+		AppEnv:                    "production",
+		AIRateLimit:               60,
+		AIRateLimitWindowSeconds:  3600,
 	}
 
 	err := cfg.Validate()

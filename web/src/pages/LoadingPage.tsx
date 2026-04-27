@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import { Hourglass } from 'lucide-react'
-import { getScan } from '@/lib/api'
-import { isScanFailed, isScanOcrReady } from '@/hooks/useScan'
+import Header from '@/components/layout/Header'
+import { useScan, isScanFailed, isScanOcrReady } from '@/hooks/useScan'
 import type { Scan } from '@/lib/types'
+
+const LOADING_POLL_INTERVAL_MS = 3000
 
 export default function LoadingPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const hasNavigatedRef = useRef(false)
   const latestScanRef = useRef<Scan | undefined>(undefined)
-  const scanId = id ? parseInt(id, 10) : NaN
+  const scanIdParsed = id ? Number.parseInt(id, 10) : NaN
+  const scanId = Number.isInteger(scanIdParsed) && scanIdParsed > 0 ? scanIdParsed : undefined
+  const scanHistoryPath = scanId ? `/history?scanId=${scanId}` : '/history'
 
   const navigateToScan = useCallback((scanData?: Scan) => {
     if (!id || hasNavigatedRef.current) return
@@ -22,28 +25,19 @@ export default function LoadingPage() {
     })
   }, [id, navigate])
 
-  const { data: scan, error } = useQuery({
-    queryKey: ['scan', scanId],
-    queryFn: () => getScan(scanId),
-    enabled: Number.isInteger(scanId) && scanId > 0,
+  const { data: scan, error } = useScan(scanId, {
+    pollIntervalMs: LOADING_POLL_INTERVAL_MS,
     retry: false,
-    refetchInterval: (query) => {
-      const currentScan = query.state.data as Scan | undefined
-      if (!currentScan) return false
-      if (isScanOcrReady(currentScan)) return false
-      if (isScanFailed(currentScan)) return false
-      return 1000
-    },
   })
 
   useEffect(() => {
-    if (!id || !Number.isInteger(scanId) || scanId <= 0) {
+    if (!id || !Number.isInteger(scanIdParsed) || scanIdParsed <= 0) {
       navigate('/welcome', { replace: true })
     }
-  }, [id, navigate, scanId])
+  }, [id, navigate, scanIdParsed])
 
   useEffect(() => {
-    if (!id || !Number.isInteger(scanId) || scanId <= 0) {
+    if (!id || !Number.isInteger(scanIdParsed) || scanIdParsed <= 0) {
       return
     }
     const timeoutId = setTimeout(() => {
@@ -52,7 +46,7 @@ export default function LoadingPage() {
       navigateToScan()
     }, 30000)
     return () => clearTimeout(timeoutId)
-  }, [id, scanId, navigateToScan])
+  }, [id, scanIdParsed, navigateToScan])
 
   useEffect(() => {
     latestScanRef.current = scan
@@ -69,6 +63,11 @@ export default function LoadingPage() {
   if (status === 'error') {
     return (
       <div className="min-h-screen bg-white flex flex-col pb-20">
+        <Header
+          title="Scan Result"
+          rightAction="bookmark"
+          rightActionTo={scanHistoryPath}
+        />
         <div className="flex-1 flex flex-col items-center justify-center p-6">
           <p className="text-center text-red-600 text-sm">
             {scan?.failureReason ? `Scan failed: ${scan.failureReason}` : 'Failed to load scan'}
@@ -86,26 +85,16 @@ export default function LoadingPage() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
+      <Header
+        title="Scan Result"
+        rightAction="bookmark"
+        rightActionTo={scanHistoryPath}
+      />
       <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <h1
-          className="text-center text-gray-900"
-          style={{
-            fontWeight: 600,
-            fontStyle: 'normal',
-            fontSize: 'var(--paragraph-regular-font-size, 16px)',
-            lineHeight: '24px',
-          }}
-        >
+        <h1 className="text-center text-gray-900 font-semibold text-lg leading-6">
           Scanning in Progress..
         </h1>
-        <p
-          className="mt-6 max-w-[320px] text-center text-gray-900"
-          style={{
-            fontSize: '16px',
-            fontWeight: 400,
-            lineHeight: '24px',
-          }}
-        >
+        <p className="mt-6 max-w-xs text-center text-gray-900 text-base leading-6">
           Processing your image and checking OCR status.
           <br />
           Please stay on this page while

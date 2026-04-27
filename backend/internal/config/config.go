@@ -128,6 +128,12 @@ func (c *Config) Validate() error {
 	if c.AppEnv == "production" && c.AllowedOrigins == "*" {
 		return fmt.Errorf("ALLOWED_ORIGINS cannot be wildcard in production")
 	}
+	if c.GoogleOAuthClientID == "" {
+		return fmt.Errorf("GOOGLE_OAUTH_CLIENT_ID is required for Google login")
+	}
+	if c.GoogleOAuthClientSecret == "" {
+		return fmt.Errorf("GOOGLE_OAUTH_CLIENT_SECRET is required for Google login")
+	}
 	return nil
 }
 

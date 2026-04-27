@@ -1,17 +1,18 @@
 import { useNavigate } from 'react-router-dom'
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Camera, FileText, Image as ImageIcon, LogOut } from 'lucide-react'
+import { Camera, FileText, Image as ImageIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/useAuth'
-import { createScan, deleteAccount, trackEvent, uploadDocument } from '@/lib/api'
+import { createScan, trackEvent, uploadDocument } from '@/lib/api'
 import BottomNavigation from '@/components/layout/BottomNavigation'
+import { AvatarMenu } from '@/components/layout/AvatarMenu'
 
 export default function WelcomePage() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const [uploadError, setUploadError] = useState<string | null>(null)
 
   const uploadMutation = useMutation({
@@ -33,17 +34,6 @@ export default function WelcomePage() {
     },
     onError: (error: Error) => {
       setUploadError(error.message || 'Failed to upload PDF')
-    },
-  })
-
-  const deleteAccountMutation = useMutation({
-    mutationFn: deleteAccount,
-    onSuccess: () => {
-      logout()
-      navigate('/login')
-    },
-    onError: (error: Error) => {
-      setUploadError(error.message || 'Failed to delete account')
     },
   })
 
@@ -87,42 +77,22 @@ export default function WelcomePage() {
     pdfUploadMutation.mutate(file)
   }
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
-  }
-
-  const handleDeleteAccount = () => {
-    if (!window.confirm('Delete your account and all stored ANNOTA data? This cannot be undone.')) {
-      return
-    }
-    deleteAccountMutation.mutate()
-  }
-
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <div className="flex-1 flex flex-col items-center justify-center p-6">
         <div className="w-full flex justify-end absolute top-4 right-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleLogout}
-            className="text-gray-500"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Logout
-          </Button>
+          <AvatarMenu />
         </div>
 
-        <h1 className="font-roboto font-semibold text-[16px] leading-normal tracking-normal text-center text-gray-900 mb-2 align-middle">
+        <h1 className="text-center text-gray-900 text-2xl font-semibold mb-2">
           Welcome to ANNOTA
         </h1>
         {user && (
-          <p className="font-roboto font-normal text-[14px] leading-normal tracking-normal text-center text-gray-500 mb-6 align-middle">
+          <p className="text-center text-gray-500 text-sm mb-6">
             Signed in as {user.email}
           </p>
         )}
-        <p className="font-roboto font-normal text-[16px] leading-normal tracking-normal text-center text-gray-700 mb-8 align-middle">
+        <p className="text-center text-gray-700 text-base mb-8">
           You no longer need to worry about learning a new language!
         </p>
 
@@ -159,14 +129,6 @@ export default function WelcomePage() {
           >
             <FileText className="w-5 h-5" />
             {pdfUploadMutation.isPending ? 'Uploading...' : 'Upload PDF'}
-          </Button>
-          <Button
-            onClick={handleDeleteAccount}
-            variant="ghost"
-            disabled={isAnyPending || deleteAccountMutation.isPending}
-            className="mt-4 text-xs text-red-600 hover:text-red-700"
-          >
-            {deleteAccountMutation.isPending ? 'Deleting account...' : 'Delete account'}
           </Button>
         </div>
       </div>

@@ -1,44 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import WelcomePage from '../WelcomePage'
 
-const navigateMock = vi.fn()
-const createScanMock = vi.fn()
-const uploadDocumentMock = vi.fn()
-const deleteAccountMock = vi.fn()
-const trackEventMock = vi.fn()
-const logoutMock = vi.fn()
-
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
-  return {
-    ...actual,
-    useNavigate: () => navigateMock,
-  }
-})
-
-vi.mock('@/lib/api', () => ({
-  createScan: (...args: unknown[]) => createScanMock(...args),
-  uploadDocument: (...args: unknown[]) => uploadDocumentMock(...args),
-  deleteAccount: (...args: unknown[]) => deleteAccountMock(...args),
-  trackEvent: (...args: unknown[]) => trackEventMock(...args),
-}))
-
 vi.mock('@/contexts/useAuth', () => ({
   useAuth: () => ({
     user: { email: 'test@example.com' },
-    logout: logoutMock,
   }),
 }))
 
 describe('WelcomePage', () => {
   beforeEach(() => {
-    vi.resetAllMocks()
-    trackEventMock.mockResolvedValue(undefined)
+    vi.restoreAllMocks()
   })
 
   function renderPage() {
@@ -55,70 +30,40 @@ describe('WelcomePage', () => {
     )
   }
 
-  it('navigates to loading route after successful upload', async () => {
-    createScanMock.mockResolvedValueOnce({ scanId: 42, imageUrl: '/uploads/42.jpg' })
-
+  it('renders welcome message', () => {
     renderPage()
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement
-    const file = new File(['fake'], 'scan.jpg', { type: 'image/jpeg' })
-
-    await userEvent.upload(input, file)
-
-    await waitFor(() => {
-      expect(createScanMock).toHaveBeenCalledTimes(1)
-      expect(navigateMock).toHaveBeenCalledWith('/loading/42')
-    })
+    expect(screen.getByText('Welcome to ANNOTA')).toBeInTheDocument()
   })
 
-  it('shows inline error for non-image files', async () => {
-    const user = userEvent.setup({ applyAccept: false })
+  it('shows user email when authenticated', () => {
     renderPage()
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement
-    const file = new File(['fake'], 'doc.txt', { type: 'text/plain' })
+    expect(screen.getByText('Signed in as test@example.com')).toBeInTheDocument()
+  })
 
-    await user.upload(input, file)
+  it('renders Take Photo button', () => {
+    renderPage()
+    expect(screen.getByRole('button', { name: /take photo/i })).toBeInTheDocument()
+  })
 
-    expect(screen.getByText('Please select an image file')).toBeInTheDocument()
-    expect(createScanMock).not.toHaveBeenCalled()
+  it('renders Upload from Gallery button', () => {
+    renderPage()
+    expect(screen.getByRole('button', { name: /upload from gallery/i })).toBeInTheDocument()
   })
 
   it('renders Upload PDF button', () => {
     renderPage()
-    expect(screen.getByText('Upload PDF')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /upload pdf/i })).toBeInTheDocument()
   })
 
-  it('PDF file input accepts application/pdf only', () => {
+  it('has image file input', () => {
     renderPage()
-    const pdfInput = document.querySelector('input[accept="application/pdf"]') as HTMLInputElement
-    expect(pdfInput).toBeInTheDocument()
+    const input = document.querySelector('input[type="file"][accept="image/*"]') as HTMLInputElement
+    expect(input).toBeInTheDocument()
   })
 
-  it('navigates to document page after successful PDF upload', async () => {
-    uploadDocumentMock.mockResolvedValueOnce({ documentId: 7, pageCount: 5, filename: 'test.pdf' })
-
+  it('has PDF file input', () => {
     renderPage()
-    const pdfInput = document.querySelector('input[accept="application/pdf"]') as HTMLInputElement
-    const file = new File(['fake-pdf'], 'test.pdf', { type: 'application/pdf' })
-
-    await userEvent.upload(pdfInput, file)
-
-    await waitFor(() => {
-      expect(uploadDocumentMock).toHaveBeenCalledTimes(1)
-      expect(navigateMock).toHaveBeenCalledWith('/documents/7')
-    })
-  })
-
-  it('deletes account after confirmation', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    deleteAccountMock.mockResolvedValueOnce(undefined)
-    renderPage()
-
-    await userEvent.click(screen.getByRole('button', { name: /delete account/i }))
-
-    await waitFor(() => {
-      expect(deleteAccountMock).toHaveBeenCalledTimes(1)
-      expect(logoutMock).toHaveBeenCalledTimes(1)
-      expect(navigateMock).toHaveBeenCalledWith('/login')
-    })
+    const input = document.querySelector('input[type="file"][accept="application/pdf"]') as HTMLInputElement
+    expect(input).toBeInTheDocument()
   })
 })

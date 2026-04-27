@@ -49,7 +49,7 @@ func main() {
 
 	redisClient, err := storage.NewRedisClient(cfg.RedisAddr)
 	if err != nil {
-		log.Printf("Warning: Failed to connect to Redis: %v. OAuth state will not work.", err)
+		log.Fatalf("Failed to connect to Redis at %s: %v. OAuth state storage is required for login to work.", cfg.RedisAddr, err)
 	}
 
 	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)

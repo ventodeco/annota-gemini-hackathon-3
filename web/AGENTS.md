@@ -2,6 +2,20 @@
 
 Guidelines for AI agents working on the React/TypeScript frontend of the Gemini OCR+Annotation PWA project.
 
+## Agent-mandated rules (read first)
+
+### Vercel React best practices skill (mandatory)
+
+For any work on React components, hooks, effects, and client-side data loading, **read and follow the `vercel-react-best-practices` agent skill** before and while editing (invoke the skill in your environment; Vercel Engineering: performance, dependency arrays, unnecessary effects, list rendering, and related patterns). This project uses Vite, not Next.js; apply the rules that match a client-rendered React SPA. Root-level `AGENTS.md` also requires this skill for any agent work that affects `web/`.
+
+### TypeScript: do not use `as` type assertions
+
+**Do not add** type assertions (`expr as SomeType`) in new or edited code. Prefer type guards, discriminated unions, `satisfies` for checked literal shapes, well-typed router APIs, and generics. **`as const`** is allowed for const assertions on literals; avoid using `as` to force a value to an arbitrary type.
+
+When you touch code that still contains legacy `as` casts, **refactor toward** proper narrowing (for example for `location.state`, define a runtime check or a typed wrapper) instead of piling on more assertions.
+
+**Scan and navigation code** (`LoadingPage`, `useScan`, `ScanPage`, and their tests) should be migrated to assertion-free patterns when modified; treat those files as high-impact for type safety.
+
 ## Project Overview
 
 React frontend (mobile-first PWA) that uses Gemini Flash for OCR and contextual annotations of Japanese text. See `../docs/rfc.md` and `../docs/prd.md` for detailed requirements.
@@ -51,13 +65,16 @@ Frontend-relevant environment variables (API endpoints, etc.) are configured via
   }
   ```
 - **State typing**: Always type useState: `useState<Type>(initialValue)`
-- **Never use `any`**: Use `unknown` and type guards instead
+- **Never use `any`**: Use `unknown` and type guards instead (avoid `as` casts; see [Agent-mandated rules](#agent-mandated-rules-read-first))
   ```typescript
+  function isUserRecord(x: object): x is { name: unknown } {
+    return 'name' in x;
+  }
   function parseJSON(json: unknown): User | null {
-    if (typeof json === 'object' && json !== null && 'name' in json) {
-      return json as User;
-    }
-    return null;
+    if (typeof json !== 'object' || json === null) return null;
+    if (!isUserRecord(json)) return null;
+    if (typeof json.name !== 'string') return null;
+    return { name: json.name };
   }
   ```
 - **Utility types**: Use `Partial<T>`, `Pick<T, K>`, `Omit<T, K>` for flexible types
@@ -70,6 +87,7 @@ Frontend-relevant environment variables (API endpoints, etc.) are configured via
   ```
 - **Async functions**: Explicitly type return: `async function(): Promise<Type>`
 - **Type inference**: Prefer inference where clear, explicit where ambiguous
+- **No `as` type assertions**: Do not add `as` casts; prefer guards and `satisfies`. See [Agent-mandated rules](#agent-mandated-rules-read-first).
 
 ### React Best Practices
 
