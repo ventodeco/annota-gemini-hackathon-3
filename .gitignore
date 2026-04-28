@@ -50,6 +50,7 @@ Thumbs.db
 
 # Cursor
 .cursor/
+.direnv/
 node_modules
 
 # Backend

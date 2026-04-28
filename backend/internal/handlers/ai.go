@@ -2,11 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
-	"github.com/gemini-hackathon/app/internal/gemini"
+	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/knowledge"
 	"github.com/gemini-hackathon/app/internal/logger"
@@ -16,16 +17,16 @@ import (
 )
 
 type AIHandlers struct {
-	db           storage.DB
-	geminiClient gemini.Client
-	knowledge    knowledge.Service
+	db        storage.DB
+	aiClient  ai.Client
+	knowledge knowledge.Service
 }
 
-func NewAIHandlers(db storage.DB, geminiClient gemini.Client, knowledgeSvc knowledge.Service) *AIHandlers {
+func NewAIHandlers(db storage.DB, aiClient ai.Client, knowledgeSvc knowledge.Service) *AIHandlers {
 	return &AIHandlers{
-		db:           db,
-		geminiClient: geminiClient,
-		knowledge:    knowledgeSvc,
+		db:        db,
+		aiClient:  aiClient,
+		knowledge: knowledgeSvc,
 	}
 }
 
@@ -100,11 +101,11 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Call Gemini with knowledge context
-	resp, err := h.geminiClient.AnnotateWithKnowledge(r.Context(), contextText, req.TextToAnalyze, entries)
+	// Call AI provider with knowledge context
+	resp, err := h.aiClient.AnnotateWithKnowledge(r.Context(), contextText, req.TextToAnalyze, entries)
 	if err != nil {
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to generate annotation")
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to analyze text")
+		writeAIProviderError(w, err, "Failed to analyze text")
 		return
 	}
 
@@ -154,10 +155,10 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 	// Lookup knowledge context for the selected text
 	entries := h.knowledge.Lookup(req.TextToAnalyze)
 
-	resp, err := h.geminiClient.AnnotateWithKnowledge(r.Context(), req.Context, req.TextToAnalyze, entries)
+	resp, err := h.aiClient.AnnotateWithKnowledge(r.Context(), req.Context, req.TextToAnalyze, entries)
 	if err != nil {
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to generate annotation with language")
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to analyze text")
+		writeAIProviderError(w, err, "Failed to analyze text")
 		return
 	}
 
@@ -204,10 +205,10 @@ func (h *AIHandlers) SpeakAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.geminiClient.SynthesizeSpeech(r.Context(), req.HighlightedText, req.ContextText)
+	resp, err := h.aiClient.SynthesizeSpeech(r.Context(), req.HighlightedText, req.ContextText)
 	if err != nil {
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to synthesize speech")
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to synthesize speech")
+		writeAIProviderError(w, err, "Failed to synthesize speech")
 		return
 	}
 
@@ -220,6 +221,23 @@ func (h *AIHandlers) SpeakAPI(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(resp.Audio)
 }
 
+func writeAIProviderError(w http.ResponseWriter, err error, fallbackMessage string) {
+	var providerErr *ai.ProviderError
+	if !errors.As(err, &providerErr) {
+		httputil.WriteJSONError(w, http.StatusInternalServerError, fallbackMessage)
+		return
+	}
+
+	switch providerErr.Kind {
+	case ai.ErrorKindQuota, ai.ErrorKindRateLimit:
+		httputil.WriteJSONError(w, http.StatusTooManyRequests, "AI provider quota or rate limit reached")
+	case ai.ErrorKindAuth, ai.ErrorKindConfig:
+		httputil.WriteJSONError(w, http.StatusBadGateway, "AI provider configuration error")
+	default:
+		httputil.WriteJSONError(w, http.StatusBadGateway, "AI provider error")
+	}
+}
+
 type AnnotationAnnotation struct {
 	Meaning            string `json:"meaning"`
 	UsageExample       string `json:"usageExample"`
@@ -228,7 +246,7 @@ type AnnotationAnnotation struct {
 	AlternativeMeaning string `json:"alternativeMeaning"`
 }
 
-func toNuanceData(resp *gemini.AnnotationResponse) models.NuanceData {
+func toNuanceData(resp *ai.AnnotationResponse) models.NuanceData {
 	return models.NuanceData{
 		Translation:           resp.Translation,
 		ContextualExplanation: resp.ContextualExplanation,

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/config"
-	"github.com/gemini-hackathon/app/internal/gemini"
 	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
@@ -21,20 +21,20 @@ import (
 )
 
 type ScanHandlers struct {
-	db           storage.DB
-	fileStorage  storage.FileStorage
-	geminiClient gemini.Client
-	config       *config.Config
+	db          storage.DB
+	fileStorage storage.FileStorage
+	aiClient    ai.Client
+	config      *config.Config
 }
 
 const ocrProcessingTimeout = 5 * time.Minute
 
-func NewScanHandlers(db storage.DB, fileStorage storage.FileStorage, geminiClient gemini.Client, cfg *config.Config) *ScanHandlers {
+func NewScanHandlers(db storage.DB, fileStorage storage.FileStorage, aiClient ai.Client, cfg *config.Config) *ScanHandlers {
 	return &ScanHandlers{
-		db:           db,
-		fileStorage:  fileStorage,
-		geminiClient: geminiClient,
-		config:       cfg,
+		db:          db,
+		fileStorage: fileStorage,
+		aiClient:    aiClient,
+		config:      cfg,
 	}
 }
 
@@ -441,7 +441,7 @@ func (h *ScanHandlers) processOCR(ctx context.Context, scanID int64, imageData [
 	log := logger.GetDefaultLogger().WithField("scan_id", scanID)
 
 	log.Infof("Starting OCR processing: image_size=%d bytes, mime_type=%s", len(imageData), mimeType)
-	ocrResp, err := h.geminiClient.OCR(ctx, imageData, mimeType)
+	ocrResp, err := h.aiClient.OCR(ctx, imageData, mimeType)
 	if err != nil {
 		log.ErrorWithErr(err, "OCR processing failed")
 		reason := "ocr_failed"

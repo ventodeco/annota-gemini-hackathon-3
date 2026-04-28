@@ -92,6 +92,8 @@
   opacity: 1;
   forced-color-adjust: none;
   transform-origin: 0 0;
+  touch-action: manipulation;
+  -webkit-touch-callout: default;
   z-index: 2;
 }
 

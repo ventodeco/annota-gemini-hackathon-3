@@ -4,13 +4,13 @@ Guidelines for AI agents working on the Go backend of the Gemini OCR+Annotation 
 
 ## Project Overview
 
-Go backend providing JSON API for a mobile-first PWA that uses Gemini Flash for OCR and contextual annotations of Japanese text. See `../docs/rfc.md` and `../docs/prd.md` for detailed requirements.
+Go backend providing JSON API for a mobile-first PWA that uses OpenRouter OCR and MiniMax text/speech APIs for Japanese OCR, contextual annotations, and text-to-speech. See `../docs/rfc.md` and `../docs/prd.md` for detailed requirements.
 
 ## Agent-mandated rules (read first)
 
 - **Superpowers workflow**: Before substantive backend work, read and follow the root `using-superpowers` workflow. Use process skills before implementation skills when they apply.
 - **DRY / KISS**: Keep handlers and services small, explicit, and easy to test. Avoid drive-by refactors and extract helpers only when they remove real duplication or clarify a stable boundary.
-- **Nix development**: If the user is working in the Nix flake environment, first run `nix develop` from the repository root, then run the same `go`, `bun`, and `docker-compose` commands inside that shell.
+- **Nix development**: If the user is working in the Nix flake environment, first run `nix develop` from the repository root, start local PostgreSQL/Redis with `dev-services start`, then run the documented `go` and `bun` commands inside that shell.
 
 ## Build Commands
 
@@ -45,7 +45,10 @@ cd backend && go fmt ./...
 Use `backend/.env.example` and `internal/config/config.go` as the source of truth.
 
 Required:
-- `GEMINI_API_KEY` or `GOOGLE_API_KEY` - Google Gemini API key
+- `AI_PROVIDER` - AI provider mode: `minimax` (default) or `gemini`
+- `OPENROUTER_API_KEY` - OpenRouter API key for OCR when `AI_PROVIDER=minimax`
+- `MINIMAX_API_KEY` - MiniMax API key for annotation and speech when `AI_PROVIDER=minimax`
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY` - Gemini API key when `AI_PROVIDER=gemini`
 - `DB_CONNECTION_STRING` or the `POSTGRES_*` variables - PostgreSQL connection settings
 - `GOOGLE_OAUTH_CLIENT_ID` - Google OAuth client ID
 - `GOOGLE_OAUTH_CLIENT_SECRET` - Google OAuth client secret
@@ -62,10 +65,14 @@ Optional (with defaults):
 - `SESSION_SECURE` - Cookie secure flag (default: `false`)
 - `REDIS_ADDR` - Redis address for OAuth state and caching (default: `localhost:6379`)
 - `DEFAULT_PAGE_SIZE` - Default pagination size (default: `20`)
-- `AI_RATE_LIMIT` - Gemini-backed route limit, set `0` to disable locally (default: `60`)
+- `OPENROUTER_OCR_MODEL` - OCR model (default: `baidu/qianfan-ocr-fast:free`)
+- `MINIMAX_TEXT_MODEL` - Annotation model (default: `MiniMax-M2.7`)
+- `MINIMAX_TTS_MODEL` - Speech model (default: `speech-2.8-hd`)
+- `MINIMAX_TTS_VOICE_ID` - Speech voice ID (default: `Japanese_Whisper_Belle`)
+- `AI_RATE_LIMIT` - AI-backed route limit, set `0` to disable locally (default: `60`)
 - `AI_RATE_LIMIT_WINDOW_SECONDS` - AI rate limit window (default: `3600`)
 
-The flake currently provides developer tooling and a few convenience env values, but the running backend still requires PostgreSQL, Redis, OAuth, JWT, and Gemini configuration. Start local database services with `docker-compose up -d` when needed.
+The flake provides developer tooling, local PostgreSQL/Redis service commands, and convenience env values. The running backend still requires OAuth, JWT, and the selected AI provider configuration from `backend/.env`.
 
 ## Code Style Guidelines
 
@@ -83,7 +90,7 @@ import (
     "net/http"
 
     "github.com/gemini-hackathon/app/internal/config"
-    "github.com/gemini-hackathon/app/internal/gemini"
+    "github.com/gemini-hackathon/app/internal/ai"
 )
 ```
 
@@ -140,9 +147,9 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 - Store timestamps as `time.Time` in models
 - Production migrations target PostgreSQL. Do not assume SQLite compatibility for `migrations/*.sql`.
 
-### Gemini API Integration
+### AI Provider Integration
 
-- Use `gemini.Client` interface for testability
+- Use `ai.Client` interface for testability
 - Pass `context.Context` for timeout/cancellation control
 - Parse JSON responses carefully; handle malformed responses gracefully
 - Store `model` and `prompt_version` with results for debugging
@@ -186,7 +193,7 @@ backend/
   cmd/server/        # Main entry point
   internal/
     config/          # Configuration loading
-    gemini/          # Gemini API client (interface + implementation)
+    ai/              # OpenRouter/MiniMax AI client (interface + implementation)
     handlers/        # HTTP handlers (JSON API)
     middleware/      # Session, logging middleware
     models/          # Data models
@@ -260,6 +267,6 @@ gh issue close #42
 - `backend` - Backend related
 - `api` - API changes
 - `database` - Database/schema changes
-- `gemini` - Gemini API integration
+- `ai` - AI provider integration
 - `security` - Security-related
 - `performance` - Performance optimization

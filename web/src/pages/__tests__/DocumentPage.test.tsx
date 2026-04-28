@@ -7,6 +7,7 @@ import DocumentPage from '../DocumentPage'
 
 const getDocumentMock = vi.fn()
 const getDocumentFileMock = vi.fn()
+const getDocumentPageMock = vi.fn()
 const updateDocumentProgressMock = vi.fn()
 
 type PageChangeSource = 'scroll' | 'navigation'
@@ -17,16 +18,45 @@ type ContinuousPDFViewerMockProps = {
   onTextSelect: (selectedText: string) => void
 }
 
+type ExtractedTextReaderMockProps = {
+  pageText: string
+  pageNumber: number
+  isLoading: boolean
+  onTextSelect: (selectedText: string) => void
+  onPageChange: (page: number, change: { source: 'navigation' }) => void
+}
+
 vi.mock('@/lib/api', () => ({
   getDocument: (...args: unknown[]) => getDocumentMock(...args),
   getDocumentFile: (...args: unknown[]) => getDocumentFileMock(...args),
   updateDocumentProgress: (...args: unknown[]) => updateDocumentProgressMock(...args),
-  getDocumentPage: vi.fn(),
+  getDocumentPage: (...args: unknown[]) => getDocumentPageMock(...args),
   createScanFromPage: vi.fn(),
   analyzeText: vi.fn(),
   createAnnotation: vi.fn(),
   synthesizeSpeech: vi.fn(),
   getAuthToken: () => 'mock-token',
+}))
+
+vi.mock('@/components/documentpage/ExtractedTextReader', () => ({
+  default: (props: ExtractedTextReaderMockProps) => React.createElement(
+    'div',
+    { 'data-testid': 'extracted-text-reader' },
+    props.isLoading
+      ? React.createElement('span', null, 'Loading reader text')
+      : React.createElement('span', null, props.pageText),
+    React.createElement('span', { 'data-testid': 'reader-current-page' }, props.pageNumber),
+    React.createElement(
+      'button',
+      { type: 'button', onClick: () => props.onTextSelect('読者モード選択') },
+      'Select reader text'
+    ),
+    React.createElement(
+      'button',
+      { type: 'button', onClick: () => props.onPageChange(props.pageNumber + 1, { source: 'navigation' }) },
+      'Reader next page'
+    )
+  ),
 }))
 
 vi.mock('@/components/documentpage/ContinuousPDFViewer', () => ({
@@ -61,6 +91,7 @@ describe('DocumentPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     updateDocumentProgressMock.mockResolvedValue({ status: 'saved' })
+    getDocumentPageMock.mockResolvedValue({ pageNumber: 1, text: '抽出された本文', totalPages: 3 })
   })
 
   function renderPage(id = '1') {
@@ -143,6 +174,81 @@ describe('DocumentPage', () => {
       })
 
       expect(updateDocumentProgressMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('switches to reader view and uses extracted text for selection', async () => {
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 1,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    getDocumentPageMock.mockResolvedValueOnce({ pageNumber: 1, text: '抽出された本文', totalPages: 3 })
+    renderPage()
+
+    const explainButton = await screen.findByRole('button', { name: /explain this/i })
+    expect(explainButton).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /reader view/i }))
+
+    expect(await screen.findByText('抽出された本文')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /select reader text/i }))
+
+    expect(explainButton).not.toBeDisabled()
+  })
+
+  it('clears selected text when switching between PDF and reader views', async () => {
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 1,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    renderPage()
+
+    const explainButton = await screen.findByRole('button', { name: /explain this/i })
+    fireEvent.click(screen.getByRole('button', { name: /select text/i }))
+    expect(explainButton).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /reader view/i }))
+
+    expect(explainButton).toBeDisabled()
+  })
+
+  it('saves progress when reader view navigation changes page', async () => {
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 1,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    getDocumentPageMock.mockResolvedValue({ pageNumber: 1, text: '抽出された本文', totalPages: 3 })
+    renderPage()
+
+    await screen.findByRole('button', { name: /reader view/i })
+    fireEvent.click(screen.getByRole('button', { name: /reader view/i }))
+    await screen.findByTestId('extracted-text-reader')
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /reader next page/i }))
+
+      expect(screen.getByTestId('reader-current-page')).toHaveTextContent('2')
+
+      await act(async () => {
+        vi.advanceTimersByTime(600)
+      })
+
+      expect(updateDocumentProgressMock).toHaveBeenCalledWith(1, 2)
     } finally {
       vi.useRealTimers()
     }

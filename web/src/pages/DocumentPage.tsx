@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import ContinuousPDFViewer from '@/components/documentpage/ContinuousPDFViewer'
+import ExtractedTextReader from '@/components/documentpage/ExtractedTextReader'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import Header from '@/components/layout/Header'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import { DEFAULT_MAX_ANNOTATION_VERSIONS, useAnnotationDrawerFlow } from '@/hooks/useAnnotationDrawerFlow'
 import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
-import { useDocument, useUpdateDocumentProgress } from '@/hooks/useDocument'
+import { useDocument, useDocumentPage, useUpdateDocumentProgress } from '@/hooks/useDocument'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { createScanFromPage, getDocumentFile } from '@/lib/api'
@@ -23,8 +24,16 @@ type DocumentPdfSectionProps = {
 
 type PageChangeSource = 'scroll' | 'navigation'
 type PageChange = { source: PageChangeSource }
+type ReaderView = 'pdf' | 'text'
 
 const DOCUMENT_PROGRESS_SAVE_DELAY_MS = 500
+
+function getReaderViewButtonClass(isActive: boolean): string {
+  const baseClass = 'min-h-11 flex-1 rounded-xl px-4 text-sm font-medium transition-colors'
+  return isActive
+    ? `${baseClass} bg-gray-900 text-white`
+    : `${baseClass} bg-white text-gray-700 hover:bg-gray-50`
+}
 
 function DocumentPdfSection({
   documentId,
@@ -92,6 +101,7 @@ export default function DocumentPage(): ReactElement {
   const { data: document, isLoading, error } = useDocument(documentId)
   const [pageOverride, setPageOverride] = useState<{ documentId: number; page: number } | null>(null)
   const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
+  const [readerView, setReaderView] = useState<ReaderView>('pdf')
   const updateProgress = useUpdateDocumentProgress(documentId)
   const progressSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const lastRequestedProgressRef = useRef<number | null>(null)
@@ -120,6 +130,7 @@ export default function DocumentPage(): ReactElement {
 
   const currentPage =
     pageOverride && pageOverride.documentId === documentId ? pageOverride.page : initialPage
+  const documentPage = useDocumentPage(readerView === 'text' ? documentId : undefined, currentPage)
 
   useEffect(() => {
     lastRequestedProgressRef.current = document?.lastPageNumber ?? null
@@ -244,6 +255,17 @@ export default function DocumentPage(): ReactElement {
     setContextText(context || selectedTextValue)
   }, [handleSelection, resetTextSelectionState])
 
+  const handleReaderViewChange = useCallback((nextView: ReaderView): void => {
+    if (readerView === nextView) {
+      return
+    }
+
+    setReaderView(nextView)
+    resetTextSelectionState()
+    resetAnnotationState()
+    setBridgeScanId(null)
+  }, [readerView, resetAnnotationState, resetTextSelectionState])
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-white flex flex-col">
@@ -269,14 +291,43 @@ export default function DocumentPage(): ReactElement {
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <Header title={document.filename} />
-      <DocumentPdfSection
-        key={documentId}
-        documentId={documentId}
-        document={document}
-        currentPage={currentPage}
-        onPageChange={handlePageChange}
-        onTextSelect={handleTextSelect}
-      />
+      <div className="grid grid-cols-2 gap-2 border-b border-gray-100 bg-gray-50 px-4 py-3">
+        <button
+          type="button"
+          className={getReaderViewButtonClass(readerView === 'pdf')}
+          aria-pressed={readerView === 'pdf'}
+          onClick={() => handleReaderViewChange('pdf')}
+        >
+          PDF View
+        </button>
+        <button
+          type="button"
+          className={getReaderViewButtonClass(readerView === 'text')}
+          aria-pressed={readerView === 'text'}
+          onClick={() => handleReaderViewChange('text')}
+        >
+          Reader View
+        </button>
+      </div>
+      {readerView === 'pdf' ? (
+        <DocumentPdfSection
+          key={documentId}
+          documentId={documentId}
+          document={document}
+          currentPage={currentPage}
+          onPageChange={handlePageChange}
+          onTextSelect={handleTextSelect}
+        />
+      ) : (
+        <ExtractedTextReader
+          pageText={documentPage.data?.text ?? ''}
+          pageNumber={currentPage}
+          totalPages={document.pageCount}
+          isLoading={documentPage.isLoading}
+          onPageChange={handlePageChange}
+          onTextSelect={handleTextSelect}
+        />
+      )}
       <BottomActionBar
         disabled={!selectedText || isLoadingAnnotation}
         isLoading={isLoadingAnnotation || analyzeText.isPending}
