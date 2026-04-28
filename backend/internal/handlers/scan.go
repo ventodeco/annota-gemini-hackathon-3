@@ -27,6 +27,8 @@ type ScanHandlers struct {
 	config       *config.Config
 }
 
+const ocrProcessingTimeout = 5 * time.Minute
+
 func NewScanHandlers(db storage.DB, fileStorage storage.FileStorage, geminiClient gemini.Client, cfg *config.Config) *ScanHandlers {
 	return &ScanHandlers{
 		db:           db,
@@ -167,7 +169,11 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 		"image_url": imageURL,
 	}).Infof("Scan created successfully, starting OCR processing")
 
-	go h.processOCR(context.Background(), scanID, imageData, mimeType, storagePath)
+	ocrCtx, cancelOCR := context.WithTimeout(context.WithoutCancel(r.Context()), ocrProcessingTimeout)
+	go func() {
+		defer cancelOCR()
+		h.processOCR(ocrCtx, scanID, imageData, mimeType, storagePath)
+	}()
 
 	response := CreateScanResponse{
 		ScanID:     scanID,

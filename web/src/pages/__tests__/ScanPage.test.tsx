@@ -125,6 +125,8 @@ describe('ScanPage', () => {
       imageUrl: '/uploads/5.jpg',
       detectedLanguage: 'JP',
       fullText: 'preloaded OCR',
+      sourceType: 'image',
+      status: 'ready',
       createdAt: '2026-02-08T20:30:41+07:00',
     }
 
@@ -146,6 +148,33 @@ describe('ScanPage', () => {
 
     expect(useScanMock).toHaveBeenCalledWith(5, { enabled: false, pollIntervalMs: 0 })
     expect(screen.getByText('preloaded OCR')).toBeInTheDocument()
+  })
+
+  it('ignores malformed preloaded scan state and fetches the scan instead', () => {
+    useScanMock.mockReturnValue({
+      data: {
+        id: 5,
+        imageUrl: '/uploads/5.jpg',
+        detectedLanguage: 'JP',
+        fullText: 'fetched OCR',
+        createdAt: '2026-02-08T20:30:41+07:00',
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={[{ pathname: '/scans/5', state: { preloadedScan: { id: 5, fullText: 'malformed OCR' } } }]}>
+          <Routes>
+            <Route path="/scans/:id" element={<ScanPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(useScanMock).toHaveBeenCalledWith(5, { enabled: true, pollIntervalMs: 0 })
+    expect(screen.getByText('fetched OCR')).toBeInTheDocument()
   })
 
   it('regenerates up to version 2/2 and saves regenerated annotation payload', async () => {

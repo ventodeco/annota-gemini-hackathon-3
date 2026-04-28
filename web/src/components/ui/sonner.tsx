@@ -7,15 +7,31 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react"
+import type { CSSProperties } from "react"
 import { useTheme } from "next-themes"
-import { Toaster as Sonner, type ToasterProps,  } from "sonner"
+import { Toaster as Sonner, type ToasterProps } from "sonner"
+
+type SonnerTheme = NonNullable<ToasterProps["theme"]>
+type ToasterStyle = CSSProperties & Record<`--${string}`, string>
+
+function isSonnerTheme(theme: string): theme is SonnerTheme {
+  return theme === "light" || theme === "dark" || theme === "system"
+}
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme()
+  const sonnerTheme = isSonnerTheme(theme) ? theme : "system"
+  const style: ToasterStyle = {
+    "--normal-bg": "var(--popover)",
+    "--normal-text": "var(--popover-foreground)",
+    "--normal-border": "var(--border)",
+    "--border-radius": "var(--radius)",
+    top: "60px",
+  }
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={sonnerTheme}
       className="toaster group"
       position="top-center"
       icons={{
@@ -25,15 +41,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         error: <OctagonXIcon className="size-4" />,
         loading: <Loader2Icon className="size-4 animate-spin" />,
       }}
-      style={
-        {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
-          top: "60px",
-        } as React.CSSProperties
-      }
+      style={style}
       {...props}
     />
   )

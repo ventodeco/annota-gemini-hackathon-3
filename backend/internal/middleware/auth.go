@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gemini-hackathon/app/internal/auth"
+	"github.com/gemini-hackathon/app/internal/httputil"
 )
 
 type contextKey string
@@ -26,13 +27,13 @@ func (m *AuthMiddleware) Handle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := extractToken(r)
 		if token == "" {
-			http.Error(w, "Unauthorized: missing token", http.StatusUnauthorized)
+			httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized: missing token")
 			return
 		}
 
 		userID, err := m.tokenService.ValidateToken(token)
 		if err != nil {
-			http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
+			httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized: invalid token")
 			return
 		}
 

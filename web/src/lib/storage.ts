@@ -2,13 +2,52 @@ import type { Annotation } from './types'
 
 const STORAGE_KEY = 'savedAnnotations'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isNuanceData(value: unknown): value is Annotation['nuance_data'] {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.meaning === 'string' &&
+    typeof value.usageExample === 'string' &&
+    typeof value.usageTiming === 'string' &&
+    typeof value.wordBreakdown === 'string' &&
+    typeof value.alternativeMeaning === 'string'
+  )
+}
+
+function isAnnotation(value: unknown): value is Annotation {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.id === 'number' &&
+    typeof value.user_id === 'number' &&
+    typeof value.highlighted_text === 'string' &&
+    isNuanceData(value.nuance_data) &&
+    typeof value.is_bookmarked === 'boolean' &&
+    typeof value.created_at === 'string' &&
+    (value.scan_id === undefined || typeof value.scan_id === 'number') &&
+    (value.context_text === undefined || typeof value.context_text === 'string')
+  )
+}
+
 function getAllSavedAnnotations(): Record<string, Annotation> {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (!stored) {
       return {}
     }
-    return JSON.parse(stored) as Record<string, Annotation>
+    const parsed: unknown = JSON.parse(stored)
+    if (!isRecord(parsed)) {
+      return {}
+    }
+    const annotations: Record<string, Annotation> = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (isAnnotation(value)) {
+        annotations[key] = value
+      }
+    }
+    return annotations
   } catch (error) {
     console.error('Failed to load saved annotations:', error)
     return {}

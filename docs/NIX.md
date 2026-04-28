@@ -69,7 +69,7 @@ eval "$(direnv hook zsh)"
 ### 2.1 Navigate to Project
 
 ```bash
-cd nix-flake-worktree
+cd /path/to/annota-gemini-hackathon-3
 ```
 
 ### 2.2 Enter Development Shell
@@ -143,7 +143,7 @@ nix flake update # Update dependencies
 ### File Structure
 
 ```
-nix-flake-worktree/
+repository-root/
 ├── flake.nix      # Nix configuration (what packages/versions)
 ├── flake.lock     # Locked versions (reproducible)
 └── .envrc         # Direnv instruction ("use flake")
@@ -187,7 +187,7 @@ nix-flake-worktree/
 ### Direnv Flow
 
 ```
-cd nix-flake-worktree
+cd /path/to/annota-gemini-hackathon-3
     │
     ▼
 .direnv reads .envrc

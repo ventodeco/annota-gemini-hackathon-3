@@ -6,7 +6,9 @@ import (
 	"strconv"
 )
 
-// ParsePagination extracts page and size from query parameters with defaults and bounds.
+// ParsePagination extracts page and size from query parameters.
+// Invalid or non-positive values are intentionally coerced to safe defaults,
+// and size is capped at 100 to protect list endpoints.
 func ParsePagination(r *http.Request, defaultSize int) (page, size int) {
 	page, _ = strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {

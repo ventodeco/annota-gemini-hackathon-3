@@ -1,5 +1,15 @@
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+
+function isLogLevel(value: string): value is LogLevel {
+  return LOG_LEVELS.some((level) => level === value);
+}
+
+export function resolveLogLevel(value: unknown): LogLevel {
+  return typeof value === 'string' && isLogLevel(value) ? value : 'info';
+}
+
 interface LogEntry {
   timestamp: string;
   level: LogLevel;
@@ -22,7 +32,7 @@ interface LoggerConfig {
 }
 
 const defaultConfig: LoggerConfig = {
-  level: (import.meta.env.VITE_LOG_LEVEL as LogLevel) || 'info',
+  level: resolveLogLevel(import.meta.env.VITE_LOG_LEVEL),
   enableConsole: true,
   enableRemote: false,
   remoteEndpoint: import.meta.env.VITE_LOG_ENDPOINT,
@@ -59,8 +69,7 @@ class Logger {
   }
 
   private shouldLog(level: LogLevel): boolean {
-    const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
-    return levels.indexOf(level) >= levels.indexOf(this.config.level);
+    return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(this.config.level);
   }
 
   private formatMessage(_level: LogLevel, message: string, ...args: unknown[]): string {
