@@ -31,7 +31,9 @@ export default function UploadForm() {
 
     const reader = new FileReader()
     reader.onloadend = () => {
-      setPreview(reader.result as string)
+      if (typeof reader.result === 'string') {
+        setPreview(reader.result)
+      }
     }
     reader.readAsDataURL(file)
   }

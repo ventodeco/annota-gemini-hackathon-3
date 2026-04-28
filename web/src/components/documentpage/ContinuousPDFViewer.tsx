@@ -20,7 +20,8 @@ interface PageContainerProps {
   pageNumber: number
   pdfDoc: pdfjsLib.PDFDocumentProxy
   containerWidth: number
-  onTextSelect: (selectedText: string) => void
+  onSelectionEnd: () => void
+  onTextLayerChange: (pageNumber: number, textLayer: HTMLDivElement | null) => void
   onVisible: (pageNumber: number, intersectionRatio: number) => void
   isVisible: boolean
 }
@@ -47,7 +48,8 @@ function PageRenderer({
   pageNumber,
   pdfDoc,
   containerWidth,
-  onTextSelect,
+  onSelectionEnd,
+  onTextLayerChange,
   onVisible,
   isVisible,
 }: PageContainerProps): ReactElement {
@@ -59,6 +61,11 @@ function PageRenderer({
   const [pageStyle, setPageStyle] = useState<PdfPageStyle | null>(null)
   const [hasSelectableText, setHasSelectableText] = useState<boolean | null>(null)
   const divRef = useRef<HTMLDivElement>(null)
+
+  const setTextLayerNode = useCallback((node: HTMLDivElement | null): void => {
+    textLayerRef.current = node
+    onTextLayerChange(pageNumber, node)
+  }, [onTextLayerChange, pageNumber])
 
   const renderPage = useCallback(async (): Promise<void> => {
     if (!canvasRef.current || !textLayerRef.current || !pdfDoc) return
@@ -114,32 +121,6 @@ function PageRenderer({
     }
   }, [isVisible, rendered, rendering, renderPage])
 
-  const handleTextSelection = useCallback((): void => {
-    const selection = window.getSelection()
-    onTextSelect(selection ? selection.toString() : '')
-  }, [onTextSelect])
-
-  useEffect(() => {
-    const handleSelectionChange = (): void => {
-      const selection = window.getSelection()
-      if (!selection || selection.rangeCount === 0 || selection.toString().trim() === '') {
-        return
-      }
-
-      const textLayer = textLayerRef.current
-      if (!textLayer) {
-        return
-      }
-
-      if (isSelectionInsideTextLayer(selection, textLayer)) {
-        onTextSelect(selection.toString())
-      }
-    }
-
-    document.addEventListener('selectionchange', handleSelectionChange)
-    return () => document.removeEventListener('selectionchange', handleSelectionChange)
-  }, [onTextSelect])
-
   return (
     <div
       ref={divRef}
@@ -152,10 +133,10 @@ function PageRenderer({
           className="block h-full w-full"
         />
         <div
-          ref={textLayerRef}
+          ref={setTextLayerNode}
           className="textLayer absolute inset-0"
-          onMouseUp={handleTextSelection}
-          onTouchEnd={handleTextSelection}
+          onMouseUp={onSelectionEnd}
+          onTouchEnd={onSelectionEnd}
         />
         {rendering && (
           <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
@@ -189,6 +170,7 @@ export default function ContinuousPDFViewer({
   const scrollPageChangeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const currentPageRef = useRef(currentPage)
   const didInitialScrollRef = useRef(false)
+  const textLayersRef = useRef<Map<number, HTMLDivElement>>(new Map())
 
   useEffect(() => {
     currentPageRef.current = currentPage
@@ -202,6 +184,7 @@ export default function ContinuousPDFViewer({
       setPdfDoc(null)
       setVisiblePages(new Set([1]))
       visiblePageRatiosRef.current.clear()
+      textLayersRef.current.clear()
       didInitialScrollRef.current = false
       try {
         ensurePdfjsWorker()
@@ -283,6 +266,49 @@ export default function ContinuousPDFViewer({
     [onPageChange]
   )
 
+  const handleTextLayerChange = useCallback((pageNumber: number, textLayer: HTMLDivElement | null): void => {
+    if (textLayer) {
+      textLayersRef.current.set(pageNumber, textLayer)
+      return
+    }
+    textLayersRef.current.delete(pageNumber)
+  }, [])
+
+  const reportSelection = useCallback((clearWhenEmpty: boolean): void => {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.toString().trim() === '') {
+      if (clearWhenEmpty) {
+        onTextSelect('')
+      }
+      return
+    }
+
+    const selectedText = selection.toString()
+    for (const textLayer of textLayersRef.current.values()) {
+      if (isSelectionInsideTextLayer(selection, textLayer)) {
+        onTextSelect(selectedText)
+        return
+      }
+    }
+
+    if (clearWhenEmpty) {
+      onTextSelect('')
+    }
+  }, [onTextSelect])
+
+  const handleSelectionEnd = useCallback((): void => {
+    reportSelection(true)
+  }, [reportSelection])
+
+  useEffect(() => {
+    const handleSelectionChange = (): void => {
+      reportSelection(false)
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => document.removeEventListener('selectionchange', handleSelectionChange)
+  }, [reportSelection])
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -334,7 +360,8 @@ export default function ContinuousPDFViewer({
               pageNumber={pageNum}
               pdfDoc={pdfDoc}
               containerWidth={containerWidth}
-              onTextSelect={onTextSelect}
+              onSelectionEnd={handleSelectionEnd}
+              onTextLayerChange={handleTextLayerChange}
               onVisible={handlePageVisible}
               isVisible={visiblePages.has(pageNum)}
             />

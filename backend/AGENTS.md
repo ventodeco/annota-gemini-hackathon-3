@@ -4,7 +4,13 @@ Guidelines for AI agents working on the Go backend of the Gemini OCR+Annotation 
 
 ## Project Overview
 
-Go backend providing JSON API for a mobile-first PWA that uses Gemini Flash for OCR and contextual annotations of Japanese text. See `../docs/rfc.md` and `../docs/prd.md` for detailed requirements.
+Go backend providing JSON API for a mobile-first PWA that uses OpenRouter OCR and MiniMax text/speech APIs for Japanese OCR, contextual annotations, and text-to-speech. See `../docs/rfc.md` and `../docs/prd.md` for detailed requirements.
+
+## Agent-mandated rules (read first)
+
+- **Superpowers workflow**: Before substantive backend work, read and follow the root `using-superpowers` workflow. Use process skills before implementation skills when they apply.
+- **DRY / KISS**: Keep handlers and services small, explicit, and easy to test. Avoid drive-by refactors and extract helpers only when they remove real duplication or clarify a stable boundary.
+- **Nix development**: If the user is working in the Nix flake environment, first run `nix develop` from the repository root, start local PostgreSQL/Redis with `dev-services start`, then run the documented `go` and `bun` commands inside that shell.
 
 ## Build Commands
 
@@ -36,16 +42,37 @@ cd backend && go fmt ./...
 
 ## Environment Variables
 
+Use `backend/.env.example` and `internal/config/config.go` as the source of truth.
+
 Required:
-- `GEMINI_API_KEY` - Google Gemini API key
+- `AI_PROVIDER` - AI provider mode: `minimax` (default) or `gemini`
+- `OPENROUTER_API_KEY` - OpenRouter API key for OCR when `AI_PROVIDER=minimax`
+- `MINIMAX_API_KEY` - MiniMax API key for annotation and speech when `AI_PROVIDER=minimax`
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY` - Gemini API key when `AI_PROVIDER=gemini`
+- `DB_CONNECTION_STRING` or the `POSTGRES_*` variables - PostgreSQL connection settings
+- `GOOGLE_OAUTH_CLIENT_ID` - Google OAuth client ID
+- `GOOGLE_OAUTH_CLIENT_SECRET` - Google OAuth client secret
+- `JWT_SECRET` - JWT signing secret, at least 32 characters
+- `FRONTEND_BASE_URL` - Frontend callback target for OAuth redirects
 
 Optional (with defaults):
+- `APP_ENV` - Application environment (default: `development`)
+- `APP_BASE_URL` - Backend base URL (default: `http://localhost:8080`)
 - `PORT` - Server port (default: `8080`)
-- `DB_PATH` - SQLite database path (default: `data/app.db`)
 - `UPLOAD_DIR` - Upload directory (default: `data/uploads`)
 - `MAX_UPLOAD_SIZE` - Max upload size in bytes (default: `10485760` = 10MB)
 - `SESSION_COOKIE_NAME` - Session cookie name (default: `sid`)
 - `SESSION_SECURE` - Cookie secure flag (default: `false`)
+- `REDIS_ADDR` - Redis address for OAuth state and caching (default: `localhost:6379`)
+- `DEFAULT_PAGE_SIZE` - Default pagination size (default: `20`)
+- `OPENROUTER_OCR_MODEL` - OCR model (default: `baidu/qianfan-ocr-fast:free`)
+- `MINIMAX_TEXT_MODEL` - Annotation model (default: `MiniMax-M2.7`)
+- `MINIMAX_TTS_MODEL` - Speech model (default: `speech-2.8-hd`)
+- `MINIMAX_TTS_VOICE_ID` - Speech voice ID (default: `Japanese_Whisper_Belle`)
+- `AI_RATE_LIMIT` - AI-backed route limit, set `0` to disable locally (default: `60`)
+- `AI_RATE_LIMIT_WINDOW_SECONDS` - AI rate limit window (default: `3600`)
+
+The flake provides developer tooling, local PostgreSQL/Redis service commands, and convenience env values. The running backend still requires OAuth, JWT, and the selected AI provider configuration from `backend/.env`.
 
 ## Code Style Guidelines
 
@@ -63,7 +90,7 @@ import (
     "net/http"
 
     "github.com/gemini-hackathon/app/internal/config"
-    "github.com/gemini-hackathon/app/internal/gemini"
+    "github.com/gemini-hackathon/app/internal/ai"
 )
 ```
 
@@ -85,16 +112,18 @@ import (
 - Return early on errors in handlers
 - Log errors at the appropriate level before returning
 - Validate inputs early and return user-friendly errors
+- For `/v1/*` JSON APIs and middleware used by those APIs, prefer `httputil.WriteJSONError` over `http.Error` so clients receive a consistent `ErrorResponse`
+- Shared JSON helpers should either handle `json.Encoder.Encode` errors or make intentional ignored errors explicit
 
 ```go
 func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodPost {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+        httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
         return
     }
 
     if err := r.ParseMultipartForm(h.config.MaxUploadSize); err != nil {
-        http.Error(w, "Failed to parse form", http.StatusBadRequest)
+        httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")
         return
     }
     // ...
@@ -108,6 +137,7 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 - Check request method explicitly
 - Use `http.Status*` constants for status codes
 - Return JSON responses for API endpoints
+- Keep pagination behavior explicit: `ParsePagination` should either validate parse failures as `400` responses or document intentional coercion to defaults in the helper contract
 
 ### Database Patterns
 
@@ -115,10 +145,11 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 - Define repository methods on the DB interface
 - Use `context.Context` for cancellation support
 - Store timestamps as `time.Time` in models
+- Production migrations target PostgreSQL. Do not assume SQLite compatibility for `migrations/*.sql`.
 
-### Gemini API Integration
+### AI Provider Integration
 
-- Use `gemini.Client` interface for testability
+- Use `ai.Client` interface for testability
 - Pass `context.Context` for timeout/cancellation control
 - Parse JSON responses carefully; handle malformed responses gracefully
 - Store `model` and `prompt_version` with results for debugging
@@ -162,13 +193,13 @@ backend/
   cmd/server/        # Main entry point
   internal/
     config/          # Configuration loading
-    gemini/          # Gemini API client (interface + implementation)
+    ai/              # OpenRouter/MiniMax AI client (interface + implementation)
     handlers/        # HTTP handlers (JSON API)
     middleware/      # Session, logging middleware
     models/          # Data models
-    storage/         # SQLite storage (interface + implementation)
+    storage/         # PostgreSQL storage (interface + implementation)
     testutil/        # Test helpers and mocks
-  migrations/        # SQLite schema migrations
+  migrations/        # PostgreSQL schema migrations
   go.mod             # Go module definition
   go.sum             # Go module checksums
 ```
@@ -183,6 +214,7 @@ backend/
 
 - Use goroutines for background processing (e.g., OCR processing)
 - Always pass `context.Context` for cancellation
+- Avoid raw `context.Background()` in request-started background work unless the lifecycle is intentionally detached and documented; prefer request, timeout, or shutdown-aware contexts
 - Propagate errors from goroutines using channels
 - Handle goroutine panics gracefully or let them crash the process in development
 
@@ -202,6 +234,7 @@ if err := <-errCh; err != nil {
 - Use standard `log` package for now
 - Include correlation IDs where applicable
 - Log errors with context before returning
+- Middleware logs should preserve enough response information for debugging without leaking secrets or large payloads
 
 ## Issue Tracking Workflow
 
@@ -215,15 +248,15 @@ See the complete workflow documentation: [`docs/github-workflow.md`](../docs/git
 # Create issue for your work
 gh issue create --label backend --title "[TASK] Description"
 
-# Work on main (or create feature branch - see workflow doc)
-git checkout main
-git pull origin main
+# Work on dev (or create feature branch - see workflow doc)
+git checkout dev
+git pull origin dev
 
 # Commit with issue reference
 git commit -m "feat: description (#42)"
 
 # Push
-git push origin main
+git push origin dev
 
 # Close issue when done
 gh issue close #42
@@ -234,6 +267,6 @@ gh issue close #42
 - `backend` - Backend related
 - `api` - API changes
 - `database` - Database/schema changes
-- `gemini` - Gemini API integration
+- `ai` - AI provider integration
 - `security` - Security-related
 - `performance` - Performance optimization

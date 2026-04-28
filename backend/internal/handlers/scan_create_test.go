@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/config"
-	"github.com/gemini-hackathon/app/internal/gemini"
 	"github.com/gemini-hackathon/app/internal/handlers"
 	"github.com/gemini-hackathon/app/internal/knowledge"
 	"github.com/gemini-hackathon/app/internal/middleware"
@@ -45,25 +45,25 @@ func (m *mockFileStorage) DeletePDF(path string) error {
 	return nil
 }
 
-type mockGeminiClient struct{}
+type mockAIClient struct{}
 
-func (m *mockGeminiClient) OCR(ctx context.Context, imageData []byte, mimeType string) (*gemini.OCRResponse, error) {
-	return &gemini.OCRResponse{
+func (m *mockAIClient) OCR(ctx context.Context, imageData []byte, mimeType string) (*ai.OCRResponse, error) {
+	return &ai.OCRResponse{
 		RawText:        "OCR text",
 		StructuredJSON: "{}",
 		Language:       "JP",
 	}, nil
 }
 
-func (m *mockGeminiClient) Annotate(ctx context.Context, ocrText string, selectedText string) (*gemini.AnnotationResponse, error) {
+func (m *mockAIClient) Annotate(ctx context.Context, ocrText string, selectedText string) (*ai.AnnotationResponse, error) {
 	return nil, nil
 }
 
-func (m *mockGeminiClient) AnnotateWithKnowledge(ctx context.Context, ocrText string, selectedText string, entries []knowledge.Entry) (*gemini.AnnotationResponse, error) {
+func (m *mockAIClient) AnnotateWithKnowledge(ctx context.Context, ocrText string, selectedText string, entries []knowledge.Entry) (*ai.AnnotationResponse, error) {
 	return nil, nil
 }
 
-func (m *mockGeminiClient) SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*gemini.SpeechResponse, error) {
+func (m *mockAIClient) SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*ai.SpeechResponse, error) {
 	return nil, nil
 }
 
@@ -94,7 +94,7 @@ func buildUploadRequest(t *testing.T, path string) *http.Request {
 func TestCreateScanPersistsImageURLAndGetScanReturnsIt(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024}
-	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockGeminiClient{}, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
 
 	createReq := buildUploadRequest(t, "/v1/scans")
 	createReq = createReq.WithContext(middleware.WithUserID(createReq.Context(), 1))
@@ -134,7 +134,7 @@ func TestCreateScanPersistsImageURLAndGetScanReturnsIt(t *testing.T) {
 func TestGetScanImageRequiresOwnershipAndServesStoredImage(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024, UploadDir: "data/uploads"}
-	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockGeminiClient{}, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
 
 	createReq := buildUploadRequest(t, "/v1/scans")
 	createReq = createReq.WithContext(middleware.WithUserID(createReq.Context(), 1))
@@ -170,7 +170,7 @@ func TestGetScanImageRequiresOwnershipAndServesStoredImage(t *testing.T) {
 func TestCreateScanUnauthorized(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024}
-	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockGeminiClient{}, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
 
 	req := buildUploadRequest(t, "/v1/scans")
 	rec := httptest.NewRecorder()

@@ -4,7 +4,7 @@ CSV-based vocabulary lookup service that enriches AI annotations with domain-spe
 
 ## Overview
 
-The Knowledge Service loads Japanese business/work vocabulary from a CSV file at startup and provides fast lookups to enhance Gemini prompts with contextual information.
+The Knowledge Service loads Japanese business/work vocabulary from a CSV file at startup and provides fast lookups to enhance AI annotation prompts with contextual information.
 
 ## Architecture
 
@@ -17,9 +17,9 @@ User selects text → POST /v1/ai/analyze
                   │  2. Substring    │
                   └─────────────────┘
                            ↓
-                  Found? → Inject into Gemini prompt
+                  Found? → Inject into AI prompt
                            ↓
-                     Gemini API
+                    MiniMax API
 ```
 
 ## CSV Format

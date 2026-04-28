@@ -7,6 +7,7 @@ import { AnnotationContent } from './AnnotationContent'
 import { Button } from '@/components/ui/button'
 import { Bookmark, RotateCcw } from 'lucide-react'
 import type { Annotation } from '@/lib/types'
+import type { DrawerState } from '@/hooks/useDrawerHeight'
 
 interface AnnotationDrawerProps {
   isOpen: boolean
@@ -18,6 +19,27 @@ interface AnnotationDrawerProps {
   isSaving?: boolean
   version?: number
   maxVersions?: number
+}
+
+function getDrawerHeight(drawerState: DrawerState): string {
+  switch (drawerState) {
+    case 'expanded':
+      return '75vh'
+    case 'closed':
+    case 'collapsed':
+      return '35vh'
+  }
+}
+
+function getDrawerAriaValue(drawerState: DrawerState): number {
+  switch (drawerState) {
+    case 'expanded':
+      return 2
+    case 'collapsed':
+      return 1
+    case 'closed':
+      return 0
+  }
 }
 
 export function AnnotationDrawer({
@@ -68,7 +90,7 @@ export function AnnotationDrawer({
         className="bg-white border-t border-gray-200 rounded-t-2xl p-6 overflow-hidden"
         showCloseButton={false}
         style={{
-          height: drawerState === 'closed' ? '35vh' : drawerState === 'collapsed' ? '35vh' : '75vh',
+          height: getDrawerHeight(drawerState),
           transition: 'height 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
         aria-label="Annotation drawer"
@@ -82,7 +104,7 @@ export function AnnotationDrawer({
             aria-label="Drawer resize handle"
             aria-valuemin={0}
             aria-valuemax={2}
-            aria-valuenow={drawerState === 'collapsed' ? 1 : drawerState === 'expanded' ? 2 : 0}
+            aria-valuenow={getDrawerAriaValue(drawerState)}
             tabIndex={0}
             drag="y"
             dragConstraints={{ top: 0, bottom: 0 }}

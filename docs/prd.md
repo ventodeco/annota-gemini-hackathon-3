@@ -38,13 +38,27 @@ This PRD is written against the current codebase baseline. The implementation al
 - Gemini-based annotation generation.
 - Gemini text-to-speech endpoint and frontend playback hooks.
 - Saved annotation history and detail views.
-- User language preference model.
+- Document library with reading progress (`last_page_number`, `last_opened_at`) stored end-to-end.
+- User language preference field exists in the user model and persists through `/v1/users/me`, but is **not yet wired into the Gemini prompt** — see Phase 1.5.
 
 The roadmap below distinguishes current baseline, next product work, and future enhancements. It should not be read as claiming every roadmap feature is already complete.
 
+### 3.1 Known Gaps (Phase 1.5 targets)
+
+The following reliability and quality issues exist in the current baseline and are tracked as Phase 1.5 acceptance criteria:
+
+- **PDF viewer performance.** `ContinuousPDFViewer` mounts all pages upfront and registers one `selectionchange` listener per page, causing O(N) handler calls per cursor move on long documents. Acceptance: virtualize off-screen pages with a single shared handler.
+- **OCR scan polling disabled.** `ScanPage` passes `pollIntervalMs: 0`, so a freshly-created async scan displayed directly will spin on the loader forever without a manual reload.
+- **`preferredLanguage` not reaching Gemini.** The `AnalyzeWithLanguageAPI` handler exists (`backend/internal/handlers/ai.go`) but is not routed. The active `/v1/ai/analyze` handler hard-codes English.
+- **Annotation compat fields still on the wire.** `meaning`, `usageTiming`, `alternativeMeaning` are still emitted alongside the §9 richer schema with no documented migration cut-off.
+- **Single AI rate-limiter shared across scan, analyze, and speech.** TTS replays consume analyze quota from the same bucket.
+
 ## 4. Target Users
 
-- Japanese language learners reading textbooks, PDFs, and work-related material.
+**Primary persona — Non-resident Japanese learners** who read textbooks, PDFs, and book photos outside Japan and need on-demand pronunciation (TTS) and JP→EN translation without leaving the document.
+
+Secondary personas:
+
 - Professionals who need to understand Japanese documents quickly in context.
 - Students who want translation, reading guidance, and saved notes while studying.
 - Intermediate learners who can read some Japanese but need help with vocabulary, nuance, and pronunciation.
@@ -56,11 +70,13 @@ The roadmap below distinguishes current baseline, next product work, and future 
 | Reader activation | Users who sign in and open at least one PDF, image, or camera scan | >= 60% |
 | First annotation rate | Users who select text and generate at least one annotation | >= 50% |
 | TTS usage rate | Users who play audio for at least one selected Japanese phrase | >= 30% |
+| TTS audio cache hit rate | Replays of saved-annotation TTS that are served from cache rather than re-calling `/v1/ai/speech` | >= 60% |
 | Saved learning rate | Users who save at least one annotation/bookmark | >= 30% |
 | Continue-reading rate | Users who return to a previously opened document | >= 25% |
 | Annotation latency | Average time to display an annotation result | <= 3 seconds |
 | PDF extraction success | Text-based PDFs that provide extractable text for annotation context | >= 95% |
 | OCR success | Uploaded images converted into readable Japanese text | >= 85% |
+| Annotation export success rate | Export requests that complete and produce a valid file | >= 99% |
 
 ## 6. Product Principles
 
@@ -85,6 +101,25 @@ Goal: make the existing end-to-end experience reliable and easy to understand.
 - User can play TTS for the selected Japanese text.
 - User can save the annotation and view it in history.
 - Errors for unsupported files, failed extraction, failed OCR, failed annotation, and failed TTS are clear and recoverable.
+
+### Phase 1.5: Reader Hardening
+
+Goal: make the reader/annotation/TTS loop trustworthy on the mobile devices the PRD calls primary before building additional features. Each item below has an acceptance criterion that blocks phase completion.
+
+**Reliability:**
+
+- **PDF viewer scales to long documents.** Virtualize off-screen pages; use a single shared `selectionchange` listener across all pages. Acceptance: open a 200-page PDF on mid-tier mobile; selection-response latency stays ≤ 16 ms median during cursor drag. (`web/src/components/documentpage/ContinuousPDFViewer.tsx`)
+- **OCR scan polling re-enabled.** `ScanPage` polls `/v1/scans/{id}` until status is `ready` or `failed`. Acceptance: navigating directly to a freshly-created scan resolves without manual reload. (`web/src/pages/ScanPage.tsx`)
+- **`preferredLanguage` wired into Gemini prompt.** The `/v1/ai/analyze` handler reads `user.PreferredLanguage` and passes it to the annotation prompt. Acceptance: changing the user's language preference in the profile changes the annotation output language. (`backend/internal/handlers/ai.go`, `backend/cmd/server/main.go`)
+- **Annotation schema migration closed out.** Responses for annotations created after the migration cut-off return only the §9 richer schema fields; legacy `meaning`, `usageTiming`, `alternativeMeaning` are removed from the wire. Migration cut-off date to be documented in release notes at time of deployment. (`backend/internal/handlers/ai.go`, `backend/internal/models/annotation.go`, `web/src/pages/AnnotationDetailPage.tsx`)
+- **AI rate-limiter split.** Separate rate-limit buckets for `/v1/scans`, `/v1/ai/analyze`, and `/v1/ai/speech` so TTS replay does not consume annotation-generation quota. (`backend/cmd/server/main.go`, `backend/internal/middleware/rate_limit.go`)
+
+**Mobile-readiness:**
+
+- **iOS safe-area honored.** Add `viewport-fit=cover` to `web/index.html`; apply `env(safe-area-inset-bottom)` to `BottomNavigation`, `BottomActionBar`, and `AnnotationDrawer`. Acceptance: no UI clipped by iPhone home-indicator.
+- **Touch targets ≥ 44 px.** All interactive controls meet the 44 px minimum. Acceptance: audit passes on `WelcomePage`, `HistoryPage`, and `DocumentsPage`.
+- **iOS PDF text selection.** Add a `touch-action` constraint on `.textLayer` so iOS Safari selection does not scroll the page. (`web/src/index.css`)
+- **Semantic interactive elements.** Replace `<div onClick>` with `<button>` where used for row-level navigation (e.g., `HistoryPage.tsx:124`).
 
 ### Phase 2: Document Library And Reading Memory
 
@@ -117,7 +152,14 @@ Goal: improve comprehension for harder books and less clean documents.
 - The system can summarize nearby paragraph/page context for Gemini when a selection is ambiguous.
 - Scanned/image-only PDFs can fall back to OCR per page.
 - Offline PWA shell can support opening the app and viewing cached metadata, while OCR, annotation, and TTS remain network-backed.
-- Export, sharing, spaced review, or quiz features can be considered after the reader and learning loop are stable.
+
+### Phase 5: Outside-Japan Learner Loop
+
+Goal: close the daily-practice loop for the primary persona — non-resident Japanese learners who need pronunciation and translation support while studying.
+
+- **Furigana toggle.** Users can enable a persisted preference that renders kana above kanji in annotation output and (where layout permits) in OCR text previews. Gemini already returns `pronunciation.kana`; this is a UI + preference wiring task.
+- **Saved-TTS audio caching.** Generated audio for an annotation is persisted so replays from the annotation detail view do not re-call `/v1/ai/speech` on every tap. Storage mechanism (blob column vs. object store) is deferred to the implementation plan. Acceptance criterion: TTS audio cache hit rate ≥ 60% on replay (see §5).
+- **Annotation export.** Users can download saved annotations as an Anki-compatible CSV via `GET /v1/annotations/export?format=csv`. Acceptance: a round-trip export produces a file that imports into Anki without manual cleanup. Export success rate ≥ 99% (see §5).
 
 ## 8. Functional Requirements
 
@@ -135,6 +177,12 @@ Goal: improve comprehension for harder books and less clean documents.
 | Text-To-Speech | System plays selected Japanese text exactly as written. | High | Current/Phase 1 |
 | Save Annotation | User can save useful annotations. | High | Current/Phase 1 |
 | Annotation History | User can revisit saved annotations. | Medium | Current/Phase 1 |
+| Long-PDF Performance | PDF viewer virtualizes off-screen pages and uses a single shared selection handler; selection latency ≤ 16 ms median on 200-page documents. | High | Phase 1.5 |
+| OCR Scan Polling | ScanPage polls scan status until ready or failed; no manual reload required after direct navigation. | High | Phase 1.5 |
+| Language Preference Wiring | User's preferred language preference reaches the Gemini annotation prompt. | High | Phase 1.5 |
+| Annotation Schema Migration | Legacy compat fields (meaning, usageTiming, alternativeMeaning) removed from wire; migration cut-off documented. | High | Phase 1.5 |
+| AI Rate-Limiter Split | Separate rate-limit buckets for scan, analyze, and speech endpoints. | High | Phase 1.5 |
+| iOS Safe-Area & Touch Targets | All bottom bars honor iOS safe-area inset; all interactive controls meet 44 px minimum touch target. | High | Phase 1.5 |
 | Document Library | User can view uploaded PDFs and continue reading. | High | Phase 2 |
 | Reading Progress | System stores current page and last opened time per document. | High | Phase 2 |
 | Page-Aware History | Saved annotations preserve document/page/source metadata. | High | Phase 2 |
@@ -142,7 +190,10 @@ Goal: improve comprehension for harder books and less clean documents.
 | Saved TTS Replay | User can replay TTS from saved annotations. | Medium | Phase 3 |
 | Scanned PDF OCR Fallback | Image-only PDFs can be processed with page-level OCR. | Medium | Phase 4 |
 | Document-Level Context | Annotation can use broader page/book context when needed. | Medium | Phase 4 |
-| Language Preference | User can choose explanation language after English-first behavior is stable. | Low | Future |
+| Furigana Toggle | User can enable kana-over-kanji display in annotation output; preference persisted. | High | Phase 5 |
+| Saved-TTS Audio Cache | Replayed TTS audio is served from cache; cache hit rate ≥ 60%. | High | Phase 5 |
+| Annotation Export | User can download annotations as Anki-compatible CSV via export endpoint. | Medium | Phase 5 |
+| Language Preference UI | User can choose explanation language after English-first behavior is stable. | Low | Future |
 
 ## 9. Annotation Output Requirements
 
@@ -158,7 +209,7 @@ The roadmap target for annotation output is:
 | `alternativeMeanings` | Other plausible meanings and why they do or do not fit the current context. |
 | `pronunciation` | Kana/reading guidance; optional romaji; future pitch/accent notes if useful. |
 
-Current implementation fields such as `meaning`, `usageExample`, `usageTiming`, `wordBreakdown`, and `alternativeMeaning` can remain as compatibility fields until the API and UI migrate to the richer schema.
+Legacy compatibility fields (`meaning`, `usageTiming`, `alternativeMeaning`) remain on the wire until the Phase 1.5 schema migration cut-off. After that cut-off, only the fields above are returned for new annotations. Existing saved annotations retain their stored JSON; clients must handle both schemas for the transition period.
 
 ## 10. TTS Requirements
 
@@ -166,7 +217,7 @@ Current implementation fields such as `meaning`, `usageExample`, `usageTiming`, 
 - Surrounding context may be used only to infer natural tone, pacing, or pronunciation.
 - TTS must not read surrounding context aloud.
 - TTS should be available from the active selection in the reader.
-- Future saved annotation details should support replaying the selected text audio.
+- Saved annotation details support replaying the selected text audio (Phase 3). Audio is served from cache after Phase 5.
 - Failed audio generation must not block reading or saving the annotation.
 
 ## 11. Document Reader Requirements
@@ -198,15 +249,19 @@ The current backend uses `/v1/...` routes. Product requirements should align to 
 | Scan upload | `POST /v1/scans` |
 | Scan detail | `GET /v1/scans/{id}` |
 | Document upload | `POST /v1/documents` |
+| Document library list | `GET /v1/documents` |
 | Document detail | `GET /v1/documents/{id}` |
 | Document PDF file | `GET /v1/documents/{id}/file` |
 | Document page text | `GET /v1/documents/{id}/pages/{pageNumber}` |
 | PDF page scan bridge | `POST /v1/documents/{id}/pages/{pageNumber}/scan` |
+| Update reading progress | `PATCH /v1/documents/{id}/progress` |
+| Delete document | `DELETE /v1/documents/{id}` |
 | Annotation generation | `POST /v1/ai/analyze` |
 | Speech generation | `POST /v1/ai/speech` |
 | Save annotation | `POST /v1/annotations` |
 | Annotation history | `GET /v1/annotations` |
 | Annotation detail | `GET /v1/annotations/{id}` |
+| Annotation export | `GET /v1/annotations/export` — Phase 5 |
 
 Future API changes should preserve backward compatibility or include a documented migration path for saved annotations.
 
@@ -258,18 +313,24 @@ graph TD
 | --- | --- |
 | Performance | Average annotation response time should be <= 3 seconds. |
 | Performance | Text-based PDF page extraction should be <= 1 second per page. |
+| Performance | PDF page render frame budget ≤ 16 ms median during selection drag on a 200-page document on mid-tier mobile. |
 | Performance | PDF rendering should remain responsive on mobile-sized documents. |
 | Usability | Selection, explanation, save, and TTS controls must be touch-friendly. |
+| Usability | All interactive controls must have a minimum 44 px touch target on mobile. |
+| Usability | iOS safe-area insets must be honored on all bottom bars and drawers (`env(safe-area-inset-bottom)`). |
 | Reliability | Saved documents, scans, annotations, and progress persist across sessions. |
+| Reliability | AI rate-limit buckets are independent across scan, analyze, and speech so one endpoint cannot starve another. |
 | Security | User documents and annotations require authenticated access. |
 | Privacy | User-uploaded PDFs/images should not be visible to other users. |
 | Limits | Image and PDF upload limits default to 10MB unless configuration changes. |
-| Accessibility | Core actions should have accessible labels and visible loading/error states. |
+| Accessibility | Core actions must have accessible labels and visible loading/error states. |
+| Accessibility | `AnnotationDrawer` must include `role="dialog"`, `aria-modal`, and a focus trap. |
+| Accessibility | `LoadingPage` must expose `role="status"` and `aria-live` so screen readers announce OCR progress. |
 | Scalability | OCR, annotation, TTS, and PDF processing should remain separable services. |
 
 ## 15. Assumptions
 
-- The first strong product target is Japanese learning material with English explanations.
+- The first strong product target is non-resident Japanese learners who need pronunciation and translation support while reading.
 - Most early PDFs are text-based and have extractable text.
 - Mobile browser usage is important, but desktop browser reading should still work.
 - Users are willing to sign in to preserve documents and annotations.
@@ -289,16 +350,26 @@ These are not required for the stabilized roadmap phases unless explicitly promo
 - Teacher dashboards.
 - Payments or subscription plans.
 - Full offline OCR, annotation, or TTS.
-- Quizzes, spaced repetition, or flashcards before the reader and saved learning loop are stable.
+- Quizzes, spaced repetition, or flashcards — deferred until Phase 5 (outside-Japan learner loop) ships and the study loop is stable.
 - Pitch accent detection as a required pronunciation feature.
+- **Vertical text 縦書き** — most non-resident learners study horizontal textbooks and PDFs; revisit if novel or manga reading becomes a meaningful target segment.
+- **Dark mode** — comfort feature, not learning-loop-critical; `.dark` tokens and `next-themes` are already present for a low-cost future addition.
+- **Quota visibility / `X-RateLimit-Remaining` header** — useful for ops dashboards, not for the learner-facing loop; defer until meaningful usage data exists.
+- **JMdict on-tap dictionary** — high value for single-word lookup at lower Gemini cost, but requires a ~50MB data file, a new lookup endpoint, and a disambiguation UX (tap → JMdict vs. tap → Gemini). Earns its own future phase rather than competing with hardening.
+- **Folders / tags for documents** — premature below ~20 documents per user; revisit after document library usage data is available.
+- **Share annotation (Web Share API)** — viral loop feature, not learning-loop-critical; low implementation cost when prioritized.
+- **Background OCR via Notification API** — depends on a real PWA service worker, which is itself a Phase 4 item.
+- **Resumable / chunked uploads** — relevant only if the 10MB upload limit is raised; revisit when limit increase is planned.
 
 ## 17. Acceptance Criteria For This PRD
 
 - A reader can understand ANNOTA's product direction without reading the RFC or code.
-- The PRD clearly labels current baseline, near-term work, and future roadmap.
+- The PRD clearly labels current baseline, known gaps, near-term work, and future roadmap.
 - PDF reading is presented as a primary product surface.
 - Camera/OCR is presented as a companion path into the same learning loop.
 - TTS is part of the core goal, not listed as out of scope.
 - English is the primary explanation language.
 - The annotation roadmap includes translation, contextual explanation, pronunciation, and saved source context.
 - `/v1/...` route naming is used where API shapes are mentioned.
+- Every Phase 1.5 acceptance criterion has a matching row in §8 or §14.
+- The primary persona is explicitly named and drives §8 and §16 prioritization decisions.

@@ -36,13 +36,21 @@ const LANGUAGE_LABELS: Record<Language, string> = {
   EN: 'English',
 }
 
+const LANGUAGE_OPTIONS: ReadonlyArray<{ value: Language; label: string }> = [
+  { value: 'ID', label: LANGUAGE_LABELS.ID },
+  { value: 'JP', label: LANGUAGE_LABELS.JP },
+  { value: 'EN', label: LANGUAGE_LABELS.EN },
+]
+
+function isLanguage(value: string): value is Language {
+  return LANGUAGE_OPTIONS.some((option) => option.value === value)
+}
+
 export default function ProfilePage() {
   const { user, logout, refreshUser } = useAuth()
   const navigate = useNavigate()
 
-  const [lang, setLang] = useState<Language>(
-    (user?.preferred_language as Language) ?? 'EN',
-  )
+  const [lang, setLang] = useState<Language>(user?.preferred_language ?? 'EN')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -107,7 +115,11 @@ export default function ProfilePage() {
 
           <Select
             value={lang}
-            onValueChange={(v) => setLang(v as Language)}
+            onValueChange={(value) => {
+              if (isLanguage(value)) {
+                setLang(value)
+              }
+            }}
           >
             <SelectTrigger className="w-full">
               <SelectValue>
@@ -115,13 +127,11 @@ export default function ProfilePage() {
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {(Object.entries(LANGUAGE_LABELS) as [Language, string][]).map(
-                ([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ),
-              )}
+              {LANGUAGE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 

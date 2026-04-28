@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import ContinuousPDFViewer from '../ContinuousPDFViewer'
 import * as pdfjsLib from 'pdfjs-dist'
 
@@ -89,6 +91,7 @@ vi.mock('pdfjs-dist', () => ({
 describe('ContinuousPDFViewer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.getSelection()?.removeAllRanges()
     MockIntersectionObserver.instances = []
     mockIntersectionObserver = MockIntersectionObserver
     vi.stubGlobal('IntersectionObserver', mockIntersectionObserver)
@@ -303,19 +306,6 @@ describe('ContinuousPDFViewer', () => {
     })
 
     it('should pass selected text to onTextSelect on mouse up', async () => {
-      const selectionHost = document.createElement('div')
-      selectionHost.textContent = 'お母さん、ちょっと来て！'
-      document.body.appendChild(selectionHost)
-      const selectedTextNode = selectionHost.firstChild
-      const selection = window.getSelection()
-      if (!selectedTextNode || !selection) {
-        throw new Error('Expected selection APIs to be available')
-      }
-      const range = document.createRange()
-      range.selectNodeContents(selectedTextNode)
-      selection.removeAllRanges()
-      selection.addRange(range)
-
       render(
         <ContinuousPDFViewer
           pdfUrl="test.pdf"
@@ -330,14 +320,69 @@ describe('ContinuousPDFViewer', () => {
       const textLayer = await waitFor(() => {
         const node = document.querySelector('.textLayer')
         expect(node).toBeInTheDocument()
+        expect(node).toBeInstanceOf(HTMLElement)
+        if (!(node instanceof HTMLElement)) {
+          throw new Error('Expected text layer')
+        }
         return node
       })
+      const selectedSpan = document.createElement('span')
+      selectedSpan.textContent = 'お母さん、ちょっと来て！'
+      textLayer.appendChild(selectedSpan)
+      const selectedTextNode = selectedSpan.firstChild
+      const selection = window.getSelection()
+      if (!selectedTextNode || !selection) {
+        throw new Error('Expected selection APIs to be available')
+      }
+      const range = document.createRange()
+      range.selectNodeContents(selectedTextNode)
+      selection.removeAllRanges()
+      selection.addRange(range)
 
       fireEvent.mouseUp(textLayer)
 
       expect(mockOnTextSelect).toHaveBeenCalledWith('お母さん、ちょっと来て！')
       selection.removeAllRanges()
-      selectionHost.remove()
+    })
+
+    it('should pass selected text to onTextSelect on touch end', async () => {
+      render(
+        <ContinuousPDFViewer
+          pdfUrl="test.pdf"
+          currentPage={1}
+          totalPages={1}
+          onPageChange={mockOnPageChange}
+          onTextSelect={mockOnTextSelect}
+          isLoading={false}
+        />
+      )
+
+      const textLayer = await waitFor(() => {
+        const node = document.querySelector('.textLayer')
+        expect(node).toBeInTheDocument()
+        expect(node).toBeInstanceOf(HTMLElement)
+        if (!(node instanceof HTMLElement)) {
+          throw new Error('Expected text layer')
+        }
+        return node
+      })
+      const selectedSpan = document.createElement('span')
+      selectedSpan.textContent = 'お母さん、ちょっと来て！'
+      textLayer.appendChild(selectedSpan)
+      const selectedTextNode = selectedSpan.firstChild
+      const selection = window.getSelection()
+      if (!selectedTextNode || !selection) {
+        throw new Error('Expected selection APIs to be available')
+      }
+      const range = document.createRange()
+      range.selectNodeContents(selectedTextNode)
+      selection.removeAllRanges()
+      selection.addRange(range)
+
+      fireEvent.touchEnd(textLayer)
+
+      expect(mockOnTextSelect).toHaveBeenCalledWith('お母さん、ちょっと来て！')
+      selection.removeAllRanges()
     })
 
     it('should clear selection when no text is selected', async () => {
@@ -363,6 +408,77 @@ describe('ContinuousPDFViewer', () => {
       fireEvent.mouseUp(textLayer)
 
       expect(mockOnTextSelect).toHaveBeenCalledWith('')
+    })
+
+    it('registers a single document selectionchange listener for all pages', async () => {
+      const addEventListenerSpy = vi.spyOn(document, 'addEventListener')
+
+      render(
+        <ContinuousPDFViewer
+          pdfUrl="test.pdf"
+          currentPage={1}
+          totalPages={3}
+          onPageChange={mockOnPageChange}
+          onTextSelect={mockOnTextSelect}
+          isLoading={false}
+        />
+      )
+
+      await waitFor(() => {
+        expect(document.querySelectorAll('.textLayer')).toHaveLength(3)
+      })
+
+      const selectionChangeListeners = addEventListenerSpy.mock.calls.filter(
+        ([eventName]) => eventName === 'selectionchange'
+      )
+      expect(selectionChangeListeners).toHaveLength(1)
+      addEventListenerSpy.mockRestore()
+    })
+
+    it('reports a selection inside the second page once', async () => {
+      render(
+        <ContinuousPDFViewer
+          pdfUrl="test.pdf"
+          currentPage={1}
+          totalPages={3}
+          onPageChange={mockOnPageChange}
+          onTextSelect={mockOnTextSelect}
+          isLoading={false}
+        />
+      )
+
+      const pageTwoTextLayer = await waitFor(() => {
+        const node = document.querySelectorAll('.textLayer').item(1)
+        expect(node).toBeInstanceOf(HTMLElement)
+        if (!(node instanceof HTMLElement)) {
+          throw new Error('Expected page 2 text layer')
+        }
+        return node
+      })
+      const selectedSpan = document.createElement('span')
+      selectedSpan.textContent = '二ページ目の文章'
+      pageTwoTextLayer.appendChild(selectedSpan)
+      const selectedTextNode = selectedSpan.firstChild
+      const selection = window.getSelection()
+      if (!selectedTextNode || !selection) {
+        throw new Error('Expected selection APIs to be available')
+      }
+      const range = document.createRange()
+      range.selectNodeContents(selectedTextNode)
+      selection.removeAllRanges()
+      selection.addRange(range)
+
+      fireEvent(document, new Event('selectionchange'))
+
+      expect(mockOnTextSelect).toHaveBeenCalledTimes(1)
+      expect(mockOnTextSelect).toHaveBeenCalledWith('二ページ目の文章')
+    })
+
+    it('keeps the PDF text layer selectable on touch devices', () => {
+      const css = readFileSync(path.join(process.cwd(), 'src/index.css'), 'utf8')
+
+      expect(css).toMatch(/\.pdf-page \.textLayer\s*\{[^}]*touch-action:\s*manipulation;/s)
+      expect(css).toMatch(/\.pdf-page \.textLayer\s*\{[^}]*-webkit-touch-callout:\s*default;/s)
     })
   })
 })

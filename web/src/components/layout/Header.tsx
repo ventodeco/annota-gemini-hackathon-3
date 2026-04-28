@@ -11,6 +11,13 @@ interface HeaderProps {
   rightSlot?: React.ReactNode
 }
 
+function getHistoryIndex(state: unknown): number | undefined {
+  if (typeof state !== 'object' || state === null || !('idx' in state)) {
+    return undefined
+  }
+  return typeof state.idx === 'number' ? state.idx : undefined
+}
+
 export default function Header({
   title,
   onBack,
@@ -27,9 +34,8 @@ export default function Header({
       return
     }
 
-    const historyState = window.history.state as { idx?: number } | null
-    const canGoBack =
-      typeof historyState?.idx === 'number' ? historyState.idx > 0 : window.history.length > 1
+    const historyIndex = getHistoryIndex(window.history.state)
+    const canGoBack = historyIndex !== undefined ? historyIndex > 0 : window.history.length > 1
 
     if (canGoBack) {
       navigate(-1)
