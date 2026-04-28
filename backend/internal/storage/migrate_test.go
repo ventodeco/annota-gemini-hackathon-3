@@ -2,10 +2,13 @@ package storage
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	_ "github.com/lib/pq"
 	_ "modernc.org/sqlite"
 )
 
@@ -143,6 +146,38 @@ func TestRunMigrations_EmptyDirectory(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("expected 0 migrations recorded, got %d", count)
+	}
+}
+
+func TestRunProductionMigrations_Postgres(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_TEST_DSN")
+	if dsn == "" {
+		t.Skip("set POSTGRES_TEST_DSN to run production PostgreSQL migration coverage")
+	}
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("failed to open postgres: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	schema := fmt.Sprintf("migration_test_%d", time.Now().UnixNano())
+	if _, err := db.Exec("CREATE SCHEMA " + schema); err != nil {
+		t.Fatalf("failed to create test schema: %v", err)
+	}
+	defer db.Exec("DROP SCHEMA " + schema + " CASCADE")
+	if _, err := db.Exec("SET search_path TO " + schema); err != nil {
+		t.Fatalf("failed to set search_path: %v", err)
+	}
+
+	if err := RunMigrations(db, filepath.Join("..", "..", "migrations")); err != nil {
+		t.Fatalf("RunMigrations against PostgreSQL failed: %v", err)
+	}
+
+	var tableName string
+	if err := db.QueryRow("SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename = 'users'", schema).Scan(&tableName); err != nil {
+		t.Fatalf("users table should exist after production migrations: %v", err)
 	}
 }
 

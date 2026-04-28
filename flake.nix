@@ -37,22 +37,21 @@
 
           # Environment variables
           env = {
-            GEMINI_API_KEY = "";
             APP_BASE_URL = "http://localhost:8080";
             FRONTEND_BASE_URL = "http://localhost:5173";
             PORT = "8080";
-            DB_PATH = "data/app.db";
+            POSTGRES_HOST = "localhost";
+            POSTGRES_PORT = "5432";
+            POSTGRES_USER = "gemini_user";
+            POSTGRES_PASSWORD = "gemini_password";
+            POSTGRES_DB = "gemini_db";
+            POSTGRES_SSLMODE = "disable";
+            REDIS_ADDR = "localhost:6379";
             UPLOAD_DIR = "data/uploads";
           };
 
           # Shell hook - runs when entering the shell
           shellHook = ''
-            # Check for required environment variables
-            if [ -z "$GEMINI_API_KEY" ]; then
-              echo "⚠️  GEMINI_API_KEY is not set"
-              echo "   Set it with: export GEMINI_API_KEY=your_api_key_here"
-            fi
-
             echo "═══════════════════════════════════════════════════════════"
             echo "  Nix Development Shell - Gemini Hackathon OCR App"
             echo "═══════════════════════════════════════════════════════════"
@@ -61,7 +60,7 @@
             echo "    Backend:   cd backend && go run cmd/server/main.go"
             echo "    Frontend:  cd web && bun run dev"
             echo "    Tests:     cd backend && go test ./..."
-            echo "               cd web && bun test"
+            echo "               cd web && bun run test"
             echo ""
             echo "  Database services (run separately via Docker):"
             echo "    docker-compose up -d"

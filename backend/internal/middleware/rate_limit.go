@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/gemini-hackathon/app/internal/httputil"
 )
 
 type RateLimiter struct {
@@ -39,9 +41,7 @@ func (l *RateLimiter) Handle(next http.Handler) http.Handler {
 		allowed, retryAfter := l.allow(rateLimitKey(r))
 		if !allowed {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = w.Write([]byte(`{"error":"Too Many Requests","message":"Usage limit reached. Please try again later."}`))
+			httputil.WriteJSONError(w, http.StatusTooManyRequests, "Usage limit reached. Please try again later.")
 			return
 		}
 		next.ServeHTTP(w, r)

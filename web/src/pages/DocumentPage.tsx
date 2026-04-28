@@ -170,12 +170,6 @@ export default function DocumentPage(): ReactElement {
   })
 
   useEffect(() => {
-    return () => {
-      speech.stop()
-    }
-  }, [speech])
-
-  useEffect(() => {
     if (!selectedText) {
       speech.stop()
     }
@@ -254,7 +248,7 @@ export default function DocumentPage(): ReactElement {
     return (
       <div className="min-h-screen bg-white flex flex-col">
         <Header title="Document" />
-        <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex-1 flex items-center justify-center p-6" role="status" aria-label="Loading document">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
         </div>
       </div>

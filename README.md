@@ -1,6 +1,6 @@
-# Gemini Hackathon OCR App
+# ANNOTA Gemini OCR App
 
-A mobile-first Progressive Web App (PWA) for uploading book page images, extracting Japanese text via OCR, and getting contextual annotations. Built with Go, HTMX, and Gemini Flash API.
+A mobile-first Progressive Web App (PWA) for uploading book page images, extracting Japanese text via OCR, and getting contextual annotations. Built with a Go JSON API, React/Vite frontend, PostgreSQL, Redis, and Gemini Flash API.
 
 ## Features
 
@@ -12,13 +12,14 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
   - When to use
   - Word breakdown
   - Alternative meanings
-- **Session-based**: Anonymous sessions via cookies (no login required for MVP)
+- **Google OAuth**: Authenticated user accounts with preferences and history
 - **PWA Support**: Installable as a Progressive Web App
 
 ## Prerequisites
 
 - **Go 1.25.x** or later ([download](https://go.dev/dl/))
-- **SQLite** (bundled with macOS, or install separately)
+- **PostgreSQL 16** and **Redis** (use `docker-compose up -d` locally)
+- **Bun** for frontend package management
 - **Gemini API Key** ([get one here](https://makersuite.google.com/app/apikey))
 
 ## Quick Start
@@ -30,8 +31,10 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 
 2. **Set up environment variables**:
    ```bash
-   cp .env.example .env
-   # Edit .env and add your GEMINI_API_KEY
+   cp backend/.env.example backend/.env
+   # Edit backend/.env and set Gemini, database, Redis, OAuth, and JWT values
+   direnv allow
+   direnv reload
    ```
 
 3. **Install dependencies**:
@@ -50,8 +53,9 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
    cd ..
    ```
 
-5. **Run the backend server**:
+5. **Start local services and run the backend server**:
    ```bash
+   docker-compose up -d
    cd backend
    go run cmd/server/main.go
    ```
@@ -87,13 +91,16 @@ In this split-dev mode, OAuth login does not require `bun run build`.
 
 ## Environment Variables
 
-See `.env.example` for all available configuration options:
+See `backend/.env.example` for backend configuration options:
 
-- `GEMINI_API_KEY` (required): Your Gemini API key
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY` (required): Your Gemini API key
+- `DB_CONNECTION_STRING` or `POSTGRES_*` values (required): PostgreSQL connection settings
+- `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` (required): Google OAuth credentials
+- `JWT_SECRET` (required): JWT signing secret, at least 32 characters
+- `REDIS_ADDR`: Redis address for OAuth state and caching (default: `localhost:6379`)
 - `APP_BASE_URL`: Base URL for the application (default: `http://localhost:8080`)
 - `FRONTEND_BASE_URL`: Frontend callback URL for OAuth redirect (default: `APP_BASE_URL`)
 - `PORT`: Server port (default: `8080`)
-- `DB_PATH`: Path to SQLite database file (default: `data/app.db`)
 - `UPLOAD_DIR`: Directory for uploaded images (default: `data/uploads`)
 - `MAX_UPLOAD_SIZE`: Maximum upload size in bytes (default: `10485760` = 10MB)
 - `SESSION_COOKIE_NAME`: Session cookie name (default: `sid`)
@@ -180,9 +187,9 @@ gemini-hackathon/
 
 ## Database
 
-The application uses SQLite for data persistence. The database file is created automatically at the path specified in `DB_PATH` (default: `data/app.db`).
+The application uses PostgreSQL for persistent data and Redis for OAuth state and caching. Start local services with `docker-compose up -d`, then configure the backend using `DB_CONNECTION_STRING` or the `POSTGRES_*` variables in `backend/.env.example`.
 
-Migrations are run automatically on startup. See `migrations/001_initial_schema.sql` for the schema.
+Migrations are run automatically on startup. See `backend/migrations/001_initial_schema.sql` for the schema.
 
 ## Frontend
 
@@ -205,28 +212,28 @@ See `internal/testutil/` for mock implementations and helper functions.
 
 ## Phase0 MVP Scope
 
-This MVP (Phase0) includes:
-- ✅ Image upload and storage
-- ✅ OCR text extraction
-- ✅ Text annotation
-- ✅ Session-based identity
+This product includes:
+- Image upload and storage
+- OCR text extraction
+- Text annotation
+- Google OAuth authentication
+- Bookmarks and history
 
 Future phases:
-- **Phase1**: Google OAuth authentication
-- **Phase2**: Bookmarks and history
+- Expanded document workflows and annotation review tools
 
 ## Troubleshooting
 
 ### Database errors
-- Ensure the `data/` directory exists and is writable
-- Check that SQLite is properly installed
+- Ensure PostgreSQL and Redis are running with `docker-compose up -d`
+- Verify `DB_CONNECTION_STRING` or `POSTGRES_*` values in `backend/.env`
 
 ### Upload errors
 - Verify `UPLOAD_DIR` exists and is writable
 - Check `MAX_UPLOAD_SIZE` is sufficient for your images
 
 ### Gemini API errors
-- Verify `GEMINI_API_KEY` is set correctly
+- Verify `GEMINI_API_KEY` is set correctly in `backend/.env`
 - Check API quota and rate limits
 
 ## License

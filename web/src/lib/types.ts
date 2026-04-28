@@ -166,9 +166,7 @@ export interface UpdateUserPreferencesRequest {
   preferredLanguage: 'ID' | 'JP' | 'EN'
 }
 
-export interface GetUserProfileResponse {
-  preferredLanguage: string
-}
+export type GetUserProfileResponse = User
 
 // Pagination
 export interface PaginationMeta {

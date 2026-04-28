@@ -6,7 +6,7 @@ This project uses GitHub Issues with GitHub CLI (`gh`) for tracking all work.
 
 Choose your workflow:
 
-### Option 1: Main Branch (Default - Simple)
+### Option 1: Dev Branch (Default)
 
 ```bash
 # 1. List issues
@@ -15,21 +15,21 @@ gh issue list
 # 2. Create issue for your work
 gh issue create --label backend --title "[TASK] Add feature"
 
-# 3. Ensure on main
-git checkout main
-git pull origin main
+# 3. Ensure on dev
+git checkout dev
+git pull origin dev
 
 # 4. Work and commit with issue references
 git commit -m "feat: add feature (#42)"
 
-# 5. Push to main
-git push origin main
+# 5. Push to dev
+git push origin dev
 
 # 6. Close issue when done
-gh issue close #42 --comment "Fixed in main"
+gh issue close #42 --comment "Fixed in dev"
 ```
 
-### Option 2: Feature Branch (Optional - For Isolation)
+### Option 2: Feature Branch (For Isolation)
 
 ```bash
 # 1. List issues
@@ -38,7 +38,9 @@ gh issue list
 # 2. Create issue
 gh issue create --label backend --title "[TASK] Add feature"
 
-# 3. Create branch
+# 3. Start from dev and create branch
+git checkout dev
+git pull origin dev
 git checkout -b feature/issue-42-description
 
 # 4. Work and commit
@@ -130,7 +132,7 @@ gh pr merge #43 --auto
 
 ## Workflows in Detail
 
-### Main Branch Workflow (Default)
+### Dev Branch Workflow (Default)
 
 Best for:
 - Solo development
@@ -140,9 +142,9 @@ Best for:
 
 Steps:
 1. Create or find issue: `gh issue create`
-2. Ensure on main: `git checkout main && git pull`
+2. Ensure on dev: `git checkout dev && git pull origin dev`
 3. Work and commit with issue ref: `git commit -m "feat: ... (#42)"`
-4. Push: `git push origin main`
+4. Push: `git push origin dev`
 5. Verify CI: `gh run list`
 6. Close issue: `gh issue close #42`
 
@@ -156,7 +158,7 @@ Best for:
 
 Steps:
 1. Create issue: `gh issue create`
-2. Create branch: `git checkout -b feature/issue-42-desc`
+2. Start from dev and create branch: `git checkout dev && git pull origin dev && git checkout -b feature/issue-42-desc`
 3. Work and commit: `git commit -m "feat: ... (#42)"`
 4. Push branch: `git push -u origin feature/issue-42-desc`
 5. Create PR: `gh pr create --body "Fixes #42"`
@@ -225,9 +227,9 @@ gh run view
 
 | Scenario | Recommended |
 |----------|-------------|
-| Solo dev | Main branch |
-| Small team | Main branch |
+| Solo dev | Dev branch |
+| Small team | Dev branch |
 | Large team | Feature branches |
 | Critical code | Feature branches |
-| Quick fix | Main branch |
+| Quick fix | Dev branch |
 | Big refactor | Feature branch |

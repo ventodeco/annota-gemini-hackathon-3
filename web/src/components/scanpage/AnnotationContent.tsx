@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { Annotation } from '@/lib/types'
 import { HighlightedTextSection } from './HighlightedTextSection'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import type { NuanceData } from '@/lib/types'
+import { formatNuanceData } from '@/lib/annotationFormatting'
 
 interface AnnotationContentProps {
   annotation: Annotation
@@ -35,12 +35,7 @@ export function AnnotationContent({ annotation, drawerState }: AnnotationContent
     </div>
   )
 
-  const nuance = annotation.nuance_data
-  const translation = nuance.translation || nuance.meaning
-  const explanation = nuance.contextualExplanation || nuance.meaning
-  const whenToUse = nuance.whenToUse || nuance.usageTiming
-  const alternativeMeanings = nuance.alternativeMeanings || nuance.alternativeMeaning
-  const pronunciation = formatPronunciation(nuance)
+  const formattedNuance = formatNuanceData(annotation.nuance_data)
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -57,21 +52,14 @@ export function AnnotationContent({ annotation, drawerState }: AnnotationContent
       <div className="flex flex-col gap-6">
         <HighlightedTextSection text={annotation.highlighted_text} />
         {renderSection('Context', annotation.context_text || '')}
-        {renderSection('Translation', translation)}
-        {renderSection('Explanation', explanation)}
-        {pronunciation && renderSection('Pronunciation', pronunciation)}
+        {renderSection('Translation', formattedNuance.translation)}
+        {renderSection('Explanation', formattedNuance.explanation)}
+        {formattedNuance.pronunciation && renderSection('Pronunciation', formattedNuance.pronunciation)}
         {renderSection('Usage Example', annotation.nuance_data.usageExample)}
-        {renderSection('When to Use', whenToUse)}
+        {renderSection('When to Use', formattedNuance.whenToUse)}
         {renderSection('Word Breakdown', annotation.nuance_data.wordBreakdown, true)}
-        {renderSection('Alternative Meanings', alternativeMeanings)}
+        {renderSection('Alternative Meanings', formattedNuance.alternativeMeanings)}
       </div>
     </ScrollArea>
   )
-}
-
-function formatPronunciation(nuance: NuanceData): string {
-  const kana = nuance.pronunciation?.kana
-  const romaji = nuance.pronunciation?.romaji
-  if (kana && romaji) return `${kana} (${romaji})`
-  return kana || romaji || ''
 }
