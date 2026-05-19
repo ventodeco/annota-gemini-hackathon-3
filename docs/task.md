@@ -21,7 +21,8 @@ This is the execution checklist derived from `docs/rfc.md` (Phase0 only). Each t
   - [ ] `cd web && bun install`
   - [ ] `cd web && bun run dev` (verify Vite dev server starts)
 - [ ] Add required env vars (local `.env` or shell export):
-  - [ ] `GEMINI_API_KEY`
+  - [ ] `OPENROUTER_API_KEY`
+  - [ ] `MINIMAX_API_KEY`
   - [ ] `DATABASE_URL` (PostgreSQL connection string)
 - [ ] Add a basic dev workflow:
   - [ ] Backend: `cd backend && go test ./...`
@@ -31,7 +32,7 @@ This is the execution checklist derived from `docs/rfc.md` (Phase0 only). Each t
 
 #### Testing scaffolding
 - [ ] Adopt interfaces to enable unit testing:
-  - [ ] `type GeminiClient interface { OCR(ctx,...); Annotate(ctx,...) }`
+  - [ ] `type AIClient interface { OCR(ctx,...); Annotate(ctx,...); SynthesizeSpeech(ctx,...) }`
   - [ ] `type Storage interface { SaveImage(...); OpenImage(...); SavePDF(...) }`
   - [ ] `type PDFExtractor interface { PageCount(path) int; ExtractText(path, page) string }`
 - [ ] Use `net/http/httptest` for handler tests.

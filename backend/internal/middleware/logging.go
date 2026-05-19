@@ -13,6 +13,7 @@ import (
 type requestIDKey string
 
 const RequestIDKey requestIDKey = "request_id"
+const maxLoggedResponseBodyBytes = 4096
 
 type responseWriter struct {
 	http.ResponseWriter
@@ -26,7 +27,14 @@ func (rw *responseWriter) WriteHeader(code int) {
 }
 
 func (rw *responseWriter) Write(body []byte) (int, error) {
-	rw.body = body
+	remaining := maxLoggedResponseBodyBytes - len(rw.body)
+	if remaining > 0 {
+		if len(body) > remaining {
+			rw.body = append(rw.body, body[:remaining]...)
+		} else {
+			rw.body = append(rw.body, body...)
+		}
+	}
 	return rw.ResponseWriter.Write(body)
 }
 

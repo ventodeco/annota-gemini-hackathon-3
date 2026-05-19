@@ -19,6 +19,28 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
+import { formatNuanceData } from '@/lib/annotationFormatting'
+import type { AnnotationDetail } from '@/lib/types'
+
+function getSourcePath(annotation: AnnotationDetail): string {
+  if (annotation.documentId) {
+    return `/documents/${annotation.documentId}?page=${annotation.pageNumber || 1}`
+  }
+  if (annotation.scanId) {
+    return `/scans/${annotation.scanId}`
+  }
+  return ''
+}
+
+function getSpeechButtonCopy(isPlaying: boolean, isPending: boolean): string {
+  if (isPlaying) {
+    return 'Stop audio'
+  }
+  if (isPending) {
+    return 'Loading audio...'
+  }
+  return 'Replay TTS'
+}
 
 export default function AnnotationDetailPage() {
   const navigate = useNavigate()
@@ -38,8 +60,8 @@ export default function AnnotationDetailPage() {
     return (
       <div className="min-h-screen bg-gray-50 pb-28">
         <Header title="Annotation" />
-        <main className="pt-4 px-4">
-          <div className="flex justify-center py-8">
+        <main className="pt-4 px-4 max-w-md mx-auto" aria-busy="true">
+          <div className="flex justify-center py-8" role="status" aria-label="Loading annotation">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
           </div>
         </main>
@@ -52,7 +74,7 @@ export default function AnnotationDetailPage() {
     return (
       <div className="min-h-screen bg-gray-50 pb-28">
         <Header title="Annotation" />
-        <main className="pt-4 px-4">
+        <main className="pt-4 px-4 max-w-md mx-auto">
           <div className="text-center py-8 text-gray-500">
             Annotation not found. Please go back to history.
           </div>
@@ -68,19 +90,8 @@ export default function AnnotationDetailPage() {
     )
   }
 
-  const nuance = annotation.nuanceData
-  const translation = nuance.translation || nuance.meaning
-  const explanation = nuance.contextualExplanation || nuance.meaning
-  const whenToUse = nuance.whenToUse || nuance.usageTiming
-  const alternativeMeanings = nuance.alternativeMeanings || nuance.alternativeMeaning
-  const pronunciation = nuance.pronunciation?.kana
-    ? `${nuance.pronunciation.kana}${nuance.pronunciation.romaji ? ` (${nuance.pronunciation.romaji})` : ''}`
-    : ''
-  const sourcePath = annotation.documentId
-    ? `/documents/${annotation.documentId}?page=${annotation.pageNumber || 1}`
-    : annotation.scanId
-      ? `/scans/${annotation.scanId}`
-      : ''
+  const formattedNuance = formatNuanceData(annotation.nuanceData)
+  const sourcePath = getSourcePath(annotation)
 
   const handleReplaySpeech = async () => {
     if (speech.isPlaying || synthesizeSpeech.isPending) {
@@ -102,7 +113,7 @@ export default function AnnotationDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
       <Header title="Annotation" />
-      <main className="pt-4 px-4 space-y-4">
+      <main className="pt-4 px-4 max-w-md mx-auto space-y-4">
         {/* Highlighted Text */}
         <div className="bg-white rounded-lg p-4 shadow-sm">
           <h2 className="text-sm font-medium text-gray-500 mb-2">Highlighted Text</h2>
@@ -114,7 +125,7 @@ export default function AnnotationDetailPage() {
             disabled={synthesizeSpeech.isPending}
           >
             <Volume2 className="h-4 w-4 mr-2" />
-            {speech.isPlaying ? 'Stop audio' : synthesizeSpeech.isPending ? 'Loading audio...' : 'Replay TTS'}
+            {getSpeechButtonCopy(speech.isPlaying, synthesizeSpeech.isPending)}
           </Button>
         </div>
 
@@ -138,18 +149,18 @@ export default function AnnotationDetailPage() {
         {/* Meaning */}
         <div className="bg-white rounded-lg p-4 shadow-sm">
           <h2 className="text-sm font-medium text-gray-500 mb-2">Translation</h2>
-          <p className="text-base text-gray-700 whitespace-pre-wrap">{translation}</p>
+          <p className="text-base text-gray-700 whitespace-pre-wrap">{formattedNuance.translation}</p>
         </div>
 
         <div className="bg-white rounded-lg p-4 shadow-sm">
           <h2 className="text-sm font-medium text-gray-500 mb-2">Explanation</h2>
-          <p className="text-base text-gray-700 whitespace-pre-wrap">{explanation}</p>
+          <p className="text-base text-gray-700 whitespace-pre-wrap">{formattedNuance.explanation}</p>
         </div>
 
-        {pronunciation && (
+        {formattedNuance.pronunciation && (
           <div className="bg-white rounded-lg p-4 shadow-sm">
             <h2 className="text-sm font-medium text-gray-500 mb-2">Pronunciation</h2>
-            <p className="text-base text-gray-700 whitespace-pre-wrap">{pronunciation}</p>
+            <p className="text-base text-gray-700 whitespace-pre-wrap">{formattedNuance.pronunciation}</p>
           </div>
         )}
 
@@ -162,10 +173,10 @@ export default function AnnotationDetailPage() {
         )}
 
         {/* When to Use */}
-        {whenToUse && (
+        {formattedNuance.whenToUse && (
           <div className="bg-white rounded-lg p-4 shadow-sm">
             <h2 className="text-sm font-medium text-gray-500 mb-2">When to Use</h2>
-            <p className="text-base text-gray-700 whitespace-pre-wrap">{whenToUse}</p>
+            <p className="text-base text-gray-700 whitespace-pre-wrap">{formattedNuance.whenToUse}</p>
           </div>
         )}
 
@@ -178,10 +189,10 @@ export default function AnnotationDetailPage() {
         )}
 
         {/* Alternative Meaning */}
-        {alternativeMeanings && (
+        {formattedNuance.alternativeMeanings && (
           <div className="bg-white rounded-lg p-4 shadow-sm">
             <h2 className="text-sm font-medium text-gray-500 mb-2">Alternative Meanings</h2>
-            <p className="text-base text-gray-700 whitespace-pre-wrap">{alternativeMeanings}</p>
+            <p className="text-base text-gray-700 whitespace-pre-wrap">{formattedNuance.alternativeMeanings}</p>
           </div>
         )}
 

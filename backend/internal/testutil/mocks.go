@@ -3,12 +3,14 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"time"
 
 	"github.com/gemini-hackathon/app/internal/models"
 )
 
 type MockDB struct {
+	mu             sync.RWMutex
 	users          map[int64]*models.User
 	scans          map[int64]*models.Scan
 	annotations    map[int64]*models.Annotation
@@ -65,7 +67,33 @@ func (m *MockDB) UpdateUserLanguage(ctx context.Context, userID int64, language 
 	return nil
 }
 
+func (m *MockDB) DeleteUser(ctx context.Context, userID int64) error {
+	if _, ok := m.users[userID]; !ok {
+		return sql.ErrNoRows
+	}
+	delete(m.users, userID)
+	for id, scan := range m.scans {
+		if scan.UserID == userID {
+			delete(m.scans, id)
+		}
+	}
+	for id, annotation := range m.annotations {
+		if annotation.UserID == userID {
+			delete(m.annotations, id)
+		}
+	}
+	for id, document := range m.documents {
+		if document.UserID == userID {
+			delete(m.documents, id)
+		}
+	}
+	return nil
+}
+
 func (m *MockDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if scan.SourceType == "" {
 		scan.SourceType = "image"
 	}
@@ -79,20 +107,35 @@ func (m *MockDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, erro
 }
 
 func (m *MockDB) GetScanByID(ctx context.Context, scanID int64) (*models.Scan, error) {
-	return m.scans[scanID], nil
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scan, ok := m.scans[scanID]
+	if !ok {
+		return nil, nil
+	}
+	scanCopy := *scan
+	return &scanCopy, nil
 }
 
 func (m *MockDB) GetScansByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Scan, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var result []*models.Scan
 	for _, scan := range m.scans {
 		if scan.UserID == userID {
-			result = append(result, scan)
+			scanCopy := *scan
+			result = append(result, &scanCopy)
 		}
 	}
 	return result, nil
 }
 
 func (m *MockDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if scan, ok := m.scans[scanID]; ok {
 		scan.FullOCRText = &text
 		scan.DetectedLanguage = &language
@@ -103,6 +146,9 @@ func (m *MockDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language
 }
 
 func (m *MockDB) UpdateScanStatus(ctx context.Context, scanID int64, status string, failureReason *string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if scan, ok := m.scans[scanID]; ok {
 		scan.Status = status
 		scan.FailureReason = failureReason
@@ -111,6 +157,9 @@ func (m *MockDB) UpdateScanStatus(ctx context.Context, scanID int64, status stri
 }
 
 func (m *MockDB) UpdateScanImageURL(ctx context.Context, scanID int64, imageURL string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if scan, ok := m.scans[scanID]; ok {
 		scan.ImageURL = imageURL
 	}
@@ -118,6 +167,9 @@ func (m *MockDB) UpdateScanImageURL(ctx context.Context, scanID int64, imageURL 
 }
 
 func (m *MockDB) DeleteScan(ctx context.Context, scanID, userID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if scan, ok := m.scans[scanID]; ok && scan.UserID == userID {
 		delete(m.scans, scanID)
 		return nil
@@ -240,6 +292,9 @@ func (m *MockDB) UpdateDocumentProgress(ctx context.Context, docID, userID int64
 }
 
 func (m *MockDB) DeleteScansByDocument(ctx context.Context, docID, userID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for id, scan := range m.scans {
 		if scan.UserID == userID && scan.DocumentID != nil && *scan.DocumentID == docID {
 			delete(m.scans, id)
@@ -257,16 +312,23 @@ func (m *MockDB) DeleteDocument(ctx context.Context, docID, userID int64) error 
 }
 
 func (m *MockDB) GetScanByDocumentPage(ctx context.Context, documentID int64, pageNumber int) (*models.Scan, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	for _, scan := range m.scans {
 		if scan.DocumentID != nil && *scan.DocumentID == documentID &&
 			scan.PageNumber != nil && *scan.PageNumber == pageNumber {
-			return scan, nil
+			scanCopy := *scan
+			return &scanCopy, nil
 		}
 	}
 	return nil, nil
 }
 
 func (m *MockDB) CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if scan.SourceType == "" {
 		scan.SourceType = "pdf"
 	}

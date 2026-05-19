@@ -79,9 +79,15 @@ async function handleResponse<T>(response: Response, method: string, url: string
 
   logger.apiCall(method, url, response.status, Date.now() - startTime)
   if (response.status === 204) {
-    return undefined as T
+    throw new Error(`Expected JSON response for ${method} ${url}`)
   }
   return response.json()
+}
+
+async function handleEmptyResponse(response: Response, method: string, url: string): Promise<void> {
+  const startTime = Date.now()
+  await throwIfNotOk(response, method, url, startTime)
+  logger.apiCall(method, url, response.status, Date.now() - startTime)
 }
 
 async function handleBlobResponse(
@@ -154,6 +160,23 @@ export async function updateUserPreferences(
   return handleResponse(response, 'PATCH', url)
 }
 
+export async function deleteAccount(): Promise<void> {
+  const url = `${API_BASE_URL}/v1/users/me`
+  const response = await fetchWithAuth(url, { method: 'DELETE' })
+  await handleEmptyResponse(response, 'DELETE', url)
+}
+
+export async function trackEvent(name: string, properties: Record<string, unknown> = {}): Promise<void> {
+  const url = `${API_BASE_URL}/v1/events`
+  const response = await fetchWithAuth(url, {
+    method: 'POST',
+    body: JSON.stringify({ name, properties }),
+  })
+  const startTime = Date.now()
+  await throwIfNotOk(response, 'POST', url, startTime)
+  logger.apiCall('POST', url, response.status, Date.now() - startTime)
+}
+
 export async function getLanguages(): Promise<GetLanguagesResponse> {
   const url = `${API_BASE_URL}/v1/users/me/languages`
   const response = await fetchWithAuth(url)
@@ -193,7 +216,7 @@ export async function getScan(scanId: number): Promise<Scan> {
 export async function deleteScan(scanId: number): Promise<void> {
   const url = `${API_BASE_URL}/v1/scans/${scanId}`
   const response = await fetchWithAuth(url, { method: 'DELETE' })
-  return handleResponse(response, 'DELETE', url)
+  await handleEmptyResponse(response, 'DELETE', url)
 }
 
 // ============================================================================
@@ -268,7 +291,7 @@ export async function getAnnotation(annotationId: number): Promise<AnnotationDet
 export async function deleteAnnotation(annotationId: number): Promise<void> {
   const url = `${API_BASE_URL}/v1/annotations/${annotationId}`
   const response = await fetchWithAuth(url, { method: 'DELETE' })
-  return handleResponse(response, 'DELETE', url)
+  await handleEmptyResponse(response, 'DELETE', url)
 }
 
 // ============================================================================
@@ -315,7 +338,7 @@ export async function updateDocumentProgress(
 export async function deleteDocument(documentId: number): Promise<void> {
   const url = `${API_BASE_URL}/v1/documents/${documentId}`
   const response = await fetchWithAuth(url, { method: 'DELETE' })
-  return handleResponse(response, 'DELETE', url)
+  await handleEmptyResponse(response, 'DELETE', url)
 }
 
 export async function getDocumentPage(
@@ -355,6 +378,15 @@ export function getScanImageUrl(imageUrl: string | undefined): string {
     return `${API_BASE_URL}${imageUrl}`
   }
   return imageUrl
+}
+
+export async function getScanImageBlob(imageUrl: string): Promise<Blob> {
+  const url = getScanImageUrl(imageUrl)
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  })
+  return handleBlobResponse(response, 'GET', url, 'Failed to fetch scan image')
 }
 
 export function formatDate(dateString: string): string {

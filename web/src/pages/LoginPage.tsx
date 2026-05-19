@@ -46,6 +46,17 @@ export default function LoginPage() {
           </svg>
           {isOpening ? 'Opening login...' : 'Sign in with Google'}
         </Button>
+        <p className="text-center text-xs text-gray-500">
+          By continuing, you agree to the{' '}
+          <a href="/terms" className="font-medium underline underline-offset-2">
+            Terms
+          </a>{' '}
+          and acknowledge the{' '}
+          <a href="/privacy" className="font-medium underline underline-offset-2">
+            Privacy Policy
+          </a>
+          .
+        </p>
       </div>
     </div>
   )

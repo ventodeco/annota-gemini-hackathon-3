@@ -69,7 +69,7 @@ eval "$(direnv hook zsh)"
 ### 2.1 Navigate to Project
 
 ```bash
-cd nix-flake-worktree
+cd /path/to/annota-gemini-hackathon-3
 ```
 
 ### 2.2 Enter Development Shell
@@ -96,8 +96,8 @@ node --version # Should show node 22.x.x
 ### 2.4 Run the Application
 
 ```bash
-# Start database services
-docker-compose up -d
+# Start local database services
+dev-services start
 
 # Backend (in one terminal)
 cd backend && go run cmd/server/main.go
@@ -122,7 +122,7 @@ cd web && bun run dev
 ### What Stays the Same
 
 ```
-✅ docker-compose up -d      # PostgreSQL & Redis
+✅ dev-services start        # PostgreSQL & Redis
 ✅ go run cmd/server/main.go # Backend
 ✅ bun run dev              # Frontend
 ✅ All existing workflows    # No changes
@@ -143,7 +143,7 @@ nix flake update # Update dependencies
 ### File Structure
 
 ```
-nix-flake-worktree/
+repository-root/
 ├── flake.nix      # Nix configuration (what packages/versions)
 ├── flake.lock     # Locked versions (reproducible)
 └── .envrc         # Direnv instruction ("use flake")
@@ -166,8 +166,8 @@ nix-flake-worktree/
         go_1_25        # Go 1.25.x
         nodejs_22       # Node.js 22.x
         bun             # Bun package manager
-        postgresql_16  # PostgreSQL client
-        redis           # Redis client
+        postgresql_16  # PostgreSQL server/client
+        redis           # Redis server/client
       ];
     };
   };
@@ -181,13 +181,13 @@ nix-flake-worktree/
 | `go_1_25` | 1.25.9 | Backend runtime |
 | `nodejs_22` | 22.x | Frontend tooling (Vite) |
 | `bun` | 1.3.x | Frontend package manager |
-| `postgresql_16` | 16.x | DB client (connects to Docker) |
-| `redis` | 8.x | Cache client (connects to Docker) |
+| `postgresql_16` | 16.x | Local PostgreSQL server/client |
+| `redis` | 8.x | Local Redis server/client |
 
 ### Direnv Flow
 
 ```
-cd nix-flake-worktree
+cd /path/to/annota-gemini-hackathon-3
     │
     ▼
 .direnv reads .envrc
@@ -212,6 +212,9 @@ go, bun, node available
 |---------|-------------|
 | `nix develop` | Enter dev shell |
 | `direnv allow` | Enable direnv auto-activation |
+| `dev-services start` | Start local PostgreSQL and Redis |
+| `dev-services status` | Check local service status |
+| `dev-services stop` | Stop local PostgreSQL and Redis |
 | `exit` | Exit dev shell |
 
 ### Flake Management

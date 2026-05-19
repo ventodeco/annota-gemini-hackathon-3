@@ -44,7 +44,7 @@ export default function DocumentsPage() {
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
       <Header title="Documents" />
-      <main className="pt-4 px-4">
+      <main className="pt-4 px-4 max-w-md mx-auto">
         {isLoading && (
           <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />

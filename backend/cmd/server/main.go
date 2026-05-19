@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 
+	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/auth"
 	"github.com/gemini-hackathon/app/internal/config"
-	"github.com/gemini-hackathon/app/internal/gemini"
 	"github.com/gemini-hackathon/app/internal/handlers"
 	"github.com/gemini-hackathon/app/internal/knowledge"
 	"github.com/gemini-hackathon/app/internal/middleware"
@@ -48,10 +49,22 @@ func main() {
 
 	redisClient, err := storage.NewRedisClient(cfg.RedisAddr)
 	if err != nil {
-		log.Printf("Warning: Failed to connect to Redis: %v. OAuth state will not work.", err)
+		log.Fatalf("Failed to connect to Redis at %s: %v. OAuth state storage is required for login to work.", cfg.RedisAddr, err)
 	}
 
-	geminiClient := gemini.NewClient(cfg.GeminiAPIKey)
+	aiClient := ai.NewClient(ai.ClientConfig{
+		AIProvider:              cfg.AIProvider,
+		GeminiAPIKey:            cfg.GeminiAPIKey,
+		OpenRouterAPIKey:        cfg.OpenRouterAPIKey,
+		OpenRouterBaseURL:       cfg.OpenRouterBaseURL,
+		OpenRouterOCRModel:      cfg.OpenRouterOCRModel,
+		MiniMaxAPIKey:           cfg.MiniMaxAPIKey,
+		MiniMaxAnthropicBaseURL: cfg.MiniMaxAnthropicBaseURL,
+		MiniMaxTextModel:        cfg.MiniMaxTextModel,
+		MiniMaxTTSBaseURL:       cfg.MiniMaxTTSBaseURL,
+		MiniMaxTTSModel:         cfg.MiniMaxTTSModel,
+		MiniMaxTTSVoiceID:       cfg.MiniMaxTTSVoiceID,
+	})
 
 	// Load knowledge service for vocabulary lookup
 	var knowledgeSvc knowledge.Service
@@ -73,14 +86,20 @@ func main() {
 	googleOAuth := auth.NewGoogleOAuthService(cfg, redisClient)
 
 	authHandlers := handlers.NewAuthHandlers(googleOAuth, tokenService, storageDB, cfg)
-	userHandlers := handlers.NewUserHandlers(storageDB)
-	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, geminiClient, cfg)
-	aiHandlers := handlers.NewAIHandlers(storageDB, geminiClient, knowledgeSvc)
+	userHandlers := handlers.NewUserHandlersWithStorage(storageDB, fileStorage, cfg)
+	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, aiClient, cfg)
+	aiHandlers := handlers.NewAIHandlers(storageDB, aiClient, knowledgeSvc)
 	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg)
+	analyticsHandlers := handlers.NewAnalyticsHandlers()
+	entitlementHandlers := handlers.NewEntitlementHandlers(cfg)
 	pdfExtractor := pdf.NewExtractor()
 	documentHandlers := handlers.NewDocumentHandlers(storageDB, fileStorage, pdfExtractor, cfg)
 
 	authMiddleware := middleware.NewAuthMiddleware(tokenService)
+	aiRateLimiter := middleware.NewRateLimiter(
+		cfg.AIRateLimit,
+		time.Duration(cfg.AIRateLimitWindowSeconds)*time.Second,
+	)
 
 	mux := http.NewServeMux()
 
@@ -95,17 +114,18 @@ func main() {
 	authMux := http.NewServeMux()
 	authMux.HandleFunc("/v1/users/me/languages", userHandlers.GetLanguagesAPI)
 	authMux.HandleFunc("/v1/users/me", userHandlers.UsersMeAPI)
-	authMux.HandleFunc("/v1/scans", scanHandlers.ScansAPI)
+	authMux.Handle("/v1/scans", aiRateLimiter.Handle(http.HandlerFunc(scanHandlers.ScansAPI)))
 	authMux.HandleFunc("/v1/scans/", scanHandlers.GetScanAPI)
-	authMux.HandleFunc("/v1/ai/analyze", aiHandlers.AnalyzeAPI)
-	authMux.HandleFunc("/v1/ai/speech", aiHandlers.SpeakAPI)
+	authMux.Handle("/v1/ai/analyze", aiRateLimiter.Handle(http.HandlerFunc(aiHandlers.AnalyzeAPI)))
+	authMux.Handle("/v1/ai/speech", aiRateLimiter.Handle(http.HandlerFunc(aiHandlers.SpeakAPI)))
 	authMux.HandleFunc("/v1/annotations", annotationHandlers.AnnotationsAPI)
 	authMux.HandleFunc("/v1/annotations/", annotationHandlers.AnnotationByIDAPI)
+	authMux.HandleFunc("/v1/events", analyticsHandlers.EventsAPI)
+	authMux.HandleFunc("/v1/entitlements/me", entitlementHandlers.MeAPI)
 	authMux.HandleFunc("/v1/documents", documentHandlers.DocumentsAPI)
 	authMux.HandleFunc("/v1/documents/", documentHandlers.DocumentByIDAPI)
 
 	mux.Handle("/v1/", authMiddleware.Handle(authMux))
-	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))
 
 	reactFS := http.FileServer(http.Dir("web/dist"))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

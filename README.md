@@ -1,25 +1,27 @@
-# Gemini Hackathon OCR App
+# ANNOTA OCR App
 
-A mobile-first Progressive Web App (PWA) for uploading book page images, extracting Japanese text via OCR, and getting contextual annotations. Built with Go, HTMX, and Gemini Flash API.
+A mobile-first Progressive Web App (PWA) for uploading book page images, extracting Japanese text via OCR, and getting contextual annotations. Built with a Go JSON API, React/Vite frontend, PostgreSQL, Redis, OpenRouter OCR, and MiniMax text/TTS APIs.
 
 ## Features
 
 - **Image Upload**: Upload JPEG, PNG, or WebP images of book pages
-- **OCR Processing**: Extract Japanese text using Gemini Flash vision API
+- **OCR Processing**: Extract Japanese text using OpenRouter `baidu/qianfan-ocr-fast:free`
 - **Text Annotation**: Select text to get contextual explanations including:
   - Meaning
   - Usage examples in professional/work context
   - When to use
   - Word breakdown
   - Alternative meanings
-- **Session-based**: Anonymous sessions via cookies (no login required for MVP)
+- **Google OAuth**: Authenticated user accounts with preferences and history
 - **PWA Support**: Installable as a Progressive Web App
 
 ## Prerequisites
 
 - **Go 1.25.x** or later ([download](https://go.dev/dl/))
-- **SQLite** (bundled with macOS, or install separately)
-- **Gemini API Key** ([get one here](https://makersuite.google.com/app/apikey))
+- **Nix** dev shell for local PostgreSQL/Redis services
+- **Bun** for frontend package management
+- **OpenRouter API Key** for OCR
+- **MiniMax API Key** for annotation and text-to-speech
 
 ## Quick Start
 
@@ -30,8 +32,10 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 
 2. **Set up environment variables**:
    ```bash
-   cp .env.example .env
-   # Edit .env and add your GEMINI_API_KEY
+   cp backend/.env.example backend/.env
+   # Edit backend/.env and set OpenRouter, MiniMax, database, Redis, OAuth, and JWT values
+   direnv allow
+   direnv reload
    ```
 
 3. **Install dependencies**:
@@ -50,8 +54,9 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
    cd ..
    ```
 
-5. **Run the backend server**:
+5. **Start local services and run the backend server**:
    ```bash
+   dev-services start
    cd backend
    go run cmd/server/main.go
    ```
@@ -62,6 +67,12 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 ### Development Mode
 
 Run backend and frontend separately for development:
+
+From the repository root, `bun run dev` starts local PostgreSQL/Redis, the Go backend, and the Vite frontend:
+
+```bash
+bun run dev
+```
 
 Set backend env for OAuth callback redirect to frontend dev server:
 ```bash
@@ -87,13 +98,21 @@ In this split-dev mode, OAuth login does not require `bun run build`.
 
 ## Environment Variables
 
-See `.env.example` for all available configuration options:
+See `backend/.env.example` for backend configuration options:
 
-- `GEMINI_API_KEY` (required): Your Gemini API key
+- `OPENROUTER_API_KEY` (required): API key for OCR through OpenRouter
+- `OPENROUTER_OCR_MODEL`: OCR model (default: `baidu/qianfan-ocr-fast:free`)
+- `MINIMAX_API_KEY` (required): API key for MiniMax annotation and speech
+- `MINIMAX_TEXT_MODEL`: MiniMax Anthropic-compatible text model (default: `MiniMax-M2.7`)
+- `MINIMAX_TTS_MODEL`: MiniMax speech model (default: `speech-2.8-hd`)
+- `MINIMAX_TTS_VOICE_ID`: MiniMax voice ID (default: `Japanese_Whisper_Belle`)
+- `DB_CONNECTION_STRING` or `POSTGRES_*` values (required): PostgreSQL connection settings
+- `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` (required): Google OAuth credentials
+- `JWT_SECRET` (required): JWT signing secret, at least 32 characters
+- `REDIS_ADDR`: Redis address for OAuth state and caching (default: `localhost:6379`)
 - `APP_BASE_URL`: Base URL for the application (default: `http://localhost:8080`)
 - `FRONTEND_BASE_URL`: Frontend callback URL for OAuth redirect (default: `APP_BASE_URL`)
 - `PORT`: Server port (default: `8080`)
-- `DB_PATH`: Path to SQLite database file (default: `data/app.db`)
 - `UPLOAD_DIR`: Directory for uploaded images (default: `data/uploads`)
 - `MAX_UPLOAD_SIZE`: Maximum upload size in bytes (default: `10485760` = 10MB)
 - `SESSION_COOKIE_NAME`: Session cookie name (default: `sid`)
@@ -139,7 +158,7 @@ gemini-hackathon/
 │   │   ├── middleware/  # HTTP middleware (session, logging)
 │   │   ├── models/      # Data models
 │   │   ├── storage/     # Database and file storage interfaces
-│   │   ├── gemini/      # Gemini API client
+│   │   ├── ai/          # OpenRouter/MiniMax AI provider client
 │   │   └── testutil/    # Test utilities and mocks
 │   ├── migrations/      # Database migration files
 │   ├── go.mod           # Go module definition
@@ -180,9 +199,9 @@ gemini-hackathon/
 
 ## Database
 
-The application uses SQLite for data persistence. The database file is created automatically at the path specified in `DB_PATH` (default: `data/app.db`).
+The application uses PostgreSQL for persistent data and Redis for OAuth state and caching. In the Nix dev shell, start both local services with `dev-services start`, then configure the backend using `DB_CONNECTION_STRING` or the `POSTGRES_*` variables in `backend/.env.example`.
 
-Migrations are run automatically on startup. See `migrations/001_initial_schema.sql` for the schema.
+Migrations are run automatically on startup. See `backend/migrations/001_initial_schema.sql` for the schema.
 
 ## Frontend
 
@@ -199,35 +218,35 @@ Migrations are run automatically on startup. See `migrations/001_initial_schema.
 The project includes test utilities and mocks for:
 - Database operations
 - File storage
-- Gemini API client
+- AI provider client
 
 See `internal/testutil/` for mock implementations and helper functions.
 
 ## Phase0 MVP Scope
 
-This MVP (Phase0) includes:
-- ✅ Image upload and storage
-- ✅ OCR text extraction
-- ✅ Text annotation
-- ✅ Session-based identity
+This product includes:
+- Image upload and storage
+- OCR text extraction
+- Text annotation
+- Google OAuth authentication
+- Bookmarks and history
 
 Future phases:
-- **Phase1**: Google OAuth authentication
-- **Phase2**: Bookmarks and history
+- Expanded document workflows and annotation review tools
 
 ## Troubleshooting
 
 ### Database errors
-- Ensure the `data/` directory exists and is writable
-- Check that SQLite is properly installed
+- Ensure PostgreSQL and Redis are running with `dev-services status`
+- Verify `DB_CONNECTION_STRING` or `POSTGRES_*` values in `backend/.env`
 
 ### Upload errors
 - Verify `UPLOAD_DIR` exists and is writable
 - Check `MAX_UPLOAD_SIZE` is sufficient for your images
 
-### Gemini API errors
-- Verify `GEMINI_API_KEY` is set correctly
-- Check API quota and rate limits
+### AI provider errors
+- Verify `OPENROUTER_API_KEY` and `MINIMAX_API_KEY` are set correctly in `backend/.env`
+- Check OpenRouter and MiniMax quota, balance, and rate limits
 
 ## License
 

@@ -9,7 +9,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/redis/go-redis/v9 v9.17.2
 	golang.org/x/oauth2 v0.23.0
-	google.golang.org/genai v1.41.0
+	google.golang.org/genai v1.54.0
 	modernc.org/sqlite v1.44.1
 )
 

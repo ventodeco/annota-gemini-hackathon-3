@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/config"
-	"github.com/gemini-hackathon/app/internal/gemini"
 	"github.com/gemini-hackathon/app/internal/handlers"
 	"github.com/gemini-hackathon/app/internal/knowledge"
 	"github.com/gemini-hackathon/app/internal/middleware"
@@ -26,7 +26,7 @@ func (m *mockFileStorage) SaveImage(scanID string, data []byte, mimeType string)
 }
 
 func (m *mockFileStorage) OpenImage(path string) ([]byte, error) {
-	return nil, nil
+	return []byte("private image"), nil
 }
 
 func (m *mockFileStorage) DeleteImage(path string) error {
@@ -45,25 +45,25 @@ func (m *mockFileStorage) DeletePDF(path string) error {
 	return nil
 }
 
-type mockGeminiClient struct{}
+type mockAIClient struct{}
 
-func (m *mockGeminiClient) OCR(ctx context.Context, imageData []byte, mimeType string) (*gemini.OCRResponse, error) {
-	return &gemini.OCRResponse{
+func (m *mockAIClient) OCR(ctx context.Context, imageData []byte, mimeType string) (*ai.OCRResponse, error) {
+	return &ai.OCRResponse{
 		RawText:        "OCR text",
 		StructuredJSON: "{}",
 		Language:       "JP",
 	}, nil
 }
 
-func (m *mockGeminiClient) Annotate(ctx context.Context, ocrText string, selectedText string) (*gemini.AnnotationResponse, error) {
+func (m *mockAIClient) Annotate(ctx context.Context, ocrText string, selectedText string) (*ai.AnnotationResponse, error) {
 	return nil, nil
 }
 
-func (m *mockGeminiClient) AnnotateWithKnowledge(ctx context.Context, ocrText string, selectedText string, entries []knowledge.Entry) (*gemini.AnnotationResponse, error) {
+func (m *mockAIClient) AnnotateWithKnowledge(ctx context.Context, ocrText string, selectedText string, entries []knowledge.Entry) (*ai.AnnotationResponse, error) {
 	return nil, nil
 }
 
-func (m *mockGeminiClient) SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*gemini.SpeechResponse, error) {
+func (m *mockAIClient) SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*ai.SpeechResponse, error) {
 	return nil, nil
 }
 
@@ -94,7 +94,7 @@ func buildUploadRequest(t *testing.T, path string) *http.Request {
 func TestCreateScanPersistsImageURLAndGetScanReturnsIt(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024}
-	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockGeminiClient{}, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
 
 	createReq := buildUploadRequest(t, "/v1/scans")
 	createReq = createReq.WithContext(middleware.WithUserID(createReq.Context(), 1))
@@ -109,8 +109,8 @@ func TestCreateScanPersistsImageURLAndGetScanReturnsIt(t *testing.T) {
 	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("failed to decode create response: %v", err)
 	}
-	if created.ImageURL != "/uploads/1.jpg" {
-		t.Fatalf("expected created image URL /uploads/1.jpg, got %q", created.ImageURL)
+	if created.ImageURL != "/v1/scans/1/image" {
+		t.Fatalf("expected created image URL /v1/scans/1/image, got %q", created.ImageURL)
 	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/v1/scans/"+strconv.FormatInt(created.ScanID, 10), nil)
@@ -126,15 +126,51 @@ func TestCreateScanPersistsImageURLAndGetScanReturnsIt(t *testing.T) {
 	if err := json.Unmarshal(getRec.Body.Bytes(), &scan); err != nil {
 		t.Fatalf("failed to decode get response: %v", err)
 	}
-	if scan.ImageURL != "/uploads/1.jpg" {
-		t.Fatalf("expected persisted image URL /uploads/1.jpg, got %q", scan.ImageURL)
+	if scan.ImageURL != "/v1/scans/1/image" {
+		t.Fatalf("expected persisted image URL /v1/scans/1/image, got %q", scan.ImageURL)
+	}
+}
+
+func TestGetScanImageRequiresOwnershipAndServesStoredImage(t *testing.T) {
+	mockDB := testutil.NewMockDB()
+	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024, UploadDir: "data/uploads"}
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
+
+	createReq := buildUploadRequest(t, "/v1/scans")
+	createReq = createReq.WithContext(middleware.WithUserID(createReq.Context(), 1))
+	createRec := httptest.NewRecorder()
+	scanHandlers.CreateScanAPI(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	imageReq := httptest.NewRequest(http.MethodGet, "/v1/scans/1/image", nil)
+	imageReq = imageReq.WithContext(middleware.WithUserID(imageReq.Context(), 1))
+	imageRec := httptest.NewRecorder()
+	scanHandlers.GetScanAPI(imageRec, imageReq)
+	if imageRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", imageRec.Code, imageRec.Body.String())
+	}
+	if contentType := imageRec.Header().Get("Content-Type"); contentType != "image/jpeg" {
+		t.Fatalf("expected image/jpeg content type, got %q", contentType)
+	}
+	if body := imageRec.Body.String(); body != "private image" {
+		t.Fatalf("expected private image body, got %q", body)
+	}
+
+	otherUserReq := httptest.NewRequest(http.MethodGet, "/v1/scans/1/image", nil)
+	otherUserReq = otherUserReq.WithContext(middleware.WithUserID(otherUserReq.Context(), 2))
+	otherUserRec := httptest.NewRecorder()
+	scanHandlers.GetScanAPI(otherUserRec, otherUserReq)
+	if otherUserRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for another user, got %d", otherUserRec.Code)
 	}
 }
 
 func TestCreateScanUnauthorized(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024}
-	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockGeminiClient{}, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
 
 	req := buildUploadRequest(t, "/v1/scans")
 	rec := httptest.NewRecorder()

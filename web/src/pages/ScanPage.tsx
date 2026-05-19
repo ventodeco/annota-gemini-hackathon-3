@@ -9,15 +9,12 @@ import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hook
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
-import { getScanImageUrl, formatDate } from '@/lib/api'
+import { formatDate } from '@/lib/api'
 import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
+import ScanImage from '@/components/scanpage/ScanImage'
 import type { Scan } from '@/lib/types'
 import { SelectionSpeechButton } from '@/components/scanpage/SelectionSpeechButton'
 import { useAnnotationDrawerFlow, DEFAULT_MAX_ANNOTATION_VERSIONS } from '@/hooks/useAnnotationDrawerFlow'
-
-type ScanPageLocationState = {
-  preloadedScan?: Scan
-}
 
 type SelectionRect = {
   top: number
@@ -26,12 +23,47 @@ type SelectionRect = {
   height: number
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isScanStatus(value: unknown): value is Scan['status'] {
+  return value === 'processing' || value === 'ready' || value === 'failed'
+}
+
+function isScanSourceType(value: unknown): value is Scan['sourceType'] {
+  return value === 'image' || value === 'pdf'
+}
+
+function isScan(value: unknown): value is Scan {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.id === 'number' &&
+    typeof value.imageUrl === 'string' &&
+    isScanSourceType(value.sourceType) &&
+    isScanStatus(value.status) &&
+    typeof value.createdAt === 'string' &&
+    (value.fullText === undefined || typeof value.fullText === 'string') &&
+    (value.detectedLanguage === undefined || typeof value.detectedLanguage === 'string') &&
+    (value.failureReason === undefined || typeof value.failureReason === 'string') &&
+    (value.documentId === undefined || typeof value.documentId === 'number') &&
+    (value.pageNumber === undefined || typeof value.pageNumber === 'number')
+  )
+}
+
+function getPreloadedScan(state: unknown): Scan | undefined {
+  if (!isRecord(state) || !isScan(state.preloadedScan)) {
+    return undefined
+  }
+  return state.preloadedScan
+}
+
 export default function ScanPage(): ReactElement {
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const scanId = id ? Number.parseInt(id, 10) : 0
   const scanHistoryPath = scanId > 0 ? `/history?scanId=${scanId}` : '/history'
-  const preloadedScan = (location.state as ScanPageLocationState | null)?.preloadedScan
+  const preloadedScan = getPreloadedScan(location.state)
   const hasReadyPreloadedScan =
     preloadedScan?.id === scanId &&
     isScanOcrReady(preloadedScan)
@@ -134,7 +166,7 @@ export default function ScanPage(): ReactElement {
           rightAction="bookmark"
           rightActionTo={scanHistoryPath}
         />
-        <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex-1 flex items-center justify-center p-6" role="status" aria-label="Loading scan">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
         </div>
       </div>
@@ -188,8 +220,6 @@ export default function ScanPage(): ReactElement {
     )
   }
 
-  const imageUrl = getScanImageUrl(scan.imageUrl)
-
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
       <Header
@@ -198,14 +228,8 @@ export default function ScanPage(): ReactElement {
         rightActionTo={scanHistoryPath}
       />
       <ScrollArea className="flex-1">
-        <div className="p-6">
-          {imageUrl && (
-            <img
-              src={imageUrl}
-              alt="Scanned document"
-              className="w-full mb-6 rounded-lg"
-            />
-          )}
+        <div className="p-6 max-w-md mx-auto">
+          <ScanImage imageUrl={scan.imageUrl} alt="Scanned document" />
           {scan.fullText && (
             <p
               className="text-base leading-relaxed text-gray-900 whitespace-pre-wrap"

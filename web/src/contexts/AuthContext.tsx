@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const userData = await getUserProfile()
-      setUser(userData as unknown as User)
+      setUser(userData)
     } catch {
       clearAuthToken()
       setUser(null)

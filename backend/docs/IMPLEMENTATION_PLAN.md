@@ -74,7 +74,11 @@ go get golang.org/x/oauth2/google
 
 ```bash
 # Existing
-GEMINI_API_KEY=...
+OPENROUTER_API_KEY=...
+OPENROUTER_OCR_MODEL=baidu/qianfan-ocr-fast:free
+MINIMAX_API_KEY=...
+MINIMAX_TEXT_MODEL=MiniMax-M2.7
+MINIMAX_TTS_MODEL=speech-2.8-hd
 APP_BASE_URL=http://localhost:8080
 PORT=8080
 POSTGRES_HOST=localhost
@@ -99,7 +103,8 @@ DEFAULT_PAGE_SIZE=20
 ```go
 // internal/config/config.go
 type Config struct {
-    GeminiAPIKey          string
+    OpenRouterAPIKey      string
+    MiniMaxAPIKey         string
     AppBaseURL            string
     Port                  string
     DBConnectionString    string
@@ -293,7 +298,7 @@ func GetUserID(ctx context.Context) int64
 ### Phase 6: AI Analyze API
 
 #### Task 6.1: AI Analyze Handler (`internal/handlers/ai.go`)
-- POST `/v1/ai/analyze` - Analyze text with Gemini
+- POST `/v1/ai/analyze` - Analyze text with AI provider
 - Uses user's preferred language as target
 - Returns structured JSON: {meaning, usageExample, usageTiming, wordBreakdown, alternativeMeaning}
 

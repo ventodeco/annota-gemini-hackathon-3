@@ -2,6 +2,32 @@
 
 Guidelines for AI agents working on the React/TypeScript frontend of the Gemini OCR+Annotation PWA project.
 
+## Agent-mandated rules (read first)
+
+### Superpowers workflow
+
+Before substantive frontend work, read and follow the root `using-superpowers` workflow. Use process skills before implementation skills when they apply, especially brainstorming for new UI behavior, systematic debugging for bugs, and verification before completion.
+
+### Vercel React best practices skill (mandatory)
+
+For any work on React components, hooks, effects, and client-side data loading, **read and follow the `vercel-react-best-practices` agent skill** before and while editing (invoke the skill in your environment; Vercel Engineering: performance, dependency arrays, unnecessary effects, list rendering, and related patterns). This project uses Vite, not Next.js; apply the rules that match a client-rendered React SPA. Root-level `AGENTS.md` also requires this skill for any agent work that affects `web/`.
+
+### TypeScript: do not use `as` type assertions
+
+**Do not add** type assertions (`expr as SomeType`) in new or edited code. Prefer type guards, discriminated unions, `satisfies` for checked literal shapes, well-typed router APIs, and generics. **`as const`** is allowed for const assertions on literals; avoid using `as` to force a value to an arbitrary type.
+
+When you touch code that still contains legacy `as` casts, **refactor toward** proper narrowing (for example for `location.state`, define a runtime check or a typed wrapper) instead of piling on more assertions.
+
+**Scan and navigation code** (`LoadingPage`, `useScan`, `ScanPage`, and their tests) should be migrated to assertion-free patterns when modified; treat those files as high-impact for type safety.
+
+### Readability and React data flow
+
+- **No nested ternaries**: Do not add nested ternaries in JSX, props, styles, or render helpers. Use named helpers, early returns, `switch`, or lookup maps for multi-branch UI.
+- **DRY / KISS**: Keep components focused and readable. Avoid duplicating formatting logic across pages/cards; extract shared helpers only when they remove real repetition or clarify a boundary.
+- **Prefer derived state**: Derive values during render when they can be computed from props, query data, or state. Do not add `useEffect` just to mirror one state value into another.
+- **Use effects sparingly**: `useEffect` is for external synchronization such as subscriptions, timers, browser APIs, imperative libraries, and network side effects. Put interaction-specific logic in event handlers.
+- **Accessibility first**: Preserve semantic elements, keyboard operation, visible focus states, labels, alt text, live/busy semantics for async UI, and mobile touch targets of at least 44x44px.
+
 ## Project Overview
 
 React frontend (mobile-first PWA) that uses Gemini Flash for OCR and contextual annotations of Japanese text. See `../docs/rfc.md` and `../docs/prd.md` for detailed requirements.
@@ -9,6 +35,8 @@ React frontend (mobile-first PWA) that uses Gemini Flash for OCR and contextual 
 ## Build Commands
 
 **Always use bun** - never npm, yarn, or pnpm.
+
+If the user is working in the Nix flake environment, first run `nix develop` from the repository root, then run the same `bun` commands below inside that shell.
 
 ```bash
 # Install dependencies
@@ -51,13 +79,16 @@ Frontend-relevant environment variables (API endpoints, etc.) are configured via
   }
   ```
 - **State typing**: Always type useState: `useState<Type>(initialValue)`
-- **Never use `any`**: Use `unknown` and type guards instead
+- **Never use `any`**: Use `unknown` and type guards instead (avoid `as` casts; see [Agent-mandated rules](#agent-mandated-rules-read-first))
   ```typescript
+  function isUserRecord(x: object): x is { name: unknown } {
+    return 'name' in x;
+  }
   function parseJSON(json: unknown): User | null {
-    if (typeof json === 'object' && json !== null && 'name' in json) {
-      return json as User;
-    }
-    return null;
+    if (typeof json !== 'object' || json === null) return null;
+    if (!isUserRecord(json)) return null;
+    if (typeof json.name !== 'string') return null;
+    return { name: json.name };
   }
   ```
 - **Utility types**: Use `Partial<T>`, `Pick<T, K>`, `Omit<T, K>` for flexible types
@@ -70,6 +101,7 @@ Frontend-relevant environment variables (API endpoints, etc.) are configured via
   ```
 - **Async functions**: Explicitly type return: `async function(): Promise<Type>`
 - **Type inference**: Prefer inference where clear, explicit where ambiguous
+- **No `as` type assertions**: Do not add `as` casts; prefer guards and `satisfies`. See [Agent-mandated rules](#agent-mandated-rules-read-first).
 
 ### React Best Practices
 
@@ -77,6 +109,9 @@ Frontend-relevant environment variables (API endpoints, etc.) are configured via
 - **Functional components**: Use functional components with hooks (no class components)
 - **Component composition**: Prefer composition over inheritance
 - **Memoization**: Use `useMemo`/`useCallback` only when needed for performance
+- **Derived values**: Prefer render-time derivation over effect-driven state synchronization
+- **Effects**: Avoid unnecessary `useEffect`; move user-triggered work into event handlers and consolidate duplicated cleanup logic into small hooks when it clarifies ownership
+- **Conditional rendering**: Avoid nested ternaries; prefer helper functions or explicit branches for multi-state UI
 - **Cleanup**: Always return cleanup functions from `useEffect` when needed
   ```typescript
   useEffect(() => {
@@ -132,6 +167,11 @@ import type { Scan } from '@/lib/types';
   - Large touch targets (minimum 44x44px recommended)
   - Adequate spacing between interactive elements
   - Readable font sizes (`text-base` minimum, `text-lg` for body text)
+- **Accessibility**:
+  - Use semantic controls (`button`, `a`, `label`, headings) before ARIA
+  - Add `type="button"` for non-submit buttons inside forms
+  - Use `aria-busy`, `role="status"`, or polite live regions for meaningful loading updates
+  - Keep focus visible and do not remove keyboard access from interactive elements
 - **PWA**: Include `manifest.webmanifest` and service worker for installability
 - **Icons**: Use lucide-react icons (configured in `components.json`)
 
@@ -189,15 +229,15 @@ See the complete workflow documentation: [`../docs/github-workflow.md`](../docs/
 # Create issue for your work
 gh issue create --label frontend --title "[FEATURE] Description"
 
-# Work on main (or create feature branch - see workflow doc)
-git checkout main
-git pull origin main
+# Work on dev (or create feature branch - see workflow doc)
+git checkout dev
+git pull origin dev
 
 # Commit with issue reference
 git commit -m "feat: description (#23)"
 
 # Push
-git push origin main
+git push origin dev
 
 # Close issue when done
 gh issue close #23

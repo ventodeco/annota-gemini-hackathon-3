@@ -19,7 +19,8 @@ This is the execution checklist derived from `docs/rfc.md` (Phase0 only). Each t
   - [ ] If **pure Go**: use `modernc.org/sqlite`
   - [ ] If **CGO OK**: use `github.com/mattn/go-sqlite3`
 - [ ] Add required env vars (local `.env` or shell export):
-  - [ ] `GEMINI_API_KEY` (or the key name you’ll standardize on)
+  - [ ] `OPENROUTER_API_KEY`
+  - [ ] `MINIMAX_API_KEY`
   - [ ] `APP_BASE_URL` (for redirects/absolute URLs if needed)
 - [ ] Add a basic dev workflow:
   - [ ] `go test ./...`

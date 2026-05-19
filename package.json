@@ -2,6 +2,9 @@
   "name": "gemini-hackathon",
   "private": true,
   "workspaces": ["web"],
+  "scripts": {
+    "dev": "dev-services start && (trap 'kill %1 2>/dev/null' EXIT INT TERM; (cd web && bun run dev) & (cd backend && go run cmd/server/main.go))"
+  },
   "devDependencies": {
     "shadcn": "^3.6.3"
   }

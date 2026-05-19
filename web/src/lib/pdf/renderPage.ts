@@ -9,6 +9,7 @@ export interface RenderPdfPageMetrics {
   width: number
   height: number
   scale: number
+  hasSelectableText: boolean
 }
 
 export async function renderPdfPageToCanvas(params: {
@@ -40,6 +41,7 @@ export async function renderPdfPageToCanvas(params: {
   }
 
   const textContent = await page.getTextContent()
+  const hasSelectableText = textContent.items.length > 0
   textLayerDiv.innerHTML = ''
   textLayerDiv.style.setProperty('--scale-factor', `${scale}`)
   textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
@@ -57,5 +59,6 @@ export async function renderPdfPageToCanvas(params: {
     width: scaledViewport.width,
     height: scaledViewport.height,
     scale,
+    hasSelectableText,
   }
 }
