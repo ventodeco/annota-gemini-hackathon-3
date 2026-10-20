@@ -367,11 +367,12 @@ func redactEchoes(attempts []ai.CallMetadata, texts []string) bool {
 	}
 	echoed := false
 	for i := range attempts {
-		id := strings.ToLower(attempts[i].RequestID)
-		if id == "" {
+		if attempts[i].RequestID == "" {
 			continue
 		}
-		if !providerIDToken.MatchString(id) || slices.ContainsFunc(fragments, func(fragment string) bool { return strings.Contains(id, fragment) }) {
+		// Check the shape before lowercasing: some non-ASCII runes lower to ASCII.
+		id := strings.ToLower(attempts[i].RequestID)
+		if !providerIDToken.MatchString(attempts[i].RequestID) || slices.ContainsFunc(fragments, func(fragment string) bool { return strings.Contains(id, fragment) }) {
 			attempts[i].RequestID = redactedID
 			echoed = true
 		}

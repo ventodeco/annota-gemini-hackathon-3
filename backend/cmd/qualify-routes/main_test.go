@@ -299,6 +299,7 @@ func TestLiveRedactsUnsafeProviderIDs(t *testing.T) {
 	tests := []struct{ name, raw, language, id string }{
 		{"URL-shaped ID", ocrText, "ja", "https://private.example/doc/42"},
 		{"path-shaped ID", ocrText, "ja", "gen/doc/42"},
+		{"non-ASCII ID that lowercases to ASCII", ocrText, "ja", "gen-\u212a-1"},
 		{"short OCR language", ocrText, "Secret", "gen-secret-1"},
 		{"short word inside output", "Top merit plan", "ja", "gen-merit-7"},
 	}
