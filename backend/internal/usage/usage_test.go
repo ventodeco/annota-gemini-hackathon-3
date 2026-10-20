@@ -81,6 +81,9 @@ func TestFinishClassifiesFromStructuredAttempts(t *testing.T) {
 			for _, call := range tt.calls {
 				RecordCall(ctx, call)
 			}
+			if got := Calls(ctx); len(got) != len(tt.calls) {
+				t.Fatalf("Calls = %d attempts, want %d", len(got), len(tt.calls))
+			}
 			meter.Finish(ctx, res, tt.err)
 			if got := store.Reservations()[0].Status; got != tt.wantStatus {
 				t.Fatalf("status = %s, want %s", got, tt.wantStatus)

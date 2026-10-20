@@ -29,7 +29,7 @@ const STATUS_TEXT_COLORS: Record<AllowanceState, string> = {
 function describeAllowance(allowance: FeatureAllowance, state: AllowanceState, resetTime: string): string {
   switch (state) {
     case 'disabled':
-      return 'Not available during the beta'
+      return 'Not available during the beta.'
     case 'exhausted':
       return `Daily limit reached. Resets at ${resetTime}.`
     case 'paused':

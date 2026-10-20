@@ -330,6 +330,17 @@ func RecordCall(ctx context.Context, meta ai.CallMetadata) {
 	c.mu.Unlock()
 }
 
+// Calls returns the provider attempts recorded so far on a reservation's
+// context, for reuse by other request-scoped consumers (e.g. provenance).
+// It returns nil outside a reservation.
+func Calls(ctx context.Context) []ai.CallMetadata {
+	c, ok := ctx.Value(collectorKey{}).(*collector)
+	if !ok {
+		return nil
+	}
+	return c.snapshot()
+}
+
 // FeatureUsage is the caller's allowance for one feature today. Global totals
 // are deliberately reduced to availability.
 type FeatureUsage struct {

@@ -24,7 +24,7 @@ describe('AllowanceView', () => {
     expect(items[0]).toHaveTextContent('17 pages left of 20')
     expect(items[1]).toHaveTextContent('Explanations')
     expect(items[1]).toHaveTextContent(/Daily limit reached\. Resets at/)
-    expect(items[2]).toHaveTextContent('Not available during the beta')
+    expect(items[2]).toHaveTextContent('Not available during the beta.')
     expect(screen.getByText(/reset daily at .+ \(00:00 UTC\)/)).toBeInTheDocument()
   })
 
