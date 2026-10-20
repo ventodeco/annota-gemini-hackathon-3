@@ -87,10 +87,10 @@ From `backend/`, put only the active profiles' keys in the process environment. 
 
    The JSON report gives route correctness, latency, usage/cost and the provider-ID privacy check. Copy the redacted report fields into the matrix results table, and share them with #34 so its route evidence table needs no repeat paid call.
 
-3. Accuracy scoring needs the model output, which the report deliberately omits. Until an opt-in, local-only output option is added to `qualify-routes` as a reviewed follow-up (agreed with #34), capture output through the routed app on a local machine. Save OCR text to a temporary file outside the repo, then run:
+3. Accuracy scoring needs the model output, which the report deliberately omits. Add `-output-dir` with a new directory outside the repo to the live OCR/annotation command in step 2, for example `-output-dir /tmp/annota-35-ocr-01`. The run writes `ocr.txt` and `annotation.json` there (directory mode 0700, files 0600), and the report records only `output_written`. Then run:
 
    ```bash
-   python3 -I "$E/score_ocr.py" "$E/ground-truth/ocr-01-horizontal.txt" /tmp/annota-35-ocr-01.txt
+   python3 -I "$E/score_ocr.py" "$E/ground-truth/ocr-01-horizontal.txt" /tmp/annota-35-ocr-01/ocr.txt
    ```
 
    For annotations, compare `pronunciation.kana` by hand. Listen to the audio, record the observed reading, then delete the audio and output files. Do not commit outputs or audio.

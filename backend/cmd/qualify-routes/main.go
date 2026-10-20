@@ -1,7 +1,8 @@
 // Command qualify-routes validates an AI routing file and, with -live, makes one
 // bounded OCR, annotation and speech call per selected route. The JSON report
 // contains route and attempt metadata plus derived checks, never source text,
-// model output, audio, credentials or the routing file contents.
+// model output, audio, credentials or the routing file contents. Model output
+// for local accuracy scoring goes only to the private -output-dir.
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -72,6 +74,7 @@ type inputs struct {
 	context   string
 	selection string
 	audioOut  string
+	outputDir *os.Root
 }
 
 func main() {
@@ -91,6 +94,7 @@ func run(ctx context.Context, args []string, lookupEnv func(string) string, stdo
 	contextPath := flags.String("context-file", "", "UTF-8 Japanese passage used as annotation context")
 	selection := flags.String("selection", "", "text to annotate and speak; must appear in -context-file when given")
 	audioOut := flags.String("audio-out", "", "new file for synthesized audio, for decoding and listening")
+	outputDir := flags.String("output-dir", "", "new private directory for OCR text and annotation JSON, for local scoring; never commit")
 	usage := func(format string, a ...any) int {
 		fmt.Fprintf(stderr, "qualify-routes: "+format+"\n", a...)
 		return exitUsage
@@ -120,6 +124,9 @@ func run(ctx context.Context, args []string, lookupEnv func(string) string, stdo
 	if err != nil {
 		return usage("invalid routing configuration: %v", err)
 	}
+	if *outputDir != "" && !*live {
+		return usage("-output-dir requires -live")
+	}
 	report := qualificationReport{CheckedAt: time.Now().UTC().Format(time.RFC3339), Live: *live}
 	if !*live {
 		for _, task := range tasks {
@@ -138,6 +145,15 @@ func run(ctx context.Context, args []string, lookupEnv func(string) string, stdo
 	client, err := ai.NewRoutedClient(cfg, ai.RoutedClientOptions{Observe: collector.observe})
 	if err != nil {
 		return usage("invalid routing configuration: %v", err)
+	}
+	// Created last so an invalid run leaves nothing behind.
+	if *outputDir != "" {
+		root, err := createOutputDir(*outputDir)
+		if err != nil {
+			return usage("-output-dir must name a new directory in an existing parent")
+		}
+		defer root.Close()
+		in.outputDir = root
 	}
 	code := exitOK
 	for _, task := range tasks {
@@ -265,7 +281,8 @@ func qualify(ctx context.Context, client ai.Client, task string, in inputs, resu
 			"structured_json_valid": resp.StructuredJSON == "" || json.Valid([]byte(resp.StructuredJSON)),
 			"language_is_japanese":  slices.Contains(japaneseLanguageCodes, strings.ToLower(strings.TrimSpace(resp.Language))),
 		}
-		return []string{resp.RawText, resp.StructuredJSON, resp.Language}, nil
+		outputs := []string{resp.RawText, resp.StructuredJSON, resp.Language}
+		return outputs, writeOutput(in.outputDir, "ocr.txt", []byte(resp.RawText), result)
 	case "annotation":
 		resp, err := client.Annotate(ctx, in.context, in.selection)
 		if err != nil {
@@ -285,7 +302,12 @@ func qualify(ctx context.Context, client ai.Client, task string, in inputs, resu
 			outputs = append(outputs, value)
 		}
 		result.Checks = map[string]any{"required_fields_present": all, "fields_present": present, "romaji_present": resp.Pronunciation.Romaji != ""}
-		return append(outputs, resp.Pronunciation.Romaji, resp.Meaning, resp.AlternativeMeaning), nil
+		outputs = append(outputs, resp.Pronunciation.Romaji, resp.Meaning, resp.AlternativeMeaning)
+		data, err := json.MarshalIndent(resp, "", "  ")
+		if err != nil {
+			return outputs, errors.New("cannot encode -output-dir annotation")
+		}
+		return outputs, writeOutput(in.outputDir, "annotation.json", data, result)
 	default:
 		resp, err := client.SynthesizeSpeech(ctx, in.selection, in.context)
 		if err != nil {
@@ -293,7 +315,7 @@ func qualify(ctx context.Context, client ai.Client, task string, in inputs, resu
 		}
 		result.Checks = map[string]any{"audio_bytes": len(resp.Audio), "mime_type": resp.MIMEType, "mp3_header": mp3Header(resp.Audio)}
 		if in.audioOut != "" {
-			if err := writeNew(in.audioOut, resp.Audio); err != nil {
+			if err := writeNew(in.audioOut, resp.Audio, "-audio-out"); err != nil {
 				result.Checks["audio_written"] = false
 				return nil, err
 			}
@@ -306,17 +328,85 @@ func qualify(ctx context.Context, client ai.Client, task string, in inputs, resu
 	}
 }
 
-func writeNew(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return errors.New("cannot create -audio-out file")
+const exclusiveCreate = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+
+// beforeOutputOpen lets tests replace the directory between Mkdir and open.
+var beforeOutputOpen = func(string) {}
+
+// createOutputDir makes a new private directory and keeps a handle to it.
+// Mkdir fails on any existing path, including a symlink; Clean drops a trailing
+// slash that would otherwise resolve one. The path can still be swapped before
+// it is opened, so the opened directory must be empty and private: output never
+// merges into existing data or a shared directory. Later writes go through the
+// handle, so replacing the path mid-run cannot redirect them.
+func createOutputDir(path string) (*os.Root, error) {
+	path = filepath.Clean(path)
+	if err := os.Mkdir(path, 0o700); err != nil {
+		return nil, err
 	}
+	beforeOutputOpen(path)
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkNewPrivateDir(root, path); err != nil {
+		root.Close()
+		return nil, err
+	}
+	return root, nil
+}
+
+func checkNewPrivateDir(root *os.Root, path string) error {
+	info, err := root.Stat(".")
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return errors.New("output directory is not private")
+	}
+	// Defence in depth: the path itself must still be this directory, not a symlink.
+	if linked, err := os.Lstat(path); err != nil || !linked.IsDir() || !os.SameFile(info, linked) {
+		return errors.New("output directory changed during creation")
+	}
+	dir, err := root.Open(".")
+	if err != nil {
+		return errors.New("output directory is not readable")
+	}
+	defer dir.Close()
+	if entries, err := dir.ReadDir(1); len(entries) > 0 || (err != nil && !errors.Is(err, io.EOF)) {
+		return errors.New("output directory is not new")
+	}
+	return nil
+}
+
+// writeOutput stores model output in the private output directory, when set,
+// and records only whether it was written.
+func writeOutput(dir *os.Root, name string, data []byte, result *taskReport) error {
+	if dir == nil {
+		return nil
+	}
+	err := errors.New("cannot create -output-dir file")
+	if f, openErr := dir.OpenFile(name, exclusiveCreate, 0o600); openErr == nil {
+		err = writeAndClose(f, data, "-output-dir")
+	}
+	result.Checks["output_written"] = err == nil
+	return err
+}
+
+// writeNew creates path exclusively (O_EXCL does not follow a final symlink)
+// and reports failures by flag name only, never by path.
+func writeNew(path string, data []byte, flagName string) error {
+	f, err := os.OpenFile(path, exclusiveCreate, 0o600)
+	if err != nil {
+		return fmt.Errorf("cannot create %s file", flagName)
+	}
+	return writeAndClose(f, data, flagName)
+}
+
+func writeAndClose(f *os.File, data []byte, flagName string) error {
 	if _, err := f.Write(data); err != nil {
 		f.Close()
-		return errors.New("cannot write -audio-out file")
+		return fmt.Errorf("cannot write %s file", flagName)
 	}
 	if err := f.Close(); err != nil {
-		return errors.New("cannot write -audio-out file")
+		return fmt.Errorf("cannot write %s file", flagName)
 	}
 	return nil
 }

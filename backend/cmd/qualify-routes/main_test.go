@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/png"
 	"net/http"
@@ -32,6 +33,7 @@ type fixture struct {
 	ocrID, ocrLanguage      string
 	ocrRaw                  string
 	annotationStatus        int
+	beforeOCRResponse       func()
 	configPath, imagePath   string
 	contextPath, dir        string
 	env                     map[string]string
@@ -57,6 +59,9 @@ func newFixture(t *testing.T) *fixture {
 		}))
 	}
 	f.ocr = chat(&f.ocrCalls, f.env["QUALIFY_OCR_KEY"], func() (string, string, int) {
+		if f.beforeOCRResponse != nil {
+			f.beforeOCRResponse()
+		}
 		return `{"raw_text":"` + f.ocrRaw + `","language":"` + f.ocrLanguage + `"}`, f.ocrID, http.StatusOK
 	})
 	f.annotation = chat(&f.annotationCalls, f.env["QUALIFY_ANNOTATION_KEY"], func() (string, string, int) {
@@ -366,6 +371,11 @@ func TestUsageAndConfigErrorsMakeNoRequests(t *testing.T) {
 	if err := os.WriteFile(existing, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	symlinkDir := filepath.Join(f.dir, "linked-output")
+	if err := os.Symlink(f.dir, symlinkDir); err != nil {
+		t.Fatal(err)
+	}
+	unusedDir := filepath.Join(f.dir, "validate-only-output")
 	textPath := filepath.Join(f.dir, "not-image.png")
 	if err := os.WriteFile(textPath, []byte(contextText), 0o600); err != nil {
 		t.Fatal(err)
@@ -380,6 +390,10 @@ func TestUsageAndConfigErrorsMakeNoRequests(t *testing.T) {
 		{"unsupported image", []string{"-live", "-image", textPath, "-context-file", f.contextPath, "-selection", selectionText}, nil},
 		{"unknown task", []string{"-tasks", "ocr,video"}, nil},
 		{"existing audio output", f.liveArgs("-audio-out", existing), nil},
+		{"output dir without live", []string{"-output-dir", unusedDir}, nil},
+		{"existing output dir", f.liveArgs("-output-dir", f.dir), nil},
+		{"symlinked output dir", f.liveArgs("-output-dir", symlinkDir), nil},
+		{"output dir without parent", f.liveArgs("-output-dir", filepath.Join(f.dir, "missing", "out")), nil},
 		{"missing active key", nil, func() { delete(f.env, "QUALIFY_SPEECH_KEY") }},
 	}
 	for _, tt := range tests {
@@ -399,5 +413,158 @@ func TestUsageAndConfigErrorsMakeNoRequests(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(existing); string(data) != "keep" {
 		t.Fatal("existing audio output overwritten")
+	}
+	if _, err := os.Lstat(unusedDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("validate-only run created an output directory")
+	}
+}
+
+func TestLiveOutputDirStoresOutputOutsideReport(t *testing.T) {
+	f := newFixture(t)
+	outputDir := filepath.Join(f.dir, "private-output")
+	code, stdout, stderr := f.run(t, f.liveArgs("-output-dir", outputDir)...)
+	if code != 0 {
+		t.Fatalf("exit %d: %s %s", code, stderr, stdout)
+	}
+	if f.calls() != [3]int32{1, 1, 1} {
+		t.Fatalf("expected one call per task, got %v", f.calls())
+	}
+	if info, err := os.Stat(outputDir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("output dir permissions: %v", err)
+	}
+	ocrOut, err := os.ReadFile(filepath.Join(outputDir, "ocr.txt"))
+	if err != nil || string(ocrOut) != ocrText {
+		t.Fatalf("ocr output = %q, %v", ocrOut, err)
+	}
+	annotationOut, err := os.ReadFile(filepath.Join(outputDir, "annotation.json"))
+	if err != nil || !strings.Contains(string(annotationOut), privateNote) || !strings.Contains(string(annotationOut), "けんしょうよう") {
+		t.Fatalf("annotation output = %q, %v", annotationOut, err)
+	}
+	for _, name := range []string{"ocr.txt", "annotation.json"} {
+		if info, err := os.Stat(filepath.Join(outputDir, name)); err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s permissions: %v", name, err)
+		}
+	}
+	report := decodeReport(t, stdout)
+	for _, task := range []string{"ocr", "annotation"} {
+		if result := taskResult(t, report, task); result.Status != "passed" || result.Checks["output_written"] != true {
+			t.Fatalf("unexpected %s result: %+v", task, result)
+		}
+	}
+	if strings.Contains(stdout+stderr, outputDir) {
+		t.Fatal("report echoed the output directory")
+	}
+	assertPrivate(t, f, stdout, stderr)
+}
+
+func TestLiveOutputDirIgnoresPathReplacedDuringCall(t *testing.T) {
+	f := newFixture(t)
+	outputDir := filepath.Join(f.dir, "private-output")
+	movedDir := filepath.Join(f.dir, "moved-output")
+	victimDir := filepath.Join(f.dir, "victim")
+	if err := os.Mkdir(victimDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.beforeOCRResponse = func() {
+		if err := os.Rename(outputDir, movedDir); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(victimDir, outputDir); err != nil {
+			t.Error(err)
+		}
+	}
+	code, stdout, stderr := f.run(t, f.liveArgs("-tasks", "ocr", "-output-dir", outputDir)...)
+	if code != 0 {
+		t.Fatalf("exit %d: %s %s", code, stderr, stdout)
+	}
+	if entries, err := os.ReadDir(victimDir); err != nil || len(entries) != 0 {
+		t.Fatalf("output followed the replaced path into another directory: %v %v", entries, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(movedDir, "ocr.txt")); err != nil || string(data) != ocrText {
+		t.Fatalf("output must stay in the directory created for this run: %q %v", data, err)
+	}
+	assertPrivate(t, f, stdout, stderr)
+}
+
+func TestCreateOutputDirRejectsReplacementBeforeOpen(t *testing.T) {
+	base := t.TempDir()
+	victim := filepath.Join(base, "victim")
+	if err := os.Mkdir(victim, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(victim, "existing.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(base, "shared")
+	if err := os.Mkdir(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	replace := func(with func(path string) error) func(string) {
+		return func(path string) {
+			if err := os.Rename(path, path+"-moved"); err != nil {
+				t.Error(err)
+			}
+			if err := with(path); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	tests := []struct {
+		name    string
+		path    string
+		replace func(string)
+	}{
+		{"existing directory renamed in", filepath.Join(base, "out1"), replace(func(path string) error { return os.Rename(victim, path) })},
+		{"symlink with trailing slash", filepath.Join(base, "out2") + "/", replace(func(path string) error { return os.Symlink(victim, path) })},
+		{"shared empty directory", filepath.Join(base, "out3"), replace(func(path string) error { return os.Rename(shared, path) })},
+		{"symlink to empty private directory", filepath.Join(base, "out4"), replace(func(path string) error {
+			empty := filepath.Join(base, "empty-private")
+			if err := os.Mkdir(empty, 0o700); err != nil {
+				return err
+			}
+			return os.Symlink(empty, path)
+		})},
+	}
+	defer func() { beforeOutputOpen = func(string) {} }()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			beforeOutputOpen = tt.replace
+			if root, err := createOutputDir(tt.path); err == nil {
+				root.Close()
+				t.Fatal("replaced output directory was accepted")
+			}
+		})
+	}
+	beforeOutputOpen = func(string) {}
+	root, err := createOutputDir(filepath.Join(base, "fresh") + "/")
+	if err != nil {
+		t.Fatalf("fresh directory with trailing slash rejected: %v", err)
+	}
+	root.Close()
+}
+
+func TestWriteOutputFailureIsFixedAndRecorded(t *testing.T) {
+	dirPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dirPath, "ocr.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.OpenRoot(dirPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	result := taskReport{Checks: map[string]any{}}
+	err = writeOutput(dir, "ocr.txt", []byte(ocrText), &result)
+	if err == nil || err.Error() != "cannot create -output-dir file" || result.Checks["output_written"] != false {
+		t.Fatalf("err = %v, checks = %+v", err, result.Checks)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dirPath, "ocr.txt")); string(data) != "keep" {
+		t.Fatal("existing output overwritten")
+	}
+	if err := writeOutput(nil, "ocr.txt", []byte(ocrText), &result); err != nil {
+		t.Fatalf("no output dir must be a no-op: %v", err)
 	}
 }
