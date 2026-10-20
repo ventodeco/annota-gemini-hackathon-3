@@ -35,6 +35,14 @@ After a speech run, decode the audio (for example `afconvert /tmp/annota-qualifi
 
 Judging transcription accuracy and annotation quality across a fixed Japanese dataset is #35's benchmark. This record only proves that each route works end to end.
 
+For that scoring, `-live -output-dir <new directory>` also writes the model output to a private local directory: `ocr.txt` (OCR text) and `annotation.json` (the annotation response). Audio still uses `-audio-out`. Note what each location holds:
+
+- **The report stays content-free.** It records only whether each file was written (`output_written`).
+- **The directory holds private source and model text.** It must be a new path inside an existing parent. The command creates it with mode 0700 and its files with mode 0600. It never reuses, merges into, or follows a symlink at an existing path.
+- **Where to put it:** outside the repository, for example under `/tmp`. Never commit it.
+
+An invalid or existing path exits with status 2 before any request. A failed write after a call marks that task failed with a fixed message, and the report is still printed. Delete the directory after scoring.
+
 ## Evidence
 
 Fill one row per configured route from the report. Keep unreported usage/cost as `unknown`.
