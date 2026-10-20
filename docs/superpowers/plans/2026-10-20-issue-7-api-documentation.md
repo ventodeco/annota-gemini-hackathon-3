@@ -57,14 +57,16 @@ Out of scope: runtime API changes. These code issues are reported, not fixed:
 - `AnalyzeWithLanguageAPI` is unrouted.
 - The Vite `/api` proxy is stale; the web app calls `VITE_API_BASE_URL` directly.
 
-## Overlap with #40 (unmerged)
+## Overlap with #40 (merged as PR #75, e77cb9f)
 
-#40 will add `failureReason` values (`ocr_timeout`, `no_text_found`, `ocr_interrupted`), return 422 for malformed or zero-page PDFs, and make page scans race-free. The spec documents only what is on `dev`:
+The first PR revision documented only `dev` behavior from before #40 landed. After #75 merged, the branch was rebased and the spec updated to the landed contract:
 
-- `failureReason` is an open string, with `ocr_failed` as today's value; clients must handle unknown values.
-- A PDF that cannot be parsed returns 500.
+- `failureReason` values `ocr_failed`, `ocr_timeout`, `ocr_interrupted` and `no_text_found`. Clients must still handle unknown values.
+- 422 for malformed or zero-page PDFs.
+- Race-safe page scans: 201 when created, 200 when the scan exists.
+- The new page-text 500 messages.
 
-If #40 merges first, rebase and update the spec to the landed behavior. #40 does not touch the docs files.
+#40 did not touch the docs files.
 
 ## Edge cases to document
 

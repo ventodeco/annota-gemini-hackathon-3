@@ -313,13 +313,16 @@ paths:
       description: |
         Stores the image and starts OCR in the background, then returns
         immediately. Poll `GET /v1/scans/{id}` until `status` is `ready` or
-        `failed`.
+        `failed`. OCR must finish within 5 minutes of the upload
+        (`ocr_timeout`); a scan still processing after 6 minutes, for example
+        after a server restart, is reported as failed with `ocr_interrupted`.
 
         The `image` part's Content-Type must be `image/jpeg`, `image/jpg`,
         `image/png` or `image/webp`, and its size at most `MAX_UPLOAD_SIZE`
         (default 10 MB). After validation the request takes one page from the
-        daily `ocr` allowance; the page is returned to the allowance if the
-        scan cannot be stored, OCR never starts, or OCR fails.
+        daily `ocr` allowance. The page is returned to the allowance if the
+        scan cannot be stored or OCR does not complete; it stays charged when
+        OCR succeeds, including `no_text_found`.
 
         In rare cases where OCR can no longer start in time, the scan is
         created as `failed` with `failureReason: ocr_failed` and the page is
@@ -522,9 +525,11 @@ paths:
       description: |
         Stores the PDF and reads its page count. The `file` part's Content-Type
         must be `application/pdf` and its size at most `MAX_UPLOAD_SIZE`
-        (default 10 MB). Page text is extracted from the PDF itself, so PDF
-        reading does not use OCR, the AI provider or the daily allowance. A
-        failed upload leaves no record or file behind.
+        (default 10 MB). A file that cannot be parsed as a PDF, or has no pages,
+        is rejected with 422. Page text is
+        extracted from the PDF itself, so PDF reading does not use OCR, the AI
+        provider or the daily allowance. A failed upload leaves no record or
+        file behind.
       operationId: uploadDocument
       requestBody:
         required: true
@@ -569,10 +574,18 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "413":
           $ref: "#/components/responses/FileTooLarge"
+        "422":
+          description: The file is not a readable PDF, or has no pages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Unprocessable Entity
+                message: This file couldn't be read as a PDF. Try another file.
         "500":
           description: |
-            `Failed to create document record`, `Failed to save PDF file`,
-            `Failed to read PDF page count` (the file is not a readable PDF) or
+            `Failed to create document record`, `Failed to save PDF file` or
             `Failed to update document record`
           content:
             application/json:
@@ -730,7 +743,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "500":
-          $ref: "#/components/responses/InternalError"
+          description: Text extraction failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Internal Server Error
+                message: Couldn't read the text on this page. Please try again.
 
   /v1/documents/{id}/pages/{pageNumber}/scan:
     parameters:
@@ -741,8 +761,10 @@ paths:
       summary: Get or create the scan for a page
       description: |
         Returns the scan that holds this page's extracted text, creating it if
-        needed. The scan is `ready` immediately and can be used as `scanId`
-        for `POST /v1/ai/analyze` and `POST /v1/annotations`. No request body.
+        needed. Idempotent and safe under concurrent requests: each page has
+        one scan, and only the request that creates it gets 201. The scan is
+        `ready` immediately and can be used as `scanId` for
+        `POST /v1/ai/analyze` and `POST /v1/annotations`. No request body.
       operationId: createDocumentPageScan
       responses:
         "200":
@@ -772,7 +794,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
-          description: "`Document not found`, or `Page N not found. Document has M pages.`"
+          description: "`Document not found` (also when it was deleted meanwhile), or `Page N not found. Document has M pages.`"
           content:
             application/json:
               schema:
@@ -781,7 +803,13 @@ paths:
                 error: Not Found
                 message: Page 13 not found. Document has 12 pages.
         "500":
-          $ref: "#/components/responses/InternalError"
+          description: |
+            `Failed to prepare this page. Please try again.` or
+            `Couldn't read the text on this page. Please try again.`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /v1/documents/{id}/progress:
     parameters:
@@ -1606,9 +1634,15 @@ components:
     ScanFailureReason:
       type: string
       description: |
-        Why a scan failed, present only when `status` is `failed`. Current
-        value: `ocr_failed`. New reasons may be added; treat unknown values as
-        a generic failure.
+        Why a scan failed, present only when `status` is `failed`:
+
+        - `ocr_failed`: the OCR provider failed, or the result could not be saved
+        - `ocr_timeout`: OCR did not finish within 5 minutes of the upload
+        - `ocr_interrupted`: OCR stopped without a result (for example a server
+          restart); reported when the scan is read more than 6 minutes after upload
+        - `no_text_found`: OCR succeeded but found no text in the image
+
+        New reasons may be added; treat unknown values as a generic failure.
       example: ocr_failed
 
     CreateScanResponse:
