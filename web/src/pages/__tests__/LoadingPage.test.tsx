@@ -7,10 +7,11 @@ import LoadingPage from '../LoadingPage'
 
 const navigateMock = vi.fn()
 const getScanMock = vi.fn()
+let routeId: string | undefined = '5'
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
-  useParams: () => ({ id: '5' }),
+  useParams: () => ({ id: routeId }),
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -34,6 +35,7 @@ describe('LoadingPage', () => {
 
   beforeEach(() => {
     vi.resetAllMocks()
+    routeId = '5'
   })
 
   afterEach(() => {
@@ -157,5 +159,53 @@ describe('LoadingPage', () => {
       })
     })
     expect(navigateMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not navigate again when the timeout elapses after OCR became ready', async () => {
+    vi.useFakeTimers()
+
+    const processingScan: Scan = {
+      id: 5,
+      imageUrl: '/uploads/5.jpg',
+      detectedLanguage: '',
+      fullText: '',
+      sourceType: 'image',
+      status: 'processing',
+      createdAt: '2026-02-08T20:30:41+07:00',
+    }
+    const readyScan: Scan = {
+      ...processingScan,
+      detectedLanguage: 'JP',
+      fullText: 'OCR text',
+      status: 'ready',
+    }
+    getScanMock.mockResolvedValueOnce(processingScan)
+    getScanMock.mockResolvedValue(readyScan)
+
+    renderPage()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3100)
+    })
+    expect(navigateMock).toHaveBeenCalledWith('/scans/5', {
+      replace: true,
+      state: { preloadedScan: readyScan },
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000)
+    })
+    expect(navigateMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['abc', '0', '-3'])('redirects to welcome for invalid scan id %s', async (invalidId) => {
+    routeId = invalidId
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith('/welcome', { replace: true })
+    })
+    expect(getScanMock).not.toHaveBeenCalled()
   })
 })

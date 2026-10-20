@@ -22,4 +22,21 @@ describe('BottomActionBar', () => {
     await user.click(explainButton)
     expect(onExplain).toHaveBeenCalledTimes(1)
   })
+
+  it('labels the speech button and shows the icon for its state', () => {
+    const onSpeech = vi.fn()
+    const { container, rerender } = render(<BottomActionBar onSpeech={onSpeech} />)
+
+    expect(screen.getByRole('button', { name: 'Play selected text' })).toBeEnabled()
+    expect(container.querySelector('.lucide-volume-2')).toBeInTheDocument()
+
+    rerender(<BottomActionBar onSpeech={onSpeech} isPlaying />)
+    expect(screen.getByRole('button', { name: 'Stop playback' })).toBeEnabled()
+    expect(container.querySelector('.lucide-square')).toBeInTheDocument()
+
+    rerender(<BottomActionBar onSpeech={onSpeech} isPlaying isSpeechLoading />)
+    expect(screen.getByRole('button', { name: 'Stop playback' })).toBeDisabled()
+    expect(container.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(container.querySelector('.lucide-square')).not.toBeInTheDocument()
+  })
 })

@@ -2,7 +2,7 @@
 
 This backlog captures codebase improvement opportunities found while refreshing the agent guidance. At the time of that guidance refresh, no application code had been changed.
 
-Implementation status: completed under GitHub issue #30. The findings below are retained as the original audit checklist for traceability.
+Implementation status: completed under GitHub issue #30. The findings below are retained as the original audit checklist for traceability. See [Reconciliation at `4b730e7`](#reconciliation-at-4b730e7) for per-item evidence against the current `dev` source.
 
 ## Frontend
 
@@ -86,3 +86,48 @@ Implementation status: completed under GitHub issue #30. The findings below are 
 
 - `CLAUDE.md`, `web/CLAUDE.md`, and `backend/CLAUDE.md` contain older guidance and can miss newer AGENTS rules.
 - Prefer reducing duplication by pointing Claude-specific docs to the canonical AGENTS files.
+
+## Reconciliation at `4b730e7`
+
+Checked on 2026-10-20 against `origin/dev` at `4b730e7`. Most items were resolved by `441c340` ("refactor: address agent audit backlog (#30)"), and later PRs closed others. The issue #30 reconciliation PR resolved the gaps that were still open; those rows are marked "this PR". The plan is in `docs/superpowers/plans/2026-10-20-issue-30-agent-audit-reconciliation.md`.
+
+### Frontend
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Production `as` assertions | Resolved | `bunx eslint src --rule '{"@typescript-eslint/consistent-type-assertions":["error",{"assertionStyle":"never"}]}'` reports 0 production hits; the remaining 31 are in test-only files. The guards are `ScanPage.tsx:54` `getPreloadedScan`, `AuthContext.tsx:18` `loadUserProfile`, `ProfilePage.tsx:45` `isLanguage`, `api.ts:87` `handleEmptyResponse`, `storage.ts:20` `isAnnotation`, `logger.ts:9` `resolveLogLevel` and `sonner.tsx:17` `isSonnerTheme`. |
+| Nested ternaries | Resolved (this PR) | `AnnotationDrawer.tsx:24` and `AnnotationDetailPage.tsx:35` use named helpers from `441c340`. This PR replaces the later nested ternaries in `BottomActionBar.tsx` (`SpeechIcon`) and `HistoryPage.tsx` (`getHistoryTitle`, `getAnnotationDetailPath`). `bunx eslint src --rule '{"no-nested-ternary":"error"}'` reports 0 hits. |
+| Annotation formatting duplication | Resolved | `web/src/lib/annotationFormatting.ts` is shared by `AnnotationContent.tsx`, `AnnotationCard.tsx` and `AnnotationDetailPage.tsx`. |
+| LoadingPage effect/ref mirroring | Resolved (this PR) | `LoadingPage.tsx` no longer mirrors `scan` into a ref. The 30s fallback relies on the `hasNavigatedRef` guard in `navigateToScan`, and id validation uses the derived `scanId`. `LoadingPage.test.tsx` covers ready-then-timeout (navigates once) and invalid ids. |
+| Shared speech cleanup | Resolved | `web/src/hooks/useSpeechPlayback.ts` is used by `ScanPage`, `DocumentPage` and `AnnotationDetailPage`. |
+| `eslint-plugin-jsx-a11y` | Resolved | `web/eslint.config.js:3` and `web/package.json`. |
+| Loading status semantics | Resolved | `AnnotationDetailPage.tsx:64`, `LoadingSpinner.tsx:9`, plus `role="status"` loaders in `ScanPage`, `DocumentPage` and `ExtractedTextReader`. |
+| Accessible names for icon-only controls | Improved (this PR) | The `BottomActionBar` speech button now has the same `aria-label` copy as `SelectionSpeechButton`. |
+
+### Backend
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Env and database docs vs runtime | Resolved | `backend/.env.example` is the source of truth for backend env names. `DB_PATH` no longer appears in `flake.nix`. Auth env names are changing under #39 (Clerk); see that issue rather than this audit. |
+| JSON API error shape | Resolved | `middleware/auth.go:30` and `middleware/rate_limit.go:44` use `httputil.WriteJSONError`. The `http.Error` in `handlers/frontend.go:30` is intentional: it's the plain-text static-frontend fallback, not a JSON API route. |
+| Request-started OCR work | Resolved | `handlers/scan.go:172` detaches OCR from request cancellation with `context.WithoutCancel` and bounds it with `ocrProcessingTimeout` (5 minutes). |
+| `ParsePagination` contract | Resolved (decision: coerce) | `httputil/request.go:10` documents that invalid or non-positive values are coerced to defaults and that `size` is capped at 100. |
+| JSON encode errors | Resolved (decision: ignore explicitly) | `httputil/response.go:18` uses explicit `_ =` assignments. |
+| Postgres migration fidelity | Resolved | `storage/migrate_test.go` has PostgreSQL-backed tests gated on `POSTGRES_TEST_DSN`, and CI sets that variable (`.github/workflows/ci-cd.yml:39`, #43/#55). Locally the tests skip without a DSN. |
+| Logging response body | Resolved | `middleware/logging.go:16` caps the captured body at 4096 bytes, and the body is logged only for responses with status 400 and above. |
+
+### Documentation
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Branch workflow on `dev` | Resolved | `AGENTS.md` (Branching) and the quick start in `docs/github-workflow.md` use `dev`. |
+| Database story drift | Resolved | The README describes PostgreSQL and Redis. `backend/AGENTS.md` notes that production migrations target PostgreSQL. Nix docs and the flake are maintained by another team. |
+| CLAUDE guidance | Resolved | `CLAUDE.md`, `web/CLAUDE.md` and `backend/CLAUDE.md` point to the canonical AGENTS files. |
+
+### Observations outside this audit
+
+These came up during reconciliation. They're recorded here rather than expanded into #30:
+
+- 12 production TypeScript non-null (`!`) assertions remain, for example in `HistoryPage.tsx`, `DocumentsPage.tsx`, `OCRHistoryPage.tsx`, `useDocument.ts` and `main.tsx`. The audit and the AGENTS rule target `as` casts.
+- In `HistoryPage.tsx`, the clickable annotation summary is a `div` with `onClick`, so it can't be reached by keyboard. Fixing it changes the markup and needs its own visual check.
+
