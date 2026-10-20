@@ -121,7 +121,7 @@ Saved output records which configured producer generated it, so later quality di
 - **Fields:** each record holds identifiers only: version, provider mode, gateway, region, configured model and prompt version.
 - **Excluded:** keys, prompts, request IDs, text and usage are never stored. Cost and usage belong to the quota ledger (#42).
 - **OCR results:** stored in the nullable `scans.ocr_provenance` JSONB column (migration 007). A newer OCR result replaces the earlier provenance. A client that does not report a producer stores NULL.
-- **Annotations:** the analyze response includes a `provenance` object. The client echoes it inside `nuance_data` when it saves the annotation, and the server keeps it only if it is a well-formed identifier record. That makes it client-asserted, like the rest of `nuance_data`.
+- **Annotations:** the analyze response includes a `provenance` object. The client echoes it inside `nuance_data` when it saves the annotation. The server keeps it only if it exactly matches the server's own current annotation producer, so a client cannot store arbitrary values such as keys, request IDs or text. A malformed or mismatched value is dropped without rejecting the save. So is a producer change between analyze and save. In those cases the annotation's provenance is unknown.
 - **Historical rows:** existing rows are not backfilled and stay unknown.
 - **`reportedModel`** (the model the gateway reports back) is recorded only when the gateway reports it. Routed calls will populate it from #42's request-scoped call capture once that lands.
 

@@ -88,7 +88,7 @@ func main() {
 	userHandlers := handlers.NewUserHandlersWithStorage(storageDB, fileStorage, cfg, identityDirectory)
 	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, aiClient, cfg)
 	aiHandlers := handlers.NewAIHandlers(storageDB, aiClient, knowledgeSvc)
-	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg)
+	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg).WithAIClient(aiClient)
 	analyticsHandlers := handlers.NewAnalyticsHandlers()
 	entitlementHandlers := handlers.NewEntitlementHandlers(cfg)
 	pdfExtractor := pdf.NewExtractor()

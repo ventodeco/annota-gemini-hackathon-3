@@ -103,7 +103,7 @@ func TestAnalyzeProvenanceRoundTripsIntoSavedAnnotation(t *testing.T) {
 		}
 		return body
 	}
-	save := func(nuanceData map[string]json.RawMessage) *models.Annotation {
+	save := func(client ai.Client, nuanceData map[string]json.RawMessage) *models.Annotation {
 		payload, err := json.Marshal(map[string]any{"scanId": scanID, "highlightedText": "図書館", "contextText": "駅前の図書館", "nuanceData": nuanceData})
 		if err != nil {
 			t.Fatal(err)
@@ -111,7 +111,7 @@ func TestAnalyzeProvenanceRoundTripsIntoSavedAnnotation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/annotations", strings.NewReader(string(payload)))
 		req = req.WithContext(middleware.WithUserID(req.Context(), 1))
 		rec := httptest.NewRecorder()
-		NewAnnotationHandlers(db, &config.Config{}).CreateAnnotationAPI(rec, req)
+		NewAnnotationHandlers(db, &config.Config{}).WithAIClient(client).CreateAnnotationAPI(rec, req)
 		if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 			t.Fatalf("save status %d: %s", rec.Code, rec.Body.String())
 		}
@@ -128,30 +128,57 @@ func TestAnalyzeProvenanceRoundTripsIntoSavedAnnotation(t *testing.T) {
 		return annotation
 	}
 
+	reporting := &provenanceAIClient{producers: routedProducers}
+	want := models.AIProvenance{Version: 1, Provider: "routed", Gateway: "modelverse", Region: "singapore", Model: "MiniMax-M3", PromptVersion: ai.PromptVersionAnnotation}
+
 	t.Run("reporting client provenance is saved with the nuance data", func(t *testing.T) {
-		body := analyze(&provenanceAIClient{producers: routedProducers})
-		saved := save(body)
-		want := models.AIProvenance{Version: 1, Provider: "routed", Gateway: "modelverse", Region: "singapore", Model: "MiniMax-M3", PromptVersion: ai.PromptVersionAnnotation}
+		saved := save(reporting, analyze(reporting))
 		if saved.NuanceData.Provenance == nil || *saved.NuanceData.Provenance != want {
 			t.Fatalf("saved provenance = %+v, want %+v", saved.NuanceData.Provenance, want)
+		}
+		if saved.NuanceData.Translation != "library" || saved.NuanceData.Pronunciation.Kana != "としょかん" {
+			t.Fatalf("nuance data not saved: %+v", saved.NuanceData)
 		}
 	})
 
 	t.Run("unreported producer has no provenance", func(t *testing.T) {
-		body := analyze(&unreportedAIClient{Client: &provenanceAIClient{producers: routedProducers}})
+		unreported := &unreportedAIClient{Client: reporting}
+		body := analyze(unreported)
 		if _, ok := body["provenance"]; ok {
 			t.Fatalf("unexpected provenance in analyze response: %s", body["provenance"])
 		}
-		if saved := save(body); saved.NuanceData.Provenance != nil {
+		if saved := save(unreported, body); saved.NuanceData.Provenance != nil {
 			t.Fatalf("saved provenance = %+v, want unknown", saved.NuanceData.Provenance)
 		}
 	})
 
-	t.Run("malformed client provenance is dropped, not rejected", func(t *testing.T) {
-		body := analyze(&provenanceAIClient{producers: routedProducers})
-		body["provenance"] = json.RawMessage(`{"version":1,"provider":"routed","model":"駅前の図書館","promptVersion":"annotation/1"}`)
-		if saved := save(body); saved.NuanceData.Provenance != nil {
-			t.Fatalf("saved provenance = %+v, want dropped", saved.NuanceData.Provenance)
+	// Echoed values that do not exactly match the server's producer are dropped,
+	// never stored and never a reason to reject the save.
+	forged := map[string]string{
+		"token-shaped secret as model":   `{"version":1,"provider":"routed","gateway":"modelverse","region":"singapore","model":"sk-test-secret","promptVersion":"annotation/1"}`,
+		"request id as reported model":   `{"version":1,"provider":"routed","gateway":"modelverse","region":"singapore","model":"MiniMax-M3","reportedModel":"req-123","promptVersion":"annotation/1"}`,
+		"source text as model":           `{"version":1,"provider":"routed","model":"駅前の図書館","promptVersion":"annotation/1"}`,
+		"wrong field type":               `{"version":"1"}`,
+		"not an object":                  `"routed"`,
+		"producer changed before saving": `{"version":1,"provider":"routed","gateway":"openrouter","region":"global","model":"google/gemini-3.5-flash-lite","promptVersion":"annotation/1"}`,
+	}
+	for name, value := range forged {
+		t.Run(name, func(t *testing.T) {
+			body := analyze(reporting)
+			body["provenance"] = json.RawMessage(value)
+			saved := save(reporting, body)
+			if saved.NuanceData.Provenance != nil {
+				t.Fatalf("saved provenance = %+v, want dropped", saved.NuanceData.Provenance)
+			}
+			if saved.NuanceData.Translation != "library" {
+				t.Fatalf("nuance data not saved: %+v", saved.NuanceData)
+			}
+		})
+	}
+
+	t.Run("handler without AI client stores no provenance", func(t *testing.T) {
+		if saved := save(nil, analyze(reporting)); saved.NuanceData.Provenance != nil {
+			t.Fatalf("saved provenance = %+v, want unknown", saved.NuanceData.Provenance)
 		}
 	})
 }

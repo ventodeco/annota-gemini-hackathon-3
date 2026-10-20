@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/logger"
@@ -17,8 +18,9 @@ import (
 )
 
 type AnnotationHandlers struct {
-	db     storage.DB
-	config *config.Config
+	db       storage.DB
+	config   *config.Config
+	aiClient ai.Client
 }
 
 func NewAnnotationHandlers(db storage.DB, cfg *config.Config) *AnnotationHandlers {
@@ -28,11 +30,42 @@ func NewAnnotationHandlers(db storage.DB, cfg *config.Config) *AnnotationHandler
 	}
 }
 
+// WithAIClient lets saves keep echoed provenance that matches the client's
+// current annotation producer. Without it, saved annotations have no provenance.
+func (h *AnnotationHandlers) WithAIClient(client ai.Client) *AnnotationHandlers {
+	h.aiClient = client
+	return h
+}
+
 type CreateAnnotationRequest struct {
-	ScanID          int64             `json:"scanId"`
-	HighlightedText string            `json:"highlightedText"`
-	ContextText     string            `json:"contextText"`
-	NuanceData      models.NuanceData `json:"nuanceData"`
+	ScanID          int64                  `json:"scanId"`
+	HighlightedText string                 `json:"highlightedText"`
+	ContextText     string                 `json:"contextText"`
+	NuanceData      createAnnotationNuance `json:"nuanceData"`
+}
+
+// createAnnotationNuance reads echoed provenance as raw JSON so a malformed
+// value is dropped instead of rejecting the save; the outer field shadows the
+// embedded NuanceData.Provenance during decoding.
+type createAnnotationNuance struct {
+	models.NuanceData
+	Provenance json.RawMessage `json:"provenance,omitempty"`
+}
+
+// acceptedProvenance keeps echoed provenance only when it exactly matches the
+// server's current annotation producer, so arbitrary client values (keys,
+// request IDs, text) are never stored. A producer change between analyze and
+// save, or a mismatch of any field, leaves the annotation's provenance unknown.
+func (h *AnnotationHandlers) acceptedProvenance(raw json.RawMessage) *models.AIProvenance {
+	current := provenanceFor(h.aiClient, "annotation")
+	if current == nil || len(raw) == 0 {
+		return nil
+	}
+	var echoed models.AIProvenance
+	if err := json.Unmarshal(raw, &echoed); err != nil || echoed != *current {
+		return nil
+	}
+	return current
 }
 
 type CreateAnnotationResponse struct {
@@ -124,10 +157,8 @@ func (h *AnnotationHandlers) CreateAnnotationAPI(w http.ResponseWriter, r *http.
 		sourceLabel = &label
 	}
 
-	// Keep client-echoed provenance only when it is a well-formed identifier record.
-	if !req.NuanceData.Provenance.Valid() {
-		req.NuanceData.Provenance = nil
-	}
+	nuanceData := req.NuanceData.NuanceData
+	nuanceData.Provenance = h.acceptedProvenance(req.NuanceData.Provenance)
 
 	annotation := &models.Annotation{
 		UserID:          userID,
@@ -138,7 +169,7 @@ func (h *AnnotationHandlers) CreateAnnotationAPI(w http.ResponseWriter, r *http.
 		SourceLabel:     sourceLabel,
 		HighlightedText: req.HighlightedText,
 		ContextText:     &req.ContextText,
-		NuanceData:      req.NuanceData,
+		NuanceData:      nuanceData,
 		IsBookmarked:    true,
 		CreatedAt:       time.Now(),
 	}

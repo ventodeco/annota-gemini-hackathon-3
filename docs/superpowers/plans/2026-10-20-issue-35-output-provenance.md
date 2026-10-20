@@ -54,8 +54,10 @@ A unit test pins each prompt text to its version, so a prompt edit without a ver
 **Annotation.**
 - `AnalyzeAPI` and `AnalyzeWithLanguageAPI` add `provenance` to the response.
 - `NuanceData` gains `Provenance *AIProvenance` with `json:"provenance,omitempty"`.
-- On save, the server keeps provenance only if it validates: version 1, a known provider, every field non-empty where required, length ≤ 128, and a restricted character set (letters, digits, `._:/@-`). Otherwise it drops it to `nil`; it never rejects the save, and the dropped value is not logged.
-- Saved annotation provenance is **client-echoed**: it is as trustworthy as the `nuance_data` the client already submits. The docs say so explicitly.
+- On save, the server decodes the echoed `provenance` leniently, as raw JSON. It keeps the value only if it **exactly equals the server's current annotation producer**. The handler gets this through `WithAIClient`, and `reportedModel` is absent until #42.
+- Anything else is dropped, never rejected. That covers malformed values, a wrong type, token-shaped keys or request IDs, text, and a producer that changed between analyze and save.
+- (Review round 1 changed this from a shape-only check, which could store a token-shaped secret, and fixed the 400 response on a malformed value.)
+- The stored value is therefore always a server-configured identifier set, though whether the client really obtained it from analyze is still client-asserted.
 
 **Historical rows.** Migration 007 only adds a nullable column: no backfill, and no rewrite of `full_ocr_text` or `nuance_data`. Old rows read as unknown (NULL, or no `provenance` key).
 
