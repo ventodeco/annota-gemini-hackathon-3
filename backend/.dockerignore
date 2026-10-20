@@ -1,0 +1,15 @@
+# This file protects the backend/ build context, not the repository root.
+**/.env
+**/.env.*
+**/data
+**/*.log
+**/.git
+**/.DS_Store
+**/node_modules
+**/coverage
+server
+bin
+*.test
+*.out
+docs
+AGENTS.md
