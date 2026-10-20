@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "profiles": {
+    "openrouter": {
+      "kind": "openrouter",
+      "region": "global",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "timeout_seconds": 60,
+      "max_attempts": 1,
+      "models": {
+        "google/gemini-3.5-flash-lite": {
+          "image_input": true,
+          "text_input": true,
+          "text_output": true,
+          "json_mode": "json_schema",
+          "ocr_output": "json",
+          "max_output_tokens": 4096
+        },
+        "qwen/qwen3-vl-30b-a3b-instruct": {
+          "image_input": true,
+          "text_input": true,
+          "text_output": true,
+          "json_mode": "json_schema",
+          "ocr_output": "json",
+          "max_output_tokens": 4096
+        },
+        "google/gemini-3.8-flash-tts": {
+          "text_input": true,
+          "audio_output": true,
+          "japanese_voices": [
+            "Kore"
+          ],
+          "audio_formats": [
+            "mp3"
+          ]
+        }
+      }
+    },
+    "modelverse-sg": {
+      "kind": "modelverse",
+      "region": "singapore",
+      "base_url": "https://api-sg.umodelverse.ai/v1",
+      "api_key_env": "MODELVERSE_SG_API_KEY",
+      "timeout_seconds": 60,
+      "max_attempts": 1,
+      "models": {
+        "MiniMax-M3": {
+          "text_input": true,
+          "text_output": true,
+          "json_mode": "prompt",
+          "max_output_tokens": 4096
+        },
+        "MiniMax-M2.7": {
+          "text_input": true,
+          "text_output": true,
+          "json_mode": "prompt",
+          "max_output_tokens": 16384
+        },
+        "speech-2.8-hd": {
+          "text_input": true,
+          "audio_output": true,
+          "japanese_voices": [
+            "Japanese_KindLady",
+            "Japanese_CalmLady"
+          ],
+          "audio_formats": [
+            "mp3"
+          ]
+        },
+        "speech-2.8-turbo": {
+          "text_input": true,
+          "audio_output": true,
+          "japanese_voices": [
+            "Japanese_KindLady",
+            "Japanese_CalmLady"
+          ],
+          "audio_formats": [
+            "mp3"
+          ]
+        }
+      }
+    },
+    "modelverse-us-ca": {
+      "kind": "modelverse",
+      "region": "los-angeles",
+      "base_url": "https://api-us-ca.umodelverse.ai/v1",
+      "api_key_env": "MODELVERSE_US_CA_API_KEY",
+      "timeout_seconds": 60,
+      "max_attempts": 1,
+      "models": {
+        "deepseek-ai/DeepSeek-OCR": {
+          "image_input": true,
+          "text_input": true,
+          "text_output": true,
+          "json_mode": "prompt",
+          "ocr_output": "markdown",
+          "max_output_tokens": 8192
+        }
+      }
+    }
+  },
+  "tasks": {
+    "ocr": {
+      "profile": "openrouter",
+      "model": "google/gemini-3.5-flash-lite"
+    },
+    "annotation": {
+      "profile": "openrouter",
+      "model": "google/gemini-3.5-flash-lite"
+    },
+    "speech": {
+      "profile": "modelverse-sg",
+      "model": "speech-2.8-hd",
+      "voice": "Japanese_KindLady",
+      "format": "mp3"
+    }
+  }
+}

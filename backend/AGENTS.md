@@ -67,10 +67,10 @@ Optional (with defaults):
 - `CLERK_JWT_KEY` - Optional PEM public key for networkless session verification
 - `REDIS_ADDR` - Redis address, required runtime dependency (default: `localhost:6379`)
 - `DEFAULT_PAGE_SIZE` - Default pagination size (default: `20`)
-- `OPENROUTER_OCR_MODEL` - OCR model (default: `baidu/qianfan-ocr-fast:free`)
-- `MINIMAX_TEXT_MODEL` - Annotation model (default: `MiniMax-M2.7`)
+- `OPENROUTER_OCR_MODEL` - OCR model (default: `baidu/qianfan-ocr-fast:free`; no active OpenRouter provider as of 2026-10-20 — set a qualified model, see [`../docs/evidence/issue-35/model-matrix-2026-10-20.md`](../docs/evidence/issue-35/model-matrix-2026-10-20.md))
+- `MINIMAX_TEXT_MODEL` - Annotation model (default: `MiniMax-M2.7`; not documented on MiniMax's Anthropic-compatible API as of 2026-10-20)
 - `MINIMAX_TTS_MODEL` - Speech model (default: `speech-2.8-hd`)
-- `MINIMAX_TTS_VOICE_ID` - Speech voice ID (default: `Japanese_Whisper_Belle`)
+- `MINIMAX_TTS_VOICE_ID` - Speech voice ID (default: `Japanese_Whisper_Belle`; not in the published system voice list as of 2026-10-20)
 - `AI_RATE_LIMIT` - AI-backed route limit, set `0` to disable locally (default: `60`)
 - `AI_RATE_LIMIT_WINDOW_SECONDS` - AI rate limit window (default: `3600`)
 

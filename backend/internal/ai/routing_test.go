@@ -115,3 +115,36 @@ func TestRoutingStrictFileParsing(t *testing.T) {
 		}
 	}
 }
+
+// Issue #35 candidate routes are evaluation input, not defaults; keep every
+// documented alternative schema-valid so a keyed qualification run cannot fail on config.
+func TestCandidateRoutingAlternativesAreValid(t *testing.T) {
+	cfg, err := LoadRoutingConfig(filepath.Join("..", "..", "..", "docs", "evidence", "issue-35", "candidate-routing.json"), func(string) string {
+		return "placeholder"
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, profile := range cfg.Profiles {
+		profile.APIKey = "placeholder"
+		cfg.Profiles[id] = profile
+	}
+	speech := func(profile, model, voice string) TaskRoute {
+		return TaskRoute{Profile: profile, Model: model, Voice: voice, Format: "mp3"}
+	}
+	alternatives := map[string]TaskRoutes{
+		"qwen ocr":              {OCR: TaskRoute{Profile: "openrouter", Model: "qwen/qwen3-vl-30b-a3b-instruct"}, Annotation: cfg.Tasks.Annotation, Speech: cfg.Tasks.Speech},
+		"deepseek ocr":          {OCR: TaskRoute{Profile: "modelverse-us-ca", Model: "deepseek-ai/DeepSeek-OCR"}, Annotation: cfg.Tasks.Annotation, Speech: cfg.Tasks.Speech},
+		"minimax m3":            {OCR: cfg.Tasks.OCR, Annotation: TaskRoute{Profile: "modelverse-sg", Model: "MiniMax-M3"}, Speech: cfg.Tasks.Speech},
+		"minimax m2.7":          {OCR: cfg.Tasks.OCR, Annotation: TaskRoute{Profile: "modelverse-sg", Model: "MiniMax-M2.7"}, Speech: cfg.Tasks.Speech},
+		"speech turbo":          {OCR: cfg.Tasks.OCR, Annotation: cfg.Tasks.Annotation, Speech: speech("modelverse-sg", "speech-2.8-turbo", "Japanese_CalmLady")},
+		"openrouter gemini tts": {OCR: cfg.Tasks.OCR, Annotation: cfg.Tasks.Annotation, Speech: speech("openrouter", "google/gemini-3.8-flash-tts", "Kore")},
+	}
+	for name, routes := range alternatives {
+		candidate := cfg
+		candidate.Tasks = routes
+		if err := ValidateRoutingConfig(candidate); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

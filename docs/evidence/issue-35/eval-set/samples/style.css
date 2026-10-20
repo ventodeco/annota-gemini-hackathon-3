@@ -1,0 +1,7 @@
+body { margin: 0; background: #fff; color: #111; font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", serif; }
+.page { box-sizing: border-box; width: 900px; height: 1200px; padding: 72px; }
+.horizontal p { font-size: 30px; line-height: 1.9; margin: 0 0 24px; }
+.vertical { writing-mode: vertical-rl; font-size: 34px; line-height: 2; }
+.ruby p { font-size: 34px; line-height: 2.6; }
+rt { font-size: 15px; }
+.dense p { font-size: 21px; line-height: 1.7; margin: 0 0 16px; text-indent: 1em; }

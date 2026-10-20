@@ -2,6 +2,8 @@ package ai
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gemini-hackathon/app/internal/knowledge"
+	"google.golang.org/genai"
 )
 
 func TestClientOCRUsesOpenRouterVisionRequest(t *testing.T) {
@@ -198,5 +201,139 @@ func TestClassifyMiniMaxStatusMapsTPMRateLimit(t *testing.T) {
 func TestClassifyMiniMaxStatusMapsUnsupportedModelToConfig(t *testing.T) {
 	if got := classifyMiniMaxStatus(0, "your current token plan not support model, speech-2.8-turbo"); got != ErrorKindConfig {
 		t.Fatalf("classifyMiniMaxStatus() = %s, want %s", got, ErrorKindConfig)
+	}
+}
+
+func TestGeminiSpeechRequestSendsOnlySelectionWithStyleMetadata(t *testing.T) {
+	contents, cfg := geminiSpeechRequest("今日は雨です")
+
+	if len(contents) != 1 || len(contents[0].Parts) != 1 {
+		t.Fatalf("contents = %+v, want one content with one part", contents)
+	}
+	part := contents[0].Parts[0]
+	if part.Text != "今日は雨です" {
+		t.Fatalf("part text = %q, want only the selected text", part.Text)
+	}
+	if part.SpeechMetadata == nil || part.SpeechMetadata.Style == "" {
+		t.Fatal("delivery style must be sent as speech metadata, not spoken text")
+	}
+	if geminiSpeechModel != "gemini-3.8-flash-tts" {
+		t.Fatalf("geminiSpeechModel = %q, want gemini-3.8-flash-tts", geminiSpeechModel)
+	}
+	if cfg.SpeechConfig == nil || cfg.SpeechConfig.LanguageCode != "ja-JP" {
+		t.Fatalf("speech config = %+v, want ja-JP", cfg.SpeechConfig)
+	}
+	if voice := cfg.SpeechConfig.VoiceConfig.PrebuiltVoiceConfig.VoiceName; voice != "Kore" {
+		t.Fatalf("voice = %q, want Kore", voice)
+	}
+	if len(cfg.ResponseModalities) != 1 || cfg.ResponseModalities[0] != "AUDIO" {
+		t.Fatalf("ResponseModalities = %v, want [AUDIO]", cfg.ResponseModalities)
+	}
+}
+
+func TestGeminiSpeechAudio(t *testing.T) {
+	pcm := []byte{1, 2, 3, 4}
+	wav := wrapPCMAsWAV(pcm, 24000, 1, 16)
+
+	tests := []struct {
+		name     string
+		data     []byte
+		mimeType string
+		wantMIME string
+		wantRate uint32
+		wantSame bool
+	}{
+		{name: "wav default passes through", data: wav, mimeType: "audio/wav", wantMIME: "audio/wav", wantSame: true},
+		{name: "riff detected without mime", data: wav, mimeType: "", wantMIME: "audio/wav", wantSame: true},
+		{name: "legacy pcm mime is wrapped", data: pcm, mimeType: "audio/L16;codec=pcm;rate=24000", wantMIME: "audio/wav", wantRate: 24000},
+		{name: "bare l16 is wrapped at its rate", data: pcm, mimeType: "audio/l16; rate=16000", wantMIME: "audio/wav", wantRate: 16000},
+		{name: "empty mime is wrapped", data: pcm, mimeType: "", wantMIME: "audio/wav", wantRate: 24000},
+		{name: "other formats pass through", data: pcm, mimeType: "audio/mulaw", wantMIME: "audio/mulaw", wantSame: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			audio, mimeType := geminiSpeechAudio(tt.data, tt.mimeType)
+			if mimeType != tt.wantMIME {
+				t.Fatalf("mime = %q, want %q", mimeType, tt.wantMIME)
+			}
+			if tt.wantSame {
+				if string(audio) != string(tt.data) {
+					t.Fatal("audio should pass through unchanged")
+				}
+				return
+			}
+			if len(audio) != 44+len(tt.data) || string(audio[0:4]) != "RIFF" {
+				t.Fatalf("audio was not wrapped as WAV: %v", audio)
+			}
+			if rate := binary.LittleEndian.Uint32(audio[24:28]); rate != tt.wantRate {
+				t.Fatalf("sample rate = %d, want %d", rate, tt.wantRate)
+			}
+		})
+	}
+}
+
+func TestGeminiSynthesizeSpeechSendsVerbatimTranscriptAndKeepsWAV(t *testing.T) {
+	wav := wrapPCMAsWAV([]byte{1, 2, 3, 4}, 24000, 1, 16)
+	var path string
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []any{map[string]any{
+				"content": map[string]any{"role": "model", "parts": []any{map[string]any{
+					"inlineData": map[string]any{"mimeType": "audio/wav", "data": base64.StdEncoding.EncodeToString(wav)},
+				}}},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	genaiClient, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+		APIKey:      "test-key",
+		Backend:     genai.BackendGeminiAPI,
+		HTTPOptions: genai.HTTPOptions{BaseURL: server.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &geminiClient{apiKey: "test-key", genaiClient: genaiClient}
+
+	resp, err := client.SynthesizeSpeech(context.Background(), "図書館", "駅前の小さな図書館は、朝九時に開きます。")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(path, "/models/gemini-3.8-flash-tts:generateContent") {
+		t.Fatalf("path = %s, want gemini-3.8-flash-tts generateContent", path)
+	}
+	body, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "駅前") || strings.Contains(string(body), "Selected text") {
+		t.Fatalf("request must not contain context or prompt directions: %s", body)
+	}
+	contents, ok := captured["contents"].([]any)
+	if !ok || len(contents) != 1 {
+		t.Fatalf("contents = %v", captured["contents"])
+	}
+	content, _ := contents[0].(map[string]any)
+	parts, _ := content["parts"].([]any)
+	if len(parts) != 1 {
+		t.Fatalf("parts = %v", content["parts"])
+	}
+	part, _ := parts[0].(map[string]any)
+	if part["text"] != "図書館" {
+		t.Fatalf("text = %v, want only the selection", part["text"])
+	}
+	metadata, _ := part["speechMetadata"].(map[string]any)
+	if style, _ := metadata["style"].(string); style == "" {
+		t.Fatalf("speechMetadata.style missing from request: %s", body)
+	}
+	if resp.MIMEType != "audio/wav" || string(resp.Audio) != string(wav) {
+		t.Fatalf("response = %q (%d bytes), want unchanged WAV", resp.MIMEType, len(resp.Audio))
 	}
 }
