@@ -210,7 +210,7 @@ Types:
 
 ### Admin prerequisites
 
-- **Default branch must be `dev`.** Dependabot reads its config only from the default branch, and security-update PRs target it. While the default is `master`, no update PRs open.
+- **Default branch must be `dev`.** Dependabot reads its config only from the default branch, and security-update PRs target it. The config exists only on `dev`, so scheduled version-update PRs stay blocked until `dev` becomes the default branch.
 - **Alerts and security updates** are repository settings (Settings → Code security), separate from `dependabot.yml`. Docker gets no security-update PRs.
 - After the first run, check Insights → Dependency graph → Dependabot to confirm every ecosystem parsed, including the `web/` workspace under `bun`.
 
