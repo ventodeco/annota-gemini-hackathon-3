@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { ApiError } from '@/lib/api'
+import { FIRST_USE_GUIDE_STORAGE_KEY } from '@/components/homepage/FirstUseGuide'
 import WelcomePage from '../WelcomePage'
 
 const uploadDocumentMock = vi.fn()
@@ -97,5 +98,60 @@ describe('WelcomePage', () => {
     renderPage()
     const input = document.querySelector('input[type="file"][accept="application/pdf"]') as HTMLInputElement
     expect(input).toBeInTheDocument()
+  })
+  it('uploads a private copy of the bundled sample through the normal PDF upload', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(['%PDF-sample']), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    uploadDocumentMock.mockReturnValueOnce(new Promise(() => undefined))
+    try {
+      renderPage()
+      fireEvent.click(screen.getByRole('button', { name: /try the sample/i }))
+
+      await waitFor(() => expect(uploadDocumentMock).toHaveBeenCalledTimes(1))
+      expect(fetchMock).toHaveBeenCalledWith('/samples/annota-sample.pdf')
+      const uploaded: unknown = uploadDocumentMock.mock.calls[0][0]
+      if (!(uploaded instanceof File)) throw new Error('sample was not uploaded as a File')
+      expect(uploaded.name).toBe('annota-sample.pdf')
+      expect(uploaded.type).toBe('application/pdf')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reports a sample that cannot be downloaded without uploading anything', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')))
+    uploadDocumentMock.mockClear()
+    try {
+      renderPage()
+      fireEvent.click(screen.getByRole('button', { name: /try the sample/i }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the sample.')
+      expect(uploadDocumentMock).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('shows a skippable first-use guide and remembers when it is hidden', () => {
+    vi.mocked(localStorage.getItem).mockReturnValue(null)
+    renderPage()
+
+    const guide = screen.getByRole('region', { name: 'How ANNOTA works' })
+    expect(guide).toHaveTextContent(/Explain this/)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide guide' }))
+
+    expect(localStorage.setItem).toHaveBeenCalledWith(FIRST_USE_GUIDE_STORAGE_KEY, 'hidden')
+    expect(screen.queryByRole('region', { name: 'How ANNOTA works' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show how ANNOTA works' })).toHaveFocus()
+  })
+
+  it('keeps the guide hidden for returning users who skipped it', () => {
+    vi.mocked(localStorage.getItem).mockImplementation((key) => (key === FIRST_USE_GUIDE_STORAGE_KEY ? 'hidden' : null))
+    renderPage()
+
+    expect(screen.queryByRole('region', { name: 'How ANNOTA works' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show how ANNOTA works' }))
+    expect(screen.getByRole('region', { name: 'How ANNOTA works' })).toBeInTheDocument()
+    expect(localStorage.removeItem).toHaveBeenCalledWith(FIRST_USE_GUIDE_STORAGE_KEY)
   })
 })

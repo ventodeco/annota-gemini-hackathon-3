@@ -1,15 +1,17 @@
 import { useNavigate } from 'react-router-dom'
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Camera, FileText, Image as ImageIcon } from 'lucide-react'
+import { BookOpenText, Camera, FileText, Image as ImageIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/useAuth'
 import { ApiError, createScan, trackEvent, uploadDocument } from '@/lib/api'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { AvatarMenu } from '@/components/layout/AvatarMenu'
 import { ScanAllowanceNotice } from '@/components/usage/AllowancePanel'
+import { FirstUseGuide } from '@/components/homepage/FirstUseGuide'
 import { useInvalidateEntitlements } from '@/hooks/useEntitlements'
 import { getUsageErrorMessage } from '@/lib/usage'
+import { fetchSamplePdf } from '@/lib/sample'
 
 // The server's own message when it sent one; ApiError.message is the raw body.
 function getUploadErrorMessage(error: Error, fallback: string): string {
@@ -25,6 +27,7 @@ export default function WelcomePage() {
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const { user } = useAuth()
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [isSampleLoading, setIsSampleLoading] = useState(false)
   const invalidateEntitlements = useInvalidateEntitlements()
 
   const uploadMutation = useMutation({
@@ -50,7 +53,7 @@ export default function WelcomePage() {
     },
   })
 
-  const isAnyPending = uploadMutation.isPending || pdfUploadMutation.isPending
+  const isAnyPending = uploadMutation.isPending || pdfUploadMutation.isPending || isSampleLoading
 
   const handleTakePhoto = () => {
     navigate('/camera')
@@ -93,8 +96,22 @@ export default function WelcomePage() {
     pdfUploadMutation.mutate(file)
   }
 
+  // Each user uploads their own copy of the sample, so annotations and progress stay private.
+  const handleTrySample = async () => {
+    setUploadError(null)
+    setIsSampleLoading(true)
+    try {
+      const sample = await fetchSamplePdf()
+      pdfUploadMutation.mutate(sample)
+    } catch {
+      setUploadError('Could not load the sample. Check your connection and try again.')
+    } finally {
+      setIsSampleLoading(false)
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-white flex flex-col pb-20">
+    <div className="min-h-screen bg-white flex flex-col pb-28">
       <div className="flex-1 flex flex-col items-center justify-center p-6">
         <div className="w-full flex justify-end absolute top-4 right-4">
           <AvatarMenu />
@@ -150,7 +167,21 @@ export default function WelcomePage() {
           <p id="pdf-support-note" className="max-w-[260px] text-center text-xs text-gray-500">
             PDFs need selectable text. For scanned PDFs, take a photo of each page instead.
           </p>
+          <Button
+            onClick={() => void handleTrySample()}
+            aria-describedby="sample-note"
+            variant="secondary"
+            disabled={isAnyPending}
+            className="w-[200px] min-h-11 h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
+          >
+            <BookOpenText className="w-5 h-5" />
+            {isSampleLoading ? 'Loading sample...' : 'Try the sample'}
+          </Button>
+          <p id="sample-note" className="max-w-[260px] text-center text-xs text-gray-500">
+            A short Japanese reading in horizontal and vertical text. ANNOTA adds a private copy to your Documents.
+          </p>
           <ScanAllowanceNotice />
+          <FirstUseGuide />
         </div>
       </div>
       <input
