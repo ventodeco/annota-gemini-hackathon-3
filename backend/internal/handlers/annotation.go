@@ -124,6 +124,11 @@ func (h *AnnotationHandlers) CreateAnnotationAPI(w http.ResponseWriter, r *http.
 		sourceLabel = &label
 	}
 
+	// Keep client-echoed provenance only when it is a well-formed identifier record.
+	if !req.NuanceData.Provenance.Valid() {
+		req.NuanceData.Provenance = nil
+	}
+
 	annotation := &models.Annotation{
 		UserID:          userID,
 		ScanID:          scanID,

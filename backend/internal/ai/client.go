@@ -199,7 +199,7 @@ func (c *geminiClient) OCR(ctx context.Context, imageData []byte, mimeType strin
 	}
 
 	parts := []*genai.Part{
-		{Text: "Extract all Japanese text from this image. Return ONLY a JSON object with keys raw_text and language. Use language code ja for Japanese. Preserve line breaks and formatting."},
+		{Text: geminiOCRPrompt},
 		{
 			InlineData: &genai.Blob{
 				Data:     imageData,
@@ -382,7 +382,7 @@ func (c *client) OCR(ctx context.Context, imageData []byte, mimeType string) (*O
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "Extract all readable text from this image. Return only JSON with keys raw_text and language. Use language code ja for Japanese.",
+						"text": openRouterOCRPrompt,
 					},
 					{
 						"type": "image_url",

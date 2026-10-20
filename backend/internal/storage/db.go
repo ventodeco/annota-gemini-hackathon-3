@@ -27,7 +27,8 @@ type DB interface {
 	GetScanByID(ctx context.Context, scanID int64) (*models.Scan, error)
 	GetScansByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Scan, error)
 	UpdateScanImageURL(ctx context.Context, scanID int64, imageURL string) error
-	UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error
+	// UpdateScanOCR stores OCR text with its producer provenance; nil records it as unknown.
+	UpdateScanOCR(ctx context.Context, scanID int64, text, language string, provenance *models.AIProvenance) error
 	UpdateScanStatus(ctx context.Context, scanID int64, status string, failureReason *string) error
 	DeleteScan(ctx context.Context, scanID, userID int64) error
 
@@ -282,13 +283,23 @@ func (s *postgresDB) GetScansByUserID(ctx context.Context, userID int64, page, s
 	return scans, rows.Err()
 }
 
-func (s *postgresDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error {
+func (s *postgresDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language string, provenance *models.AIProvenance) error {
+	// The provenance always describes the text written alongside it, so a nil
+	// value clears any earlier producer instead of leaving a stale one.
+	var provenanceJSON any
+	if provenance != nil {
+		data, err := json.Marshal(provenance)
+		if err != nil {
+			return fmt.Errorf("failed to marshal ocr_provenance: %w", err)
+		}
+		provenanceJSON = data
+	}
 	query := `
 		UPDATE scans
-		SET full_ocr_text = $1, detected_language = $2, status = 'ready', failure_reason = NULL
-		WHERE id = $3
+		SET full_ocr_text = $1, detected_language = $2, status = 'ready', failure_reason = NULL, ocr_provenance = $3
+		WHERE id = $4
 	`
-	_, err := s.db.ExecContext(ctx, query, text, language, scanID)
+	_, err := s.db.ExecContext(ctx, query, text, language, provenanceJSON, scanID)
 	return err
 }
 

@@ -106,9 +106,9 @@ func (c *chatTasks) OCR(ctx context.Context, image []byte, mime string) (*OCRRes
 	if len(image) == 0 || !slices.Contains([]string{"image/png", "image/jpeg", "image/webp", "image/gif"}, mime) {
 		return nil, c.ocr.failure(ErrorKindConfig, 0, "OCR requires an image and supported MIME type", nil)
 	}
-	prompt := "Extract all readable Japanese text. Return only JSON with raw_text and language. Preserve line breaks."
+	prompt := routedOCRJSONPrompt
 	if c.ocr.model.OCROutput == "markdown" {
-		prompt = "Extract all readable Japanese text as Markdown. Preserve reading order and line breaks. Return only the transcript."
+		prompt = routedOCRMarkdownPrompt
 	}
 	messages := []map[string]any{{"role": "user", "content": []map[string]any{{"type": "text", "text": prompt}, {"type": "image_url", "image_url": map[string]string{"url": "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(image)}}}}}
 	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"raw_text": map[string]string{"type": "string"}, "language": map[string]string{"type": "string"}}, "required": []string{"raw_text", "language"}}
