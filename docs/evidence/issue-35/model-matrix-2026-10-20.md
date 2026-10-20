@@ -96,4 +96,4 @@ The selection rule: listed and served, a documented request shape that matches t
 1. Private keys for the chosen gateways. Then run the procedure in `eval-set/README.md` with one pass per candidate and fill **Results**.
 2. Pick a route per task only from passing results, then update the routed operator configuration and the legacy defaults with that evidence. This includes replacing the unserved `qianfan` OCR default.
 3. Listening notes for speech. Add user-approved blurry/skewed photo samples.
-4. Follow-ups: an opt-in local output capture in `qualify-routes` for scoring (agreed with #34), and per-scan/annotation model + prompt-version metadata, which is a storage change that overlaps #43.
+4. Follow-up: per-scan/annotation model + prompt-version metadata, which is a storage change that overlaps #43. Local output capture for scoring is available via `qualify-routes -live -output-dir`.

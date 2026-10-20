@@ -1,6 +1,6 @@
 # Issue #35 follow-up: opt-in local output for qualification scoring
 
-Date: 2026-10-20. Base: `dev` at `1a51fa8` (#34's PR #63). Ownership: #34 agreed that #35 opens this as a separate PR.
+Date: 2026-10-20. Base: `dev` at `9056640` (after #34 PR #63 and #35 PR #66). Ownership: #34 agreed that #35 opens this as a separate PR.
 
 ## Problem
 
