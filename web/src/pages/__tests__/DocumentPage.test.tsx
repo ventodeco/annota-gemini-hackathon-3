@@ -285,6 +285,41 @@ describe('DocumentPage', () => {
     expect(updateDocumentProgressMock).toHaveBeenCalledTimes(1)
   })
 
+  it('saves a newer page only after a pending open record finishes', async () => {
+    let finishOpenRecord: (value: { status: string }) => void = () => {}
+    updateDocumentProgressMock.mockImplementationOnce(
+      () => new Promise((resolve) => { finishOpenRecord = resolve })
+    )
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 1,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    renderPage()
+
+    await screen.findByTestId('continuous-pdf-viewer')
+    await waitFor(() => expect(updateDocumentProgressMock).toHaveBeenCalledWith(1, 1))
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /scroll to page 2/i }))
+      await act(async () => {
+        vi.advanceTimersByTime(600)
+      })
+      expect(updateDocumentProgressMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    await act(async () => {
+      finishOpenRecord({ status: 'saved' })
+    })
+    await waitFor(() => expect(updateDocumentProgressMock).toHaveBeenLastCalledWith(1, 2))
+    expect(updateDocumentProgressMock).toHaveBeenCalledTimes(2)
+  })
+
   it('cancels a pending progress save when scroll returns to the saved page', async () => {
     getDocumentMock.mockResolvedValueOnce({
       id: 1,

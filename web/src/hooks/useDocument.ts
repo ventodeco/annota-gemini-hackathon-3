@@ -30,6 +30,9 @@ export function useUpdateDocumentProgress(documentId: number | undefined) {
   const queryClient = useQueryClient()
 
   return useMutation({
+    // One at a time per document, so an older save (such as the open record)
+    // can never land after a newer page and overwrite it.
+    scope: { id: `document-progress-${documentId}` },
     mutationFn: (lastPageNumber: number) => {
       if (!documentId) throw new Error('Document ID is required')
       return updateDocumentProgress(documentId, lastPageNumber)

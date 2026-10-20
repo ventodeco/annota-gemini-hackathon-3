@@ -109,5 +109,8 @@ Files are deliberately limited to these three. Not touched: `HistoryPage`, `Docu
 - Navigating from one document to another in the same mounted reader records each one.
 - A failed open record is non-blocking: the mutation error is ignored, and reading continues.
 - A page change made quickly after opening sends its own later save, which carries the newer page.
+  - PR #77 review R1 found that the two saves could run concurrently. The older open record could land last and roll progress, the cache and the save refs back to the stored page.
+  - `useUpdateDocumentProgress` now sets a TanStack mutation `scope` per document. Progress saves therefore run one at a time, in call order, for both the server write and the cache update.
+  - Regression test "saves a newer page only after a pending open record finishes": it fails without `scope` (the second save starts while the open record is pending) and passes with it.
 
 **Verification:** `bun run test -- DocumentPage DocumentsPage`, then lint and build. CI is the full gate. No screenshots: nothing in the UI changes, and the library already renders `lastOpenedAt` (#74).
