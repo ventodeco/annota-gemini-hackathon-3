@@ -15,32 +15,37 @@ export interface AuthContextType {
 // eslint-disable-next-line react-refresh/only-export-components
 export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+async function loadUserProfile(): Promise<User | null> {
+  if (!getAuthToken()) return null
+  try {
+    return await getUserProfile()
+  } catch {
+    clearAuthToken()
+    return null
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   const refreshUser = useCallback(async () => {
-    const token = getAuthToken()
-    if (!token) {
-      setUser(null)
-      setIsLoading(false)
-      return
-    }
-
-    try {
-      const userData = await getUserProfile()
-      setUser(userData)
-    } catch {
-      clearAuthToken()
-      setUser(null)
-    } finally {
-      setIsLoading(false)
-    }
+    const userData = await loadUserProfile()
+    setUser(userData)
+    setIsLoading(false)
   }, [])
 
   useEffect(() => {
-    refreshUser()
-  }, [refreshUser])
+    let cancelled = false
+    void loadUserProfile().then((userData) => {
+      if (cancelled) return
+      setUser(userData)
+      setIsLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const login = useCallback(() => {
     // Login is handled by opening Google OAuth popup

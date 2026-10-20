@@ -1,11 +1,18 @@
 {
   "name": "gemini-hackathon",
   "private": true,
-  "workspaces": ["web"],
+  "workspaces": [
+    "web"
+  ],
   "scripts": {
-    "dev": "dev-services start && (trap 'kill %1 2>/dev/null' EXIT INT TERM; (cd web && bun run dev) & (cd backend && go run cmd/server/main.go))"
+    "dev": "(trap 'kill %1 2>/dev/null' EXIT INT TERM; (cd web && bun run dev) & (cd backend && go run cmd/server/main.go))"
   },
   "devDependencies": {
-    "shadcn": "^3.6.3"
+    "shadcn": "^4.22.1"
+  },
+  "packageManager": "bun@1.4.3",
+  "engines": {
+    "node": ">=24.22.0 <25",
+    "bun": ">=1.4.3 <2"
   }
 }

@@ -1,6 +1,6 @@
 # Docker Compose Setup
 
-This project includes optional Docker Compose configuration for running PostgreSQL and Redis locally. The default Nix development workflow uses `dev-services start` instead.
+This project includes optional Docker Compose configuration for running PostgreSQL and Redis locally. Compose is optional when PostgreSQL and Redis are already provided by native or managed services. No Compose CLI update is required by the dependency upgrade.
 
 ## Prerequisites
 
