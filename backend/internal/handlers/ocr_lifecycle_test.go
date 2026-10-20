@@ -18,6 +18,7 @@ import (
 	"github.com/gemini-hackathon/app/internal/knowledge"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
+	"github.com/gemini-hackathon/app/internal/services"
 	"github.com/gemini-hackathon/app/internal/storage"
 	"github.com/gemini-hackathon/app/internal/testutil"
 	"github.com/gemini-hackathon/app/internal/usage"
@@ -82,10 +83,10 @@ func TestProcessOCRPersistsTerminalFailure(t *testing.T) {
 		wantReason string
 		wantCalls  int32
 	}{
-		{"provider still running at the OCR deadline", &lifecycleOCRClient{waitForDeadline: true}, 20 * time.Millisecond, ocrFailureTimeout, 1},
-		{"deadline used up before OCR started", &lifecycleOCRClient{text: "駅前"}, -time.Second, ocrFailureTimeout, 0},
-		{"provider error", &lifecycleOCRClient{err: errors.New("upstream failed")}, time.Minute, ocrFailureFailed, 1},
-		{"no text found", &lifecycleOCRClient{text: "  \n "}, time.Minute, ocrFailureNoText, 1},
+		{"provider still running at the OCR deadline", &lifecycleOCRClient{waitForDeadline: true}, 20 * time.Millisecond, services.OCRFailureTimeout, 1},
+		{"deadline used up before OCR started", &lifecycleOCRClient{text: "駅前"}, -time.Second, services.OCRFailureTimeout, 0},
+		{"provider error", &lifecycleOCRClient{err: errors.New("upstream failed")}, time.Minute, services.OCRFailureFailed, 1},
+		{"no text found", &lifecycleOCRClient{text: "  \n "}, time.Minute, services.OCRFailureNoText, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,7 +99,7 @@ func TestProcessOCRPersistsTerminalFailure(t *testing.T) {
 
 			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(tt.deadline))
 			defer cancel()
-			h.processOCR(ctx, nil, scanID, []byte("image"), "image/png", "scan.png")
+			h.scans.ProcessOCR(ctx, nil, scanID, []byte("image"), "image/png")
 
 			scan, err := db.GetScanByID(context.Background(), scanID)
 			if err != nil {
@@ -165,7 +166,7 @@ func TestOCRDeadlineIsAbsoluteFromScanCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The slow save must not extend the job past the interrupted cutoff.
-	if want := scan.CreatedAt.Add(ocrProcessingTimeout); !deadline.Equal(want) {
+	if want := scan.CreatedAt.Add(services.OCRProcessingTimeout); !deadline.Equal(want) {
 		t.Fatalf("OCR deadline = %v, want created_at+timeout %v", deadline, want)
 	}
 }
@@ -206,13 +207,13 @@ func jsonInt(v int64) string {
 
 func TestInterruptedOCRScanIsReportedFailed(t *testing.T) {
 	db := testutil.NewMockDB()
-	stale, _ := db.CreateScan(context.Background(), &models.Scan{UserID: 1, Status: "processing", CreatedAt: time.Now().Add(-ocrInterruptedAfter - time.Minute)})
+	stale, _ := db.CreateScan(context.Background(), &models.Scan{UserID: 1, Status: "processing", CreatedAt: time.Now().Add(-services.OCRInterruptedAfter - time.Minute)})
 	fresh, _ := db.CreateScan(context.Background(), &models.Scan{UserID: 1, Status: "processing", CreatedAt: time.Now()})
 	h := NewScanHandlers(db, nil, &lifecycleOCRClient{}, &config.Config{DefaultPageSize: 20}, provenanceTestMeter())
 
 	got := getScanForTest(t, h, stale)
-	if got.Status != "failed" || got.FailureReason == nil || *got.FailureReason != ocrFailureInterrupted {
-		t.Fatalf("stale scan = %q %v, want failed %q", got.Status, got.FailureReason, ocrFailureInterrupted)
+	if got.Status != "failed" || got.FailureReason == nil || *got.FailureReason != services.OCRFailureInterrupted {
+		t.Fatalf("stale scan = %q %v, want failed %q", got.Status, got.FailureReason, services.OCRFailureInterrupted)
 	}
 	persisted, _ := db.GetScanByID(context.Background(), stale)
 	if persisted.Status != "failed" {
@@ -223,7 +224,7 @@ func TestInterruptedOCRScanIsReportedFailed(t *testing.T) {
 	}
 
 	// The list reports the same state.
-	stale2, _ := db.CreateScan(context.Background(), &models.Scan{UserID: 1, Status: "processing", CreatedAt: time.Now().Add(-ocrInterruptedAfter - time.Minute)})
+	stale2, _ := db.CreateScan(context.Background(), &models.Scan{UserID: 1, Status: "processing", CreatedAt: time.Now().Add(-services.OCRInterruptedAfter - time.Minute)})
 	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
 	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
 	rec := httptest.NewRecorder()
@@ -241,7 +242,7 @@ func TestInterruptedOCRScanIsReportedFailed(t *testing.T) {
 
 func TestInterruptedOCRRecoveryKeepsConcurrentResult(t *testing.T) {
 	db := &raceReadyDB{MockDB: testutil.NewMockDB()}
-	scanID, _ := db.CreateScan(context.Background(), &models.Scan{UserID: 1, Status: "processing", CreatedAt: time.Now().Add(-ocrInterruptedAfter - time.Minute)})
+	scanID, _ := db.CreateScan(context.Background(), &models.Scan{UserID: 1, Status: "processing", CreatedAt: time.Now().Add(-services.OCRInterruptedAfter - time.Minute)})
 	h := NewScanHandlers(db, nil, &lifecycleOCRClient{}, &config.Config{}, provenanceTestMeter())
 
 	got := getScanForTest(t, h, scanID)
@@ -264,7 +265,7 @@ func TestExpiredOCRDeadlineReleasesThePage(t *testing.T) {
 	}
 	ctx, cancel := context.WithDeadline(usageCtx, time.Now().Add(-time.Second))
 	defer cancel()
-	h.processOCR(ctx, reservation, scanID, []byte("image"), "image/png", "scan.png")
+	h.scans.ProcessOCR(ctx, reservation, scanID, []byte("image"), "image/png")
 
 	if client.calls.Load() != 0 {
 		t.Fatal("provider was called after the deadline")

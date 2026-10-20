@@ -1,12 +1,9 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,63 +13,24 @@ import (
 	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
-	"github.com/gemini-hackathon/app/internal/models"
+	"github.com/gemini-hackathon/app/internal/services"
 	"github.com/gemini-hackathon/app/internal/storage"
 	"github.com/gemini-hackathon/app/internal/usage"
 )
 
 type ScanHandlers struct {
-	db          storage.DB
-	fileStorage storage.FileStorage
-	aiClient    ai.Client
-	config      *config.Config
-	meter       *usage.Meter
+	scans  *services.ScanService
+	config *config.Config
 }
 
-const ocrProcessingTimeout = 5 * time.Minute
-
-// OCRReservationStaleAfter is when an OCR reservation still unsettled counts
-// as abandoned (its process died mid-OCR) and is refunded to the user.
-const OCRReservationStaleAfter = ocrProcessingTimeout + 10*time.Minute
-
-// ocrSettleMargin bounds the OCR result write and the detached settle that
-// follow the OCR context's deadline.
-const ocrSettleMargin = time.Minute
-
-// ocrDispatchWindow is the latest age, measured from admission, at which OCR
-// may still start. A job dispatched within it reaches its OCR deadline and
-// settles before OCRReservationStaleAfter, so expiry never refunds live work.
-// Slow pre-dispatch steps (account lock, CreateScan, SaveImage) past it get
-// no OCR and an immediate release instead.
-const ocrDispatchWindow = OCRReservationStaleAfter - ocrProcessingTimeout - ocrSettleMargin
-
-// ocrStatusWriteTimeout bounds the final status write, which must still run
-// after the OCR deadline has expired.
-const ocrStatusWriteTimeout = 10 * time.Second
-
-// ocrInterruptedAfter is when a scan still processing can no longer have a
-// running job: the job's deadline plus time for its final write. Such a scan
-// was interrupted, for example by a restart, and is reported failed.
-const ocrInterruptedAfter = ocrProcessingTimeout + time.Minute
-
-// OCR failure reasons returned in failureReason.
-const (
-	ocrFailureFailed      = "ocr_failed"
-	ocrFailureTimeout     = "ocr_timeout"
-	ocrFailureInterrupted = "ocr_interrupted"
-	ocrFailureNoText      = "no_text_found"
-)
-
-// errOCRIncomplete settles an OCR reservation whose job ended without a result.
-var errOCRIncomplete = errors.New("ocr job ended without a result")
+// OCRReservationStaleAfter is when an unsettled OCR reservation is refunded;
+// see services.OCRReservationStaleAfter.
+const OCRReservationStaleAfter = services.OCRReservationStaleAfter
 
 func NewScanHandlers(db storage.DB, fileStorage storage.FileStorage, aiClient ai.Client, cfg *config.Config, meter *usage.Meter) *ScanHandlers {
 	return &ScanHandlers{
-		db:          db,
-		fileStorage: fileStorage,
-		aiClient:    aiClient,
-		config:      cfg,
-		meter:       meter,
+		scans:  services.NewScanService(db, fileStorage, aiClient, meter, cfg.UploadDir),
+		config: cfg,
 	}
 }
 
@@ -173,91 +131,27 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 
 	log.Infof("Received image upload: size=%d bytes, type=%s", len(imageData), mimeType)
 
-	// Admit the OCR page before creating the scan row; refund it if no OCR starts.
-	usageCtx, reservation, err := h.meter.Reserve(r.Context(), userID, usage.FeatureOCR, 1)
+	created, err := h.scans.CreateImageScan(r.Context(), userID, imageData, mimeType)
 	if err != nil {
-		writeUsageError(w, err, log)
+		var admission *services.AdmissionError
+		switch {
+		case errors.As(err, &admission):
+			writeUsageError(w, admission.Err, log)
+		case errors.Is(err, services.ErrScanCreate):
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to initialize scan")
+		default:
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save uploaded image")
+		}
 		return
 	}
 
-	now := time.Now()
-	scan := &models.Scan{
-		UserID:     userID,
-		ImageURL:   "",
-		SourceType: "image",
-		Status:     "processing",
-		CreatedAt:  now,
-	}
-
-	var scanID int64
-	var storagePath string
-	stored := runWithAccountLock(w, r, h.db, log, userID, false, "Failed to save uploaded image", func(ctx context.Context) error {
-		var err error
-		scanID, err = h.db.CreateScan(ctx, scan)
-		if err != nil {
-			log.ErrorWithErr(err, "Failed to create scan in database")
-			return &lockedStepFailure{http.StatusInternalServerError, "Failed to initialize scan"}
-		}
-
-		storagePath, _, err = h.fileStorage.SaveImage(strconv.FormatInt(scanID, 10), imageData, mimeType)
-		if err != nil {
-			log.ErrorWithErr(err, "Failed to save image to storage")
-			h.discardFailedScan(ctx, log, &models.Scan{ID: scanID, UserID: userID})
-			return &lockedStepFailure{http.StatusInternalServerError, "Failed to save uploaded image"}
-		}
-
-		if err := h.db.UpdateScanImageURL(ctx, scanID, privateScanImageURL(scanID)); err != nil {
-			log.ErrorWithErr(err, "Failed to update scan with image URL")
-		}
-		return nil
+	httputil.WriteJSON(w, http.StatusCreated, CreateScanResponse{
+		ScanID:        created.ID,
+		ImageURL:      created.ImageURL,
+		SourceType:    "image",
+		Status:        created.Status,
+		FailureReason: created.FailureReason,
 	})
-	if !stored {
-		// No scan row or file exists, so no OCR will run: refund the page.
-		h.meter.Release(r.Context(), reservation)
-		return
-	}
-	imageURL := privateScanImageURL(scanID)
-
-	if age := h.meter.Age(reservation); age > ocrDispatchWindow {
-		// Too late to start OCR and still settle before the reservation
-		// expires; fail the scan and refund instead of dispatching.
-		log.Warnf("Skipping OCR dispatch %s after admission (window %s)", age, ocrDispatchWindow)
-		reason := "ocr_failed"
-		if err := h.db.UpdateScanStatus(r.Context(), scanID, "failed", &reason); err != nil {
-			log.ErrorWithErr(err, "Failed to persist skipped OCR dispatch")
-		}
-		h.meter.Release(r.Context(), reservation)
-		httputil.WriteJSON(w, http.StatusCreated, CreateScanResponse{
-			ScanID: scanID, ImageURL: imageURL, SourceType: "image", Status: "failed", FailureReason: &reason,
-		})
-		return
-	}
-
-	log.WithFields(map[string]any{
-		"scan_id":   scanID,
-		"user_id":   userID,
-		"image_url": imageURL,
-	}).Infof("Scan created successfully, starting OCR processing")
-
-	// The deadline is absolute from the scan's created_at, so a slow upload
-	// can't push OCR work past the point where the scan reads as interrupted.
-	ocrCtx, cancelOCR := context.WithDeadline(context.WithoutCancel(usageCtx), now.Add(ocrProcessingTimeout))
-	go func() {
-		defer cancelOCR()
-		h.processOCR(ocrCtx, reservation, scanID, imageData, mimeType, storagePath)
-	}()
-
-	response := CreateScanResponse{
-		ScanID:     scanID,
-		FullText:   "",
-		ImageURL:   imageURL,
-		SourceType: "image",
-		Status:     "processing",
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
 }
 
 func (h *ScanHandlers) GetScansAPI(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +170,7 @@ func (h *ScanHandlers) GetScansAPI(w http.ResponseWriter, r *http.Request) {
 
 	page, size := httputil.ParsePagination(r, h.config.DefaultPageSize)
 
-	scans, err := h.db.GetScansByUserID(r.Context(), userID, page, size)
+	scans, err := h.scans.ListScans(r.Context(), userID, page, size)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to get scans from database")
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to get scans")
@@ -287,13 +181,12 @@ func (h *ScanHandlers) GetScansAPI(w http.ResponseWriter, r *http.Request) {
 
 	data := make([]ScanListItem, len(scans))
 	for i, scan := range scans {
-		scan = h.recoverInterruptedScan(r.Context(), scan, log)
 		data[i] = ScanListItem{
 			ID:               scan.ID,
 			ImageURL:         scan.ImageURL,
 			DetectedLanguage: scan.DetectedLanguage,
-			SourceType:       sourceTypeOrDefault(scan),
-			Status:           statusOrDefault(scan),
+			SourceType:       services.SourceTypeOrDefault(scan),
+			Status:           services.StatusOrDefault(scan),
 			FailureReason:    scan.FailureReason,
 			DocumentID:       scan.DocumentID,
 			PageNumber:       scan.PageNumber,
@@ -378,38 +271,17 @@ func (h *ScanHandlers) deleteScanHandler(w http.ResponseWriter, r *http.Request,
 
 	log = log.WithField("scan_id", scanID)
 
-	scan, err := h.db.GetScanByID(r.Context(), scanID)
-	if err != nil {
-		log.ErrorWithErr(err, "Failed to get scan by ID")
-		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
-		return
-	}
-	if scan == nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
-		return
-	}
-	if scan.UserID != userID {
-		log.Warn("User attempted to delete scan belonging to another user")
-		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
-		return
-	}
-
-	// Remove the file first and keep the row on failure: once the row is gone
-	// nothing points at the image any more, so a retry could never remove it.
-	// The exclusive lock keeps an in-flight upload of this scan from writing
-	// its file after the row is gone.
-	deleted := runWithAccountLock(w, r, h.db, log, userID, true, "Failed to delete scan", func(ctx context.Context) error {
-		if err := h.deleteStoredScanImage(scan); err != nil {
-			log.ErrorWithErr(err, "Failed to delete scan image")
-			return &lockedStepFailure{http.StatusInternalServerError, "Failed to delete scan"}
+	if err := h.scans.DeleteScan(r.Context(), userID, scanID); err != nil {
+		switch {
+		case errors.Is(err, services.ErrScanNotFound):
+			log.ErrorWithErr(err, "Failed to get scan by ID")
+			httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
+		case errors.Is(err, services.ErrScanForbidden):
+			log.Warn("User attempted to delete scan belonging to another user")
+			httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
+		default:
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete scan")
 		}
-		if err := h.db.DeleteScan(ctx, scanID, userID); err != nil {
-			log.ErrorWithErr(err, "Failed to delete scan")
-			return &lockedStepFailure{http.StatusInternalServerError, "Failed to delete scan"}
-		}
-		return nil
-	})
-	if !deleted {
 		return
 	}
 
@@ -437,26 +309,18 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 
 	log = log.WithField("scan_id", scanID)
 
-	scan, err := h.db.GetScanByID(r.Context(), scanID)
+	scan, err := h.scans.GetScan(r.Context(), userID, scanID)
 	if err != nil {
-		log.ErrorWithErr(err, "Failed to get scan by ID from database")
-		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
+		switch {
+		case errors.Is(err, services.ErrScanForbidden):
+			log.Warn("User attempted to access scan belonging to another user")
+			httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
+		default:
+			log.ErrorWithErr(err, "Failed to get scan")
+			httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
+		}
 		return
 	}
-
-	if scan == nil {
-		log.Warn("Scan not found")
-		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
-		return
-	}
-
-	if scan.UserID != userID {
-		log.Warn("User attempted to access scan belonging to another user")
-		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
-		return
-	}
-
-	scan = h.recoverInterruptedScan(r.Context(), scan, log)
 
 	fullText := ""
 	if scan.FullOCRText != nil {
@@ -474,8 +338,8 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 		FullText:         fullText,
 		ImageURL:         scan.ImageURL,
 		DetectedLanguage: scan.DetectedLanguage,
-		SourceType:       sourceTypeOrDefault(scan),
-		Status:           statusOrDefault(scan),
+		SourceType:       services.SourceTypeOrDefault(scan),
+		Status:           services.StatusOrDefault(scan),
 		FailureReason:    scan.FailureReason,
 		DocumentID:       scan.DocumentID,
 		PageNumber:       scan.PageNumber,
@@ -493,21 +357,18 @@ func (h *ScanHandlers) getScanImageHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	scan, err := h.db.GetScanByID(r.Context(), scanID)
-	if err != nil || scan == nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
-		return
-	}
-	if scan.UserID != userID {
-		log.WithUserID(userID).Warn("User attempted to access scan image belonging to another user")
-		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
-		return
-	}
-
-	data, contentType, err := h.openStoredScanImage(scan)
+	data, contentType, err := h.scans.ScanImage(r.Context(), userID, scanID)
 	if err != nil {
-		log.WithUserID(userID).ErrorWithErr(err, "Failed to read scan image")
-		httputil.WriteJSONError(w, http.StatusNotFound, "Scan image not found")
+		switch {
+		case errors.Is(err, services.ErrScanForbidden):
+			log.WithUserID(userID).Warn("User attempted to access scan image belonging to another user")
+			httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
+		case errors.Is(err, services.ErrScanImageNotFound):
+			log.WithUserID(userID).ErrorWithErr(err, "Failed to read scan image")
+			httputil.WriteJSONError(w, http.StatusNotFound, "Scan image not found")
+		default:
+			httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
+		}
 		return
 	}
 
@@ -521,143 +382,6 @@ func (h *ScanHandlers) getScanImageHandler(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (h *ScanHandlers) processOCR(ctx context.Context, reservation *usage.Reservation, scanID int64, imageData []byte, mimeType string, storagePath string) {
-	log := logger.GetDefaultLogger().WithField("scan_id", scanID)
-
-	// Settle exactly once, even on an early return or panic.
-	outcome := errOCRIncomplete
-	defer func() { h.meter.Finish(ctx, reservation, outcome) }()
-
-	// Each final write gets its own short deadline, started when the write
-	// starts: after a provider timeout ctx has already expired, and the scan
-	// would otherwise stay processing forever.
-	writeContext := func() (context.Context, context.CancelFunc) {
-		return context.WithTimeout(context.WithoutCancel(ctx), ocrStatusWriteTimeout)
-	}
-	markFailed := func(reason string) {
-		writeCtx, cancel := writeContext()
-		defer cancel()
-		if err := h.db.UpdateScanStatus(writeCtx, scanID, "failed", &reason); err != nil {
-			log.ErrorWithErr(err, "Failed to persist OCR failure")
-		}
-	}
-
-	// The upload can use up the whole deadline; then no provider call is
-	// made, so the page is released for both the user and the global budget.
-	// Release settles first, which makes the deferred Finish a no-op.
-	if ctx.Err() != nil {
-		log.Warn("OCR deadline passed before processing started")
-		h.meter.Release(ctx, reservation)
-		markFailed(ocrFailureTimeout)
-		return
-	}
-
-	log.Infof("Starting OCR processing: image_size=%d bytes, mime_type=%s", len(imageData), mimeType)
-	ocrResp, err := h.aiClient.OCR(ctx, imageData, mimeType)
-	if err != nil {
-		outcome = err
-		log.ErrorWithErr(err, "OCR processing failed")
-		if errors.Is(err, context.DeadlineExceeded) {
-			markFailed(ocrFailureTimeout)
-		} else {
-			markFailed(ocrFailureFailed)
-		}
-		return
-	}
-	log.Infof("OCR completed successfully: language=%s, text_length=%d", ocrResp.Language, len(ocrResp.RawText))
-
-	imageURL := fmt.Sprintf("/uploads/%s", storagePath)
-
-	_ = imageURL
-
-	if strings.TrimSpace(ocrResp.RawText) == "" {
-		// The provider did the work, so the page stays charged.
-		outcome = nil
-		markFailed(ocrFailureNoText)
-		return
-	}
-
-	writeCtx, cancelWrite := writeContext()
-	defer cancelWrite()
-	if err := h.db.UpdateScanOCR(writeCtx, scanID, ocrResp.RawText, ocrResp.Language, provenanceFor(h.aiClient, "ocr", usage.Calls(ctx))); err != nil {
-		outcome = err
-		log.ErrorWithErr(err, "Failed to update scan OCR in database")
-		markFailed(ocrFailureFailed)
-		return
-	}
-	outcome = nil
-
-	log.Infof("OCR results saved to database successfully")
-}
-
-// discardFailedScan removes the row and any partially written image of a scan
-// whose upload failed, so no unusable record or unreachable file is left.
-func (h *ScanHandlers) discardFailedScan(ctx context.Context, log *logger.Logger, scan *models.Scan) {
-	if err := h.deleteStoredScanImage(scan); err != nil {
-		log.ErrorWithErr(err, "Failed to remove image of failed scan upload")
-		return
-	}
-	if err := h.db.DeleteScan(ctx, scan.ID, scan.UserID); err != nil {
-		log.ErrorWithErr(err, "Failed to remove record of failed scan upload")
-	}
-}
-
-func (h *ScanHandlers) openStoredScanImage(scan *models.Scan) ([]byte, string, error) {
-	for _, candidate := range scanImagePathCandidates(h.config.UploadDir, scan) {
-		data, err := h.fileStorage.OpenImage(candidate.path)
-		if err == nil {
-			return data, candidate.contentType, nil
-		}
-	}
-	return nil, "", fmt.Errorf("scan image not found")
-}
-
-func (h *ScanHandlers) deleteStoredScanImage(scan *models.Scan) error {
-	var lastErr error
-	for _, candidate := range scanImagePathCandidates(h.config.UploadDir, scan) {
-		if err := h.fileStorage.DeleteImage(candidate.path); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
-}
-
-type scanImagePathCandidate struct {
-	path        string
-	contentType string
-}
-
-func scanImagePathCandidates(uploadDir string, scan *models.Scan) []scanImagePathCandidate {
-	if scan.ImageURL != "" && strings.HasPrefix(scan.ImageURL, "/uploads/") {
-		path := filepath.Join(uploadDir, filepath.Base(scan.ImageURL))
-		return []scanImagePathCandidate{{path: path, contentType: contentTypeFromImagePath(path)}}
-	}
-
-	base := filepath.Join(uploadDir, strconv.FormatInt(scan.ID, 10))
-	return []scanImagePathCandidate{
-		{path: base + ".jpg", contentType: "image/jpeg"},
-		{path: base + ".png", contentType: "image/png"},
-		{path: base + ".webp", contentType: "image/webp"},
-	}
-}
-
-func privateScanImageURL(scanID int64) string {
-	return fmt.Sprintf("/v1/scans/%d/image", scanID)
-}
-
-func contentTypeFromImagePath(path string) string {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".webp":
-		return "image/webp"
-	default:
-		return "application/octet-stream"
-	}
-}
-
 func isValidImageType(mimeType string) bool {
 	validTypes := []string{"image/jpeg", "image/jpg", "image/png", "image/webp"}
 	for _, valid := range validTypes {
@@ -666,59 +390,6 @@ func isValidImageType(mimeType string) bool {
 		}
 	}
 	return false
-}
-
-func sourceTypeOrDefault(scan *models.Scan) string {
-	if scan.SourceType != "" {
-		return scan.SourceType
-	}
-	if scan.DocumentID != nil {
-		return "pdf"
-	}
-	return "image"
-}
-
-func statusOrDefault(scan *models.Scan) string {
-	if scan.Status != "" {
-		return scan.Status
-	}
-	if scan.FullOCRText != nil && strings.TrimSpace(*scan.FullOCRText) != "" {
-		return "ready"
-	}
-	return "processing"
-}
-
-// recoverInterruptedScan reports an image scan whose OCR job can no longer be
-// running as failed, persisting the change. The transition is conditional, so
-// an OCR result that landed concurrently wins and is returned instead.
-func (h *ScanHandlers) recoverInterruptedScan(ctx context.Context, scan *models.Scan, log *logger.Logger) *models.Scan {
-	if statusOrDefault(scan) != "processing" || scan.DocumentID != nil {
-		return scan
-	}
-	cutoff := time.Now().Add(-ocrInterruptedAfter)
-	if !scan.CreatedAt.Before(cutoff) {
-		return scan
-	}
-
-	changed, err := h.db.FailStaleProcessingScan(ctx, scan.ID, cutoff, ocrFailureInterrupted)
-	if err != nil {
-		log.WithField("scan_id", scan.ID).ErrorWithErr(err, "Failed to mark interrupted OCR scan")
-		return scan
-	}
-	if changed {
-		recovered := *scan
-		reason := ocrFailureInterrupted
-		recovered.Status = "failed"
-		recovered.FailureReason = &reason
-		log.WithField("scan_id", scan.ID).Warn("Marked interrupted OCR scan as failed")
-		return &recovered
-	}
-
-	latest, err := h.db.GetScanByID(ctx, scan.ID)
-	if err != nil || latest == nil {
-		return scan
-	}
-	return latest
 }
 
 func (h *ScanHandlers) ScansAPI(w http.ResponseWriter, r *http.Request) {

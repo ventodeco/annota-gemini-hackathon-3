@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,26 +14,28 @@ import (
 	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
+	"github.com/gemini-hackathon/app/internal/services"
 	"github.com/gemini-hackathon/app/internal/storage"
 )
 
 type AnnotationHandlers struct {
-	db       storage.DB
-	config   *config.Config
-	aiClient ai.Client
+	db          storage.DB
+	config      *config.Config
+	annotations *services.AnnotationService
 }
 
 func NewAnnotationHandlers(db storage.DB, cfg *config.Config) *AnnotationHandlers {
 	return &AnnotationHandlers{
-		db:     db,
-		config: cfg,
+		db:          db,
+		config:      cfg,
+		annotations: services.NewAnnotationService(db, nil),
 	}
 }
 
 // WithAIClient lets saves keep echoed provenance that matches the client's
 // current annotation producer. Without it, saved annotations have no provenance.
 func (h *AnnotationHandlers) WithAIClient(client ai.Client) *AnnotationHandlers {
-	h.aiClient = client
+	h.annotations = services.NewAnnotationService(h.db, client)
 	return h
 }
 
@@ -50,28 +52,6 @@ type CreateAnnotationRequest struct {
 type createAnnotationNuance struct {
 	models.NuanceData
 	Provenance json.RawMessage `json:"provenance,omitempty"`
-}
-
-// acceptedProvenance keeps echoed provenance only when its configured fields
-// exactly match the server's current annotation producer, so arbitrary client
-// values (keys, request IDs, text) are never stored. A producer change between
-// analyze and save, or any mismatch, leaves the provenance unknown. The server
-// cannot tie an echoed reportedModel to the saved output, so saved annotations
-// never record one: it stays unknown even when the analyze response showed it.
-func (h *AnnotationHandlers) acceptedProvenance(raw json.RawMessage) *models.AIProvenance {
-	current := provenanceFor(h.aiClient, "annotation", nil)
-	if current == nil || len(raw) == 0 {
-		return nil
-	}
-	var echoed models.AIProvenance
-	if err := json.Unmarshal(raw, &echoed); err != nil {
-		return nil
-	}
-	echoed.ReportedModel = ""
-	if echoed != *current {
-		return nil
-	}
-	return current
 }
 
 type CreateAnnotationResponse struct {
@@ -132,58 +112,23 @@ func (h *AnnotationHandlers) CreateAnnotationAPI(w http.ResponseWriter, r *http.
 		return
 	}
 
-	var scanID *int64
-	var sourceType *string
-	var documentID *int64
-	var pageNumber *int
-	var sourceLabel *string
-	if req.ScanID > 0 {
-		scanID = &req.ScanID
-		scan, err := h.db.GetScanByID(r.Context(), req.ScanID)
-		if err != nil || scan == nil {
-			httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
-			return
-		}
-		if scan.UserID != userID {
-			httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
-			return
-		}
-		sourceTypeValue := scan.SourceType
-		if sourceTypeValue == "" {
-			if scan.DocumentID == nil {
-				sourceTypeValue = "image"
-			} else {
-				sourceTypeValue = "pdf"
-			}
-		}
-		sourceType = &sourceTypeValue
-		documentID = scan.DocumentID
-		pageNumber = scan.PageNumber
-		label := buildSourceLabel(r.Context(), h.db, scan)
-		sourceLabel = &label
-	}
-
-	nuanceData := req.NuanceData.NuanceData
-	nuanceData.Provenance = h.acceptedProvenance(req.NuanceData.Provenance)
-
-	annotation := &models.Annotation{
-		UserID:          userID,
-		ScanID:          scanID,
-		SourceType:      sourceType,
-		DocumentID:      documentID,
-		PageNumber:      pageNumber,
-		SourceLabel:     sourceLabel,
-		HighlightedText: req.HighlightedText,
-		ContextText:     &req.ContextText,
-		NuanceData:      nuanceData,
-		IsBookmarked:    true,
-		CreatedAt:       time.Now(),
-	}
-
-	annotationID, err := h.db.CreateAnnotation(r.Context(), annotation)
+	annotationID, err := h.annotations.Create(r.Context(), userID, services.NewAnnotation{
+		ScanID:           req.ScanID,
+		HighlightedText:  req.HighlightedText,
+		ContextText:      req.ContextText,
+		NuanceData:       req.NuanceData.NuanceData,
+		EchoedProvenance: req.NuanceData.Provenance,
+	})
 	if err != nil {
-		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to create annotation")
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create annotation")
+		switch {
+		case errors.Is(err, services.ErrScanNotFound):
+			httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
+		case errors.Is(err, services.ErrScanForbidden):
+			httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
+		default:
+			logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to create annotation")
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create annotation")
+		}
 		return
 	}
 
@@ -223,7 +168,7 @@ func (h *AnnotationHandlers) deleteAnnotationHandler(w http.ResponseWriter, r *h
 		return
 	}
 
-	if err := h.db.DeleteAnnotation(r.Context(), annotationID, userID); err != nil {
+	if err := h.annotations.Delete(r.Context(), userID, annotationID); err != nil {
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to delete annotation")
 		httputil.WriteJSONError(w, http.StatusNotFound, "Annotation not found")
 		return
@@ -247,15 +192,14 @@ func (h *AnnotationHandlers) getAnnotationHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	annotation, err := h.db.GetAnnotationByID(r.Context(), annotationID)
+	annotation, err := h.annotations.Get(r.Context(), userID, annotationID)
 	if err != nil {
+		if errors.Is(err, services.ErrAnnotationDenied) {
+			httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
+			return
+		}
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to get annotation")
 		httputil.WriteJSONError(w, http.StatusNotFound, "Annotation not found")
-		return
-	}
-
-	if annotation.UserID != userID {
-		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
 		return
 	}
 
@@ -298,8 +242,7 @@ func (h *AnnotationHandlers) GetAnnotationsAPI(w http.ResponseWriter, r *http.Re
 	scanIDParam := r.URL.Query().Get("scanId")
 	documentIDParam := r.URL.Query().Get("documentId")
 	pageNumberParam := r.URL.Query().Get("pageNumber")
-	var annotations []*models.Annotation
-	var err error
+	var filter services.AnnotationFilter
 	switch {
 	case scanIDParam != "":
 		scanID, parseErr := strconv.ParseInt(scanIDParam, 10, 64)
@@ -307,26 +250,24 @@ func (h *AnnotationHandlers) GetAnnotationsAPI(w http.ResponseWriter, r *http.Re
 			httputil.WriteJSONError(w, http.StatusBadRequest, "scanId must be a positive integer")
 			return
 		}
-		annotations, err = h.db.GetAnnotationsByUserIDAndScanID(r.Context(), userID, scanID, page, size)
+		filter.ScanID = scanID
 	case documentIDParam != "":
 		documentID, parseErr := strconv.ParseInt(documentIDParam, 10, 64)
 		if parseErr != nil || documentID <= 0 {
 			httputil.WriteJSONError(w, http.StatusBadRequest, "documentId must be a positive integer")
 			return
 		}
-		var pageNumber *int
+		filter.DocumentID = documentID
 		if pageNumberParam != "" {
 			parsedPage, pageErr := strconv.Atoi(pageNumberParam)
 			if pageErr != nil || parsedPage <= 0 {
 				httputil.WriteJSONError(w, http.StatusBadRequest, "pageNumber must be a positive integer")
 				return
 			}
-			pageNumber = &parsedPage
+			filter.PageNumber = &parsedPage
 		}
-		annotations, err = h.db.GetAnnotationsByUserIDAndDocumentPage(r.Context(), userID, documentID, pageNumber, page, size)
-	default:
-		annotations, err = h.db.GetAnnotationsByUserID(r.Context(), userID, page, size)
 	}
+	annotations, err := h.annotations.List(r.Context(), userID, filter, page, size)
 	if err != nil {
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to get annotations")
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to get annotations")
@@ -382,21 +323,6 @@ func (h *AnnotationHandlers) AnnotationsAPI(w http.ResponseWriter, r *http.Reque
 	default:
 		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
-}
-
-func buildSourceLabel(ctx context.Context, db storage.DB, scan *models.Scan) string {
-	if scan.DocumentID != nil {
-		page := ""
-		if scan.PageNumber != nil {
-			page = " page " + strconv.Itoa(*scan.PageNumber)
-		}
-		doc, err := db.GetDocumentByID(ctx, *scan.DocumentID)
-		if err == nil && doc != nil && doc.Filename != "" {
-			return doc.Filename + page
-		}
-		return "PDF Document #" + strconv.FormatInt(*scan.DocumentID, 10) + page
-	}
-	return "OCR Scan #" + strconv.FormatInt(scan.ID, 10)
 }
 
 func stringValue(value *string) string {
