@@ -7,7 +7,11 @@ interface ExtractedTextReaderProps {
   pageNumber: number
   totalPages: number
   isLoading: boolean
-  onTextSelect: (selectedText: string) => void
+  /** Set when the page text could not be loaded, as opposed to a page without text. */
+  isError?: boolean
+  onRetry?: () => void
+  /** Reports the selected text and its page; '' clears the selection. */
+  onTextSelect: (selectedText: string, pageNumber?: number) => void
   onPageChange: (page: number, change: PageChange) => void
 }
 
@@ -30,6 +34,8 @@ export default function ExtractedTextReader({
   pageNumber,
   totalPages,
   isLoading,
+  isError = false,
+  onRetry,
   onTextSelect,
   onPageChange,
 }: ExtractedTextReaderProps): ReactElement {
@@ -48,14 +54,14 @@ export default function ExtractedTextReader({
     }
 
     if (isSelectionInsideNode(selection, content)) {
-      onTextSelect(selection.toString())
+      onTextSelect(selection.toString(), pageNumber)
       return
     }
 
     if (clearWhenEmpty) {
       onTextSelect('')
     }
-  }, [onTextSelect])
+  }, [onTextSelect, pageNumber])
 
   const handleSelectionEnd = useCallback((): void => {
     reportSelection(true)
@@ -77,6 +83,49 @@ export default function ExtractedTextReader({
   const goToNextPage = useCallback((): void => {
     onPageChange(pageNumber + 1, { source: 'navigation' })
   }, [onPageChange, pageNumber])
+
+  const renderPageBody = (): ReactElement => {
+    if (isError) {
+      return (
+        <div className="mx-auto max-w-sm rounded-2xl bg-white px-5 py-6 text-center shadow-sm" role="alert">
+          <p className="font-medium text-stone-900">Couldn't load the text for this page.</p>
+          <p className="mt-2 text-sm text-stone-500">Check your connection and try again.</p>
+          {onRetry && (
+            <button
+              type="button"
+              className="mt-4 min-h-11 rounded-lg bg-stone-900 px-4 text-sm font-medium text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
+              onClick={onRetry}
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      )
+    }
+
+    if (!hasText) {
+      return (
+        <div className="mx-auto max-w-sm rounded-2xl bg-white px-5 py-6 text-center shadow-sm">
+          <p className="font-medium text-stone-900">No selectable text was found on this page.</p>
+          <p className="mt-2 text-sm text-stone-500">
+            Scanned (image-only) PDFs aren't supported yet. To study this page, take a photo of it instead.
+          </p>
+        </div>
+      )
+    }
+
+    return (
+      <div
+        ref={contentRef}
+        data-testid="extracted-text-content"
+        className="mx-auto max-w-2xl whitespace-pre-wrap rounded-2xl bg-white px-5 py-6 text-lg leading-9 text-stone-950 shadow-sm select-text"
+        onMouseUp={handleSelectionEnd}
+        onTouchEnd={handleSelectionEnd}
+      >
+        {pageText}
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (
@@ -110,22 +159,7 @@ export default function ExtractedTextReader({
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-5 py-6">
-        {hasText ? (
-          <div
-            ref={contentRef}
-            data-testid="extracted-text-content"
-            className="mx-auto max-w-2xl whitespace-pre-wrap rounded-2xl bg-white px-5 py-6 text-lg leading-9 text-stone-950 shadow-sm select-text"
-            onMouseUp={handleSelectionEnd}
-            onTouchEnd={handleSelectionEnd}
-          >
-            {pageText}
-          </div>
-        ) : (
-          <div className="mx-auto max-w-sm rounded-2xl bg-white px-5 py-6 text-center shadow-sm">
-            <p className="font-medium text-stone-900">No selectable text was found on this page.</p>
-            <p className="mt-2 text-sm text-stone-500">Try PDF View or upload a text-based PDF.</p>
-          </div>
-        )}
+        {renderPageBody()}
       </div>
     </div>
   )

@@ -12,7 +12,8 @@ interface ContinuousPDFViewerProps {
   currentPage: number
   totalPages: number
   onPageChange: (page: number, change: PageChange) => void
-  onTextSelect: (selectedText: string) => void
+  /** Reports the selected text and the page whose text layer holds it; '' clears the selection. */
+  onTextSelect: (selectedText: string, pageNumber?: number) => void
   isLoading?: boolean
 }
 
@@ -284,9 +285,9 @@ export default function ContinuousPDFViewer({
     }
 
     const selectedText = selection.toString()
-    for (const textLayer of textLayersRef.current.values()) {
+    for (const [pageNumber, textLayer] of textLayersRef.current) {
       if (isSelectionInsideTextLayer(selection, textLayer)) {
-        onTextSelect(selectedText)
+        onTextSelect(selectedText, pageNumber)
         return
       }
     }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -30,6 +31,10 @@ type DB interface {
 	// UpdateScanOCR stores OCR text with its producer provenance; nil records it as unknown.
 	UpdateScanOCR(ctx context.Context, scanID int64, text, language string, provenance *models.AIProvenance) error
 	UpdateScanStatus(ctx context.Context, scanID int64, status string, failureReason *string) error
+	// FailStaleProcessingScan marks a scan failed only if it is still
+	// processing and was created before cutoff, so it can never overwrite an
+	// OCR result that landed concurrently. It reports whether it changed the row.
+	FailStaleProcessingScan(ctx context.Context, scanID int64, cutoff time.Time, failureReason string) (bool, error)
 	DeleteScan(ctx context.Context, scanID, userID int64) error
 
 	CreateDocument(ctx context.Context, doc *models.Document) (int64, error)
@@ -45,6 +50,11 @@ type DB interface {
 	DeleteDocumentAndPageScans(ctx context.Context, docID, userID int64) error
 	GetScanByDocumentPage(ctx context.Context, documentID int64, pageNumber int) (*models.Scan, error)
 	CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error)
+	// GetOrCreateDocumentPageScan returns the page scan of scan.DocumentID and
+	// scan.PageNumber, creating it from scan only when none exists, so
+	// concurrent requests for one page share a single scan. It returns
+	// sql.ErrNoRows when the document does not exist or is not scan.UserID's.
+	GetOrCreateDocumentPageScan(ctx context.Context, scan *models.Scan) (id int64, created bool, err error)
 
 	CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error)
 	GetAnnotationByID(ctx context.Context, annotationID int64) (*models.Annotation, error)
@@ -195,12 +205,20 @@ func (s *postgresDB) CreateScan(ctx context.Context, scan *models.Scan) (int64, 
 	if scan.Status == "" {
 		scan.Status = "processing"
 	}
+	return insertDocumentScan(ctx, s.db, scan)
+}
+
+type rowQueryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func insertDocumentScan(ctx context.Context, q rowQueryer, scan *models.Scan) (int64, error) {
 	query := `
 		INSERT INTO scans (user_id, image_url, full_ocr_text, detected_language, document_id, page_number, source_type, status, failure_reason, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
 	`
-	err := s.db.QueryRowContext(ctx, query,
+	err := q.QueryRowContext(ctx, query,
 		scan.UserID,
 		scan.ImageURL,
 		scan.FullOCRText,
@@ -325,6 +343,19 @@ func (s *postgresDB) UpdateScanStatus(ctx context.Context, scanID int64, status 
 	`
 	_, err := s.db.ExecContext(ctx, query, status, failureReason, scanID)
 	return err
+}
+
+func (s *postgresDB) FailStaleProcessingScan(ctx context.Context, scanID int64, cutoff time.Time, failureReason string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE scans
+		SET status = 'failed', failure_reason = $1
+		WHERE id = $2 AND status = 'processing' AND created_at < $3
+	`, failureReason, scanID, cutoff)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	return rows > 0, err
 }
 
 func (s *postgresDB) UpdateScanImageURL(ctx context.Context, scanID int64, imageURL string) error {
@@ -650,6 +681,56 @@ func (s *postgresDB) CreateScanFromDocument(ctx context.Context, scan *models.Sc
 		scan.CreatedAt,
 	).Scan(&scan.ID)
 	return scan.ID, err
+}
+
+func (s *postgresDB) GetOrCreateDocumentPageScan(ctx context.Context, scan *models.Scan) (int64, bool, error) {
+	if scan.DocumentID == nil || scan.PageNumber == nil {
+		return 0, false, fmt.Errorf("document page scan needs a document and page number")
+	}
+	if scan.SourceType == "" {
+		scan.SourceType = "pdf"
+	}
+	if scan.Status == "" {
+		scan.Status = "ready"
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+
+	// The key-share lock checks ownership and waits behind a document
+	// deletion's FOR UPDATE, so a page scan is never created for a document
+	// being deleted. The page lock then serializes creators of the same page.
+	var docID int64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM documents WHERE id = $1 AND user_id = $2 FOR KEY SHARE`,
+		*scan.DocumentID, scan.UserID).Scan(&docID); err != nil {
+		return 0, false, err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended('document-page:' || $1::text || ':' || $2::text, 0))`,
+		docID, *scan.PageNumber); err != nil {
+		return 0, false, fmt.Errorf("lock document page: %w", err)
+	}
+
+	var existingID int64
+	err = tx.QueryRowContext(ctx,
+		`SELECT id FROM scans WHERE document_id = $1 AND page_number = $2 ORDER BY id LIMIT 1`,
+		docID, *scan.PageNumber).Scan(&existingID)
+	switch {
+	case err == nil:
+		return existingID, false, tx.Commit()
+	case !errors.Is(err, sql.ErrNoRows):
+		return 0, false, err
+	}
+
+	id, err := insertDocumentScan(ctx, tx, scan)
+	if err != nil {
+		return 0, false, err
+	}
+	return id, true, tx.Commit()
 }
 
 func (s *postgresDB) CreateAnnotation(ctx context.Context, annotation *models.Annotation) (int64, error) {

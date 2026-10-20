@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { analyzeText, createScanFromPage } from '@/lib/api'
+import type { NuanceData } from '@/lib/types'
 import DocumentPage from '../DocumentPage'
 
 const getDocumentMock = vi.fn()
@@ -15,7 +17,7 @@ type PageChangeSource = 'scroll' | 'navigation'
 type ContinuousPDFViewerMockProps = {
   currentPage: number
   onPageChange: (page: number, change: { source: PageChangeSource }) => void
-  onTextSelect: (selectedText: string) => void
+  onTextSelect: (selectedText: string, pageNumber?: number) => void
 }
 
 type ExtractedTextReaderMockProps = {
@@ -24,6 +26,17 @@ type ExtractedTextReaderMockProps = {
   isLoading: boolean
   onTextSelect: (selectedText: string) => void
   onPageChange: (page: number, change: { source: 'navigation' }) => void
+}
+
+function nuance(meaning: string): NuanceData {
+  return {
+    translation: meaning,
+    meaning,
+    usageExample: 'example',
+    usageTiming: 'timing',
+    wordBreakdown: 'breakdown',
+    alternativeMeaning: 'alternative',
+  }
 }
 
 vi.mock('@/lib/api', () => ({
@@ -68,6 +81,16 @@ vi.mock('@/components/documentpage/ContinuousPDFViewer', () => ({
       'button',
       { type: 'button', onClick: () => props.onTextSelect('選択中') },
       'Select text'
+    ),
+    React.createElement(
+      'button',
+      { type: 'button', onClick: () => props.onTextSelect('一ページ目の文', 1) },
+      'Pick page 1 text'
+    ),
+    React.createElement(
+      'button',
+      { type: 'button', onClick: () => props.onTextSelect('二ページ目の文', 2) },
+      'Pick page 2 text'
     ),
     React.createElement(
       'button',
@@ -146,6 +169,73 @@ describe('DocumentPage', () => {
     await waitFor(() => {
       expect(updateDocumentProgressMock).toHaveBeenCalledTimes(1)
     })
+  })
+
+  it('explains against the page the text was selected on, not the page scrolled to', async () => {
+    vi.mocked(createScanFromPage).mockImplementation(async (_documentId: number, pageNumber: number) => ({
+      scanId: 100 + pageNumber,
+    }))
+    vi.mocked(analyzeText).mockResolvedValue(nuance('meaning'))
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 1,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    renderPage()
+
+    const explainButton = await screen.findByRole('button', { name: /explain this/i })
+    fireEvent.click(screen.getByRole('button', { name: 'Pick page 1 text' }))
+    fireEvent.click(screen.getByRole('button', { name: /scroll to page 2/i }))
+    await waitFor(() => expect(screen.getByTestId('current-page')).toHaveTextContent('2'))
+
+    fireEvent.click(explainButton)
+    await waitFor(() => {
+      expect(analyzeText).toHaveBeenCalledWith(expect.objectContaining({ textToAnalyze: '一ページ目の文', scanId: 101 }))
+    })
+    expect(createScanFromPage).toHaveBeenCalledWith(1, 1)
+    const drawer = await screen.findByLabelText('Annotation drawer')
+    fireEvent.keyDown(drawer, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByLabelText('Annotation drawer')).not.toBeInTheDocument())
+
+    // A new selection on page 2 must not reuse page 1's scan.
+    fireEvent.click(screen.getByRole('button', { name: 'Pick page 2 text' }))
+    fireEvent.click(explainButton)
+    await waitFor(() => {
+      expect(analyzeText).toHaveBeenLastCalledWith(expect.objectContaining({ textToAnalyze: '二ページ目の文', scanId: 102 }))
+    })
+    expect(createScanFromPage).toHaveBeenLastCalledWith(1, 2)
+  })
+
+  it('drops a pending explanation when the reader changes view', async () => {
+    let resolveAnalyze: (value: NuanceData) => void = () => undefined
+    vi.mocked(createScanFromPage).mockResolvedValue({ scanId: 101 })
+    vi.mocked(analyzeText).mockImplementation(() => new Promise((resolve) => { resolveAnalyze = resolve }))
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 1,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    renderPage()
+
+    const explainButton = await screen.findByRole('button', { name: /explain this/i })
+    fireEvent.click(screen.getByRole('button', { name: 'Pick page 1 text' }))
+    fireEvent.click(explainButton)
+    await waitFor(() => expect(analyzeText).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reader View' }))
+    await act(async () => {
+      resolveAnalyze(nuance('stale meaning'))
+      // Let the mutation settle and any drawer state commit.
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(screen.queryByLabelText('Annotation drawer')).not.toBeInTheDocument()
   })
 
   it('cancels a pending progress save when scroll returns to the saved page', async () => {

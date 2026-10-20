@@ -73,8 +73,7 @@ export default function HistoryPage() {
     navigate(getAnnotationDetailPath(item.id, historyFilter), { state: item })
   }
 
-  const handleDeleteClick = (e: React.MouseEvent, item: AnnotationItem) => {
-    e.stopPropagation()
+  const handleDeleteClick = (item: AnnotationItem) => {
     setAnnotationToDelete(item)
   }
 
@@ -131,8 +130,9 @@ export default function HistoryPage() {
                 key={item.id}
                 className="flex items-center gap-3 bg-white rounded-lg p-4 shadow-sm"
               >
-                <div
-                  className="flex-1 min-w-0 cursor-pointer"
+                <button
+                  type="button"
+                  className="flex-1 min-w-0 min-h-11 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
                   onClick={() => handleAnnotationClick(item)}
                 >
                   <p className="font-medium text-gray-900">{item.highlightedText}</p>
@@ -147,13 +147,13 @@ export default function HistoryPage() {
                   <p className="text-xs text-gray-400 mt-2">
                     {formatDate(item.createdAt)}
                   </p>
-                </div>
+                </button>
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={(e) => handleDeleteClick(e, item)}
-                  aria-label="Delete annotation"
-                  className="shrink-0 text-gray-500 hover:text-red-600"
+                  onClick={() => handleDeleteClick(item)}
+                  aria-label={`Delete annotation: ${item.highlightedText}`}
+                  className="h-11 w-11 shrink-0 text-gray-500 hover:text-red-600"
                 >
                   <Trash2 className="h-5 w-5" />
                 </Button>
@@ -190,8 +190,9 @@ export default function HistoryPage() {
           <div className="flex justify-center gap-4 mt-6">
             {data.meta.previousPage && (
               <button
+                type="button"
                 onClick={() => setPage(data.meta.previousPage!)}
-                className="px-4 py-2 bg-white rounded-lg shadow-sm text-sm font-medium"
+                className="min-h-11 min-w-11 px-4 py-2 bg-white rounded-lg shadow-sm text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
               >
                 Previous
               </button>
@@ -201,8 +202,9 @@ export default function HistoryPage() {
             </span>
             {data.meta.nextPage && (
               <button
+                type="button"
                 onClick={() => setPage(data.meta.nextPage!)}
-                className="px-4 py-2 bg-white rounded-lg shadow-sm text-sm font-medium"
+                className="min-h-11 min-w-11 px-4 py-2 bg-white rounded-lg shadow-sm text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
               >
                 Next
               </button>

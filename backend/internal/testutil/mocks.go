@@ -244,6 +244,19 @@ func (m *MockDB) UpdateScanStatus(ctx context.Context, scanID int64, status stri
 	return nil
 }
 
+func (m *MockDB) FailStaleProcessingScan(ctx context.Context, scanID int64, cutoff time.Time, failureReason string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scan, ok := m.scans[scanID]
+	if !ok || scan.Status != "processing" || !scan.CreatedAt.Before(cutoff) {
+		return false, nil
+	}
+	scan.Status = "failed"
+	scan.FailureReason = &failureReason
+	return true, nil
+}
+
 func (m *MockDB) UpdateScanImageURL(ctx context.Context, scanID int64, imageURL string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -457,6 +470,34 @@ func (m *MockDB) GetScanByDocumentPage(ctx context.Context, documentID int64, pa
 		}
 	}
 	return nil, nil
+}
+
+func (m *MockDB) GetOrCreateDocumentPageScan(ctx context.Context, scan *models.Scan) (int64, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if scan.DocumentID == nil || scan.PageNumber == nil {
+		return 0, false, fmt.Errorf("document page scan needs a document and page number")
+	}
+	if doc, ok := m.documents[*scan.DocumentID]; !ok || doc.UserID != scan.UserID {
+		return 0, false, sql.ErrNoRows
+	}
+	for _, existing := range m.scans {
+		if existing.DocumentID != nil && *existing.DocumentID == *scan.DocumentID &&
+			existing.PageNumber != nil && *existing.PageNumber == *scan.PageNumber {
+			return existing.ID, false, nil
+		}
+	}
+	if scan.SourceType == "" {
+		scan.SourceType = "pdf"
+	}
+	if scan.Status == "" {
+		scan.Status = "ready"
+	}
+	scan.ID = m.nextScanID
+	m.nextScanID++
+	m.scans[scan.ID] = scan
+	return scan.ID, true, nil
 }
 
 func (m *MockDB) CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error) {

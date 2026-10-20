@@ -90,6 +90,7 @@ describe('ScanPage', () => {
         imageUrl: '/uploads/5.jpg',
         detectedLanguage: '',
         fullText: '',
+        status: 'processing',
         createdAt: '2026-02-08T20:30:41+07:00',
       },
       isLoading: false,
@@ -98,7 +99,52 @@ describe('ScanPage', () => {
 
     render(<ScanPage />, { wrapper })
 
-    expect(screen.getByText('Processing...')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Reading the text on your page...')
+  })
+
+  it.each([
+    ['ocr_timeout', 'Reading this page took too long'],
+    ['ocr_interrupted', 'This scan was interrupted'],
+    ['no_text_found', 'No text found in this image'],
+    ['ocr_failed', "We couldn't read this page"],
+  ])('explains a %s failure with a recovery action', (failureReason, title) => {
+    useScanMock.mockReturnValue({
+      data: {
+        id: 5,
+        imageUrl: '/uploads/5.jpg',
+        fullText: '',
+        status: 'failed',
+        failureReason,
+        createdAt: '2026-02-08T20:30:41+07:00',
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    render(<ScanPage />, { wrapper })
+
+    expect(screen.getByRole('alert')).toHaveTextContent(title)
+    expect(screen.queryByText(failureReason)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Upload another page' })).toBeInTheDocument()
+  })
+
+  it('shows a no-text state instead of a spinner for a ready scan without text', () => {
+    useScanMock.mockReturnValue({
+      data: {
+        id: 5,
+        imageUrl: '/uploads/5.jpg',
+        fullText: '',
+        status: 'ready',
+        createdAt: '2026-02-08T20:30:41+07:00',
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    render(<ScanPage />, { wrapper })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('No text found in this image')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('renders OCR text once available', () => {
@@ -146,7 +192,7 @@ describe('ScanPage', () => {
       </QueryClientProvider>,
     )
 
-    expect(useScanMock).toHaveBeenCalledWith(5, { enabled: false, pollIntervalMs: 0 })
+    expect(useScanMock).toHaveBeenCalledWith(5, { enabled: false, pollIntervalMs: 3000 })
     expect(screen.getByText('preloaded OCR')).toBeInTheDocument()
   })
 
@@ -173,7 +219,7 @@ describe('ScanPage', () => {
       </QueryClientProvider>,
     )
 
-    expect(useScanMock).toHaveBeenCalledWith(5, { enabled: true, pollIntervalMs: 0 })
+    expect(useScanMock).toHaveBeenCalledWith(5, { enabled: true, pollIntervalMs: 3000 })
     expect(screen.getByText('fetched OCR')).toBeInTheDocument()
   })
 
