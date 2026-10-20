@@ -192,3 +192,71 @@ Reviewed 2026-10-20, public documentation only; no authenticated/provider calls:
 ## Planning verification
 
 The planning-only turn created this document and verified branch/base and task contracts. Implementation was subsequently approved by the owner. Local implementation checks and pending live evidence are recorded in `docs/evidence/issue-34/implementation.md`.
+
+## Follow-up: remaining #34 acceptance after the #51 merge
+
+**Date:** 2026-10-20. **Branch:** `backlog/issue-34`, fast-forwarded to `origin/dev` at `b3a4b29` (includes #51 routing `59500da`, #60 production DB guard, #61 Go builder, #59 Clerk auth). Owner authorized plan-then-execute; PR review only.
+
+**Re-verification on the new base:** `go test -count=1 ./internal/ai ./internal/config ./cmd/server ./internal/handlers`, `go vet ./...` and `go build ./cmd/server` pass with Go 1.27.3. #59 changed only Clerk wiring in `cmd/server/main.go` and `backend/AGENTS.md`. `buildAIClient`, routing validation and the AI package are unchanged.
+
+**Definition of Done reconciliation:**
+
+| #34 DoD item | Status |
+| --- | --- |
+| A configured task uses either gateway without handler/frontend changes; unsupported selections fail clearly | Done in #51 (local contracts) |
+| OCR/explanation keep the response shape; speech decodes | Done in #51 (fixture MP3 decoded with `afconvert`) |
+| Environment docs match code | Done in #51. Rechecked after Clerk: routing env docs are unchanged and accurate |
+| Focused HTTP contract tests; backend checks | Done in #51; rerun above |
+| Each configured route qualified live with a small Japanese sample (region/model, request ID, latency, usage) | **Open.** No credentials, and no approved region/model/voice yet (#35) |
+| Provider request-ID privacy (#35 follow-up from the #51 review) | **Open.** Needs real gateway responses |
+
+**Gap that can be closed without keys:** after #59, the only way to exercise a route is the full server, which needs a Clerk session JWT, PostgreSQL, Redis and a scan upload for each sample. Live qualification has no reproducible, bounded, privacy-safe procedure. Separately, `safeID` accepts any Unicode letters, so document text echoed into an ID would currently pass to logs.
+
+**User story:** as the operator with approved routes and private keys, I want to run one bounded OCR, annotation and speech call per configured route and get a redacted evidence report, so I can qualify gateways without running the authenticated app or copying source text into logs.
+
+**Scope (in):**
+
+- New `backend/cmd/qualify-routes`. It loads the file with `ai.LoadRoutingConfig(path, os.Getenv)` and builds `ai.NewRoutedClient` with an observation collector. `config.go` and Clerk/DB settings are not touched. Not in the Docker image or CI runtime.
+- Without `-live`, it only validates the routing file and active-key presence and prints the selected routes (no network).
+- `-live` makes at most one call per selected task. Retries come only from the profile's own `max_attempts`.
+- Inputs are explicit operator files: `-image` (OCR), `-context-file` and `-selection` (annotation; speaks `-selection`), plus `-tasks` to limit tasks. `-audio-out` writes speech bytes to an operator path for decoding/listening.
+- The JSON report contains:
+  - the selected route: profile, gateway, region, model, voice, format
+  - `CallMetadata` attempts
+  - sanitized `ProviderError` kind/status
+  - derived checks: OCR rune count, Japanese-script presence and structured-JSON validity; annotation required-field presence; speech byte count, MIME and MP3 frame/ID3 header
+  - `metadata_echoes_content`: whether any provider ID or reported model contains a fragment of the inputs or outputs
+- The report never contains source text, OCR or annotation output, audio, keys or the full configuration. Exit status is nonzero if any selected task fails or echoes content.
+- New `docs/evidence/issue-34/gateway-qualification.md`: procedure and a pending evidence table per route. Update the "Qualification status" section of `docs/ai-routing.md` to point to the command.
+
+**Scope (out):** model/voice choice, the benchmark dataset, accuracy/cost targets and default changes (#35). Per-user budgets (#42). Server/config/handler/frontend changes. Changing `safeID` (the decision waits for real ID evidence). Requesting secrets: keys without approved routes cannot produce valid qualification.
+
+**Edge cases:**
+
+- Missing or invalid config, or a missing active key: fails before any network call, and the error names no value.
+- `-live` without the input a selected task needs: usage error, no calls.
+- A selection not found in the context: rejected.
+- Unsupported image MIME: rejected locally.
+- A provider error on one task: the remaining tasks still run, and the error is reported by kind/status.
+- An empty or non-MP3 audio body: the check fails.
+- A provider ID that echoes input or output text: flagged without printing the fragment.
+- Ctrl-C/cancellation stops in-flight calls.
+- `-audio-out` never overwrites an existing file.
+
+**Acceptance criteria:**
+
+1. Loopback `httptest` tests (no real calls) prove:
+   - Validate-only makes zero requests.
+   - `-live` makes exactly one request per selected task, to that task's gateway.
+   - The report contains route/attempt metadata and derived checks but no fixture source/output text or key.
+   - Echoed-ID detection works.
+   - Provider auth/quota errors give a nonzero exit with kind/status.
+   - Audio output is written and never overwrites.
+2. `go test ./...`, `go vet ./...` and `go build ./cmd/server ./cmd/qualify-routes` pass.
+3. The docs explain the procedure, note that each run is chargeable, and leave every live route **pending**.
+
+**Verification:** from `backend/`, `go test -count=1 ./cmd/qualify-routes` and the race check, then the full test, vet and build once. Also run a validate-only smoke against `internal/ai/testdata/routing.json` with a dummy env key name set in the process only. CI provides image/PostgreSQL checks; no packaging change. No browser change, so no screenshots.
+
+**Test-debugging budget:** #51's recorded evidence describes one cancellation-fixture debugging episode but records no minutes. Conservatively counting about 10 minutes as already spent leaves about 20 minutes for #34.
+
+**Completion:** merging this tooling does not close #34. The issue stays open until live evidence exists for each chosen route.
