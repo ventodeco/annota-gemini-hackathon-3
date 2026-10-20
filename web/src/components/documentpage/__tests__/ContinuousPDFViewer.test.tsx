@@ -278,7 +278,7 @@ describe('ContinuousPDFViewer', () => {
   })
 
   describe('Long documents', () => {
-    it('renders only pages near the current page and releases far ones unless they hold the selection', async () => {
+    it('renders pages near the current page or on screen, and releases others unless they hold the selection', async () => {
       const renderedPages = pdfMock.renderedPages
       const props = {
         pdfUrl: 'long.pdf',
@@ -310,6 +310,26 @@ describe('ContinuousPDFViewer', () => {
       const placeholderWidth = Number.parseFloat(pageNode(9).style.width)
       expect(Number.parseFloat(pageNode(9).style.height)).toBeCloseTo(placeholderWidth * 1.5)
 
+      // A page taller than the viewport renders while any of it is on screen, even below the
+      // 30% threshold that moves the current page.
+      const pageFiveWrapper = document.querySelector('[data-page="5"]')
+      if (!(pageFiveWrapper instanceof HTMLElement)) {
+        throw new Error('Expected page 5 wrapper')
+      }
+      const pageFiveObserver = MockIntersectionObserver.instances.find((observer) => observer.hasObserved(pageFiveWrapper))
+      if (!pageFiveObserver) {
+        throw new Error('Expected page 5 observer')
+      }
+      act(() => {
+        pageFiveObserver.simulateIntersection(pageFiveWrapper, 0.2)
+      })
+      await waitFor(() => {
+        expect(renderedPages).toContain(5)
+      })
+      act(() => {
+        pageFiveObserver.simulateIntersection(pageFiveWrapper, 0, false)
+      })
+
       // The reader selects text on page 2, then scrolls far away.
       const pageTwoTextLayer = pageNode(2).querySelector('.textLayer')
       if (!(pageTwoTextLayer instanceof HTMLElement)) {
@@ -326,13 +346,14 @@ describe('ContinuousPDFViewer', () => {
       range.selectNodeContents(selectedSpan.firstChild)
       selection.removeAllRanges()
       selection.addRange(range)
+      fireEvent(document, new Event('selectionchange'))
       fireEvent.mouseUp(pageTwoTextLayer)
       expect(mockOnTextSelect).toHaveBeenLastCalledWith('二ページ目の文章', 2)
 
       rerender(<ContinuousPDFViewer {...props} currentPage={8} />)
 
       await waitFor(() => {
-        expect([...renderedPages].sort((a, b) => a - b)).toEqual([1, 2, 3, 6, 7, 8, 9, 10])
+        expect([...renderedPages].sort((a, b) => a - b)).toEqual([1, 2, 3, 5, 6, 7, 8, 9, 10])
       })
       await waitFor(() => {
         expect(canvasFor(1).width).toBe(0)
@@ -344,7 +365,14 @@ describe('ContinuousPDFViewer', () => {
       expect(canvasFor(2).width).toBe(400)
       expect(pageTwoTextLayer).toContainElement(selectedSpan)
       expect(mockOnTextSelect).not.toHaveBeenCalledWith('')
+
+      // Once the selection clears, page 2 is released like any other far page.
       selection.removeAllRanges()
+      fireEvent(document, new Event('selectionchange'))
+      await waitFor(() => {
+        expect(canvasFor(2).width).toBe(0)
+      })
+      expect(pageNode(2).style.height).toBe('600px')
     })
   })
 

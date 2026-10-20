@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
@@ -6,6 +6,7 @@ import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
 import { PageErrorBoundary } from '@/components/layout/PageErrorBoundary'
 import { AuthNotConfigured, ClerkRoot } from '@/components/auth/ClerkRoot'
 import { ProtectedRoute, PublicRoute } from '@/components/auth/RouteGuards'
+import { lazyRoute } from '@/lib/lazyRoute'
 import LoginPage from '@/pages/LoginPage'
 import SignUpPage from '@/pages/SignUpPage'
 import IntroPage from '@/pages/IntroPage'
@@ -13,17 +14,18 @@ import NotFoundPage from '@/pages/NotFoundPage'
 import LegalPage from '@/pages/LegalPage'
 
 // Signed-in pages load on demand so public and sign-in routes don't download the reader,
-// PDF.js or camera code. A failed chunk load is caught by the route's PageErrorBoundary.
-const WelcomePage = lazy(() => import('@/pages/WelcomePage'))
-const CameraPage = lazy(() => import('@/pages/CameraPage'))
-const LoadingPage = lazy(() => import('@/pages/LoadingPage'))
-const HistoryPage = lazy(() => import('@/pages/HistoryPage'))
-const OCRHistoryPage = lazy(() => import('@/pages/OCRHistoryPage'))
-const ScanPage = lazy(() => import('@/pages/ScanPage'))
-const AnnotationDetailPage = lazy(() => import('@/pages/AnnotationDetailPage'))
-const DocumentPage = lazy(() => import('@/pages/DocumentPage'))
-const DocumentsPage = lazy(() => import('@/pages/DocumentsPage'))
-const ProfilePage = lazy(() => import('@/pages/ProfilePage'))
+// PDF.js or camera code. A failed chunk load is caught by the route's PageErrorBoundary,
+// whose retry reloads the page.
+const WelcomePage = lazyRoute(() => import('@/pages/WelcomePage'))
+const CameraPage = lazyRoute(() => import('@/pages/CameraPage'))
+const LoadingPage = lazyRoute(() => import('@/pages/LoadingPage'))
+const HistoryPage = lazyRoute(() => import('@/pages/HistoryPage'))
+const OCRHistoryPage = lazyRoute(() => import('@/pages/OCRHistoryPage'))
+const ScanPage = lazyRoute(() => import('@/pages/ScanPage'))
+const AnnotationDetailPage = lazyRoute(() => import('@/pages/AnnotationDetailPage'))
+const DocumentPage = lazyRoute(() => import('@/pages/DocumentPage'))
+const DocumentsPage = lazyRoute(() => import('@/pages/DocumentsPage'))
+const ProfilePage = lazyRoute(() => import('@/pages/ProfilePage'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
