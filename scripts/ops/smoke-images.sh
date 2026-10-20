@@ -93,6 +93,33 @@ else:
 PY
 }
 
+expect_http() {
+  run_python "$1" "$2" <<'PY'
+import sys
+import time
+import urllib.error
+import urllib.request
+
+url, want = sys.argv[1], int(sys.argv[2])
+status = None
+deadline = time.monotonic() + 60
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            status = response.status
+    except urllib.error.HTTPError as error:
+        status = error.code
+    except OSError:
+        status = None
+    if status == want:
+        print(f"{url} -> {status}")
+        break
+    time.sleep(1)
+else:
+    sys.exit(f"Expected HTTP {want} from {url}; last status {status}")
+PY
+}
+
 docker network create --internal "$prefix" >/dev/null
 network_created=true
 
@@ -125,7 +152,7 @@ if [[ "$mode" == all || "$mode" == backend ]]; then
     -e JWT_SECRET=smoke-fixture-only-at-least-32-characters \
     -e FRONTEND_BASE_URL=http://localhost:5173 \
     "$backend_image"
-  wait_for_http "http://$prefix-backend:8080/healthz"
+  wait_for_http "http://$prefix-backend:8080/readyz"
 
   expected_migrations="$(python3 - "$repo_root/backend/migrations" <<'PY'
 from pathlib import Path
@@ -139,7 +166,17 @@ PY
     echo "Final backend did not apply the complete migration inventory" >&2
     exit 1
   fi
-  echo "Backend final-image startup and migration inventory passed"
+
+  # Readiness must follow dependency availability while liveness stays up.
+  backend_url="http://$prefix-backend:8080"
+  for dependency in redis pg; do
+    docker stop "$prefix-$dependency" >/dev/null
+    expect_http "$backend_url/readyz" 503
+    expect_http "$backend_url/healthz" 200
+    docker start "$prefix-$dependency" >/dev/null
+    expect_http "$backend_url/readyz" 200
+  done
+  echo "Backend final-image startup, migration inventory, and readiness passed"
 fi
 
 if [[ "$mode" == all || "$mode" == frontend ]]; then

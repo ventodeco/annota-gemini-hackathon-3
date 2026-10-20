@@ -46,6 +46,36 @@ paths:
                 type: string
                 example: ok
 
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      description: >-
+        Returns 200 only when PostgreSQL and Redis respond within 2 seconds.
+        Otherwise returns 503 without dependency details. Use for deployment
+        and monitoring checks; /healthz reports process liveness only.
+      operationId: readinessCheck
+      responses:
+        "200":
+          description: Dependencies are available
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+        "503":
+          description: A dependency is unavailable
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: not ready
+
   /v1/auth/google/state:
     get:
       tags: [Auth]

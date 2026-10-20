@@ -11,6 +11,7 @@ type RedisClient interface {
 	SetState(ctx context.Context, state, sessionID string, ttl time.Duration) error
 	GetState(ctx context.Context, state string) (string, error)
 	DeleteState(ctx context.Context, state string) error
+	Ping(ctx context.Context) error
 	Close() error
 }
 
@@ -21,6 +22,9 @@ type redisClientImpl struct {
 func NewRedisClient(addr string) (RedisClient, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr: addr,
+		// Apply caller deadlines to socket I/O so a stalled server cannot
+		// hold a request (or readiness probe) past its context.
+		ContextTimeoutEnabled: true,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -46,6 +50,10 @@ func (c *redisClientImpl) GetState(ctx context.Context, state string) (string, e
 func (c *redisClientImpl) DeleteState(ctx context.Context, state string) error {
 	key := "oauth:state:" + state
 	return c.client.Del(ctx, key).Err()
+}
+
+func (c *redisClientImpl) Ping(ctx context.Context) error {
+	return c.client.Ping(ctx).Err()
 }
 
 func (c *redisClientImpl) Close() error {
