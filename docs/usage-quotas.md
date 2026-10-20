@@ -50,7 +50,8 @@ The limits are **operation caps** (pages, requests, characters), not a currency 
    - If the process dies mid-OCR (for example, a restart), its in-process settlement never runs.
    - An OCR reservation still `reserved` 15 minutes after admission (`handlers.OCRReservationStaleAfter`: the 5-minute OCR timeout plus a 10-minute margin) is settled as `failed`. The user's counter is refunded once, on the reservation's own day. The global charge is kept, because the provider may have billed. The cost is recorded as `missing`.
    - A live OCR always settles well before the cutoff. Its context ends at 5 minutes, and only the upload steps, the account-lock wait and a 5-second settle surround it. So the cutoff never refunds running work.
-   - Expiry runs lazily for the requesting user before an OCR admission and before the allowance is read. It needs no sweeper, and OCR is never re-dispatched (#40's `ocr_interrupted` follows the same rule).
+   - Expiry runs lazily for the requesting user before an OCR admission and before the allowance is read. It needs no sweeper, and OCR is never re-dispatched.
+   - **Relation to #40's `ocr_interrupted`.** #40 marks a processing image scan `ocr_interrupted` after 6 minutes (the 5-minute OCR timeout plus a 1-minute write margin). That threshold is intentionally separate from the 15-minute reservation cutoff. An interrupted scan does **not** refund immediately: its page can stay charged for up to about 9 more minutes, until the reservation passes 15 minutes. The page is then refunded once, never twice.
    - A late settlement from the abandoned job is a no-op, and a deleted user's rows are never recreated.
    - Explanation and speech reservations stranded by a crash mid-request still stay charged until the reset. Operators can find them via `idx_usage_reservations_status_created`.
 

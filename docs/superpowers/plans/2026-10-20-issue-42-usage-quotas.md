@@ -196,7 +196,7 @@ Billing or paid plans, model selection (#35), a service layer (#14), auth change
 - `UpdateScanOCR` and the 5s detached settle run right after it;
 - between reservation and dispatch there is only `CreateScan`, `SaveImage` and the shared account lock.
 
-So a live process settles well within 15m, and anything older is abandoned. The 10m margin also absorbs lock waits and replica clock skew. #40's `ocr_interrupted` uses the same rule (no re-dispatch); a cutoff is agreed with A40.
+So a live process settles well within 15m, and anything older is abandoned. The 10m margin also absorbs lock waits and replica clock skew. #40 marks scans `ocr_interrupted` at 6m (5m OCR timeout + 1m write margin), also with no re-dispatch. That threshold is intentionally separate. As agreed with A40, an interrupted scan's page can stay charged for up to about 9 more minutes before the 15m expiry refunds it once.
 
 **Mechanism.** Reuse the conditional settlement semantics, scoped per user and evaluated lazily:
 - `storage.UsageStore.ExpireStaleUsage(ctx, userID, feature, cutoff, settledAt)` runs one statement:
