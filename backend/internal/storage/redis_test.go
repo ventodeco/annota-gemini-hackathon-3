@@ -3,6 +3,9 @@ package storage
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -92,5 +95,69 @@ func TestRedisClientPingReportsAvailability(t *testing.T) {
 	mr.Close()
 	if err := client.Ping(context.Background()); err == nil {
 		t.Fatal("Ping() with Redis stopped should fail")
+	}
+}
+
+// stallableRedisProxy forwards to miniredis until stall is set, then withholds
+// every server response.
+func stallableRedisProxy(t *testing.T) (string, *atomic.Bool) {
+	t.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	t.Cleanup(mr.Close)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+
+	var stall atomic.Bool
+	go func() {
+		for {
+			client, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			server, err := net.Dial("tcp", mr.Addr())
+			if err != nil {
+				client.Close()
+				return
+			}
+			t.Cleanup(func() { client.Close(); server.Close() })
+			go io.Copy(server, client)
+			go func() {
+				buf := make([]byte, 4096)
+				for {
+					n, err := server.Read(buf)
+					if err != nil || stall.Load() {
+						return
+					}
+					client.Write(buf[:n])
+				}
+			}()
+		}
+	}()
+	return listener.Addr().String(), &stall
+}
+
+func TestRedisClientPingHonorsContextDeadline(t *testing.T) {
+	addr, stall := stallableRedisProxy(t)
+	client, err := NewRedisClient(addr)
+	if err != nil {
+		t.Fatalf("NewRedisClient() error = %v", err)
+	}
+	defer client.Close()
+	stall.Store(true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := client.Ping(ctx); err == nil {
+		t.Fatal("Ping() against a stalled server should fail")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Ping() took %s, want it bounded by the context deadline", elapsed)
 	}
 }

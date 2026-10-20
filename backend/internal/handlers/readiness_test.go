@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -59,18 +60,38 @@ func TestReadinessHandler_NotReadyWhenADependencyFails(t *testing.T) {
 	}
 }
 
-func TestReadinessHandler_HangingCheckIsCutOffByDeadline(t *testing.T) {
-	handler := NewReadinessHandler(50*time.Millisecond, ReadinessCheck{Name: "postgres", Check: func(ctx context.Context) error {
-		<-ctx.Done()
-		return ctx.Err()
+func TestReadinessHandler_EnforcesDeadlineWhenCheckIgnoresContext(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	var calls atomic.Int32
+	handler := NewReadinessHandler(50*time.Millisecond, ReadinessCheck{Name: "postgres", Check: func(context.Context) error {
+		calls.Add(1)
+		<-release
+		return nil
 	}})
 
-	started := time.Now()
-	rec := readinessRequest(t, handler)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("got %d, want 503", rec.Code)
+	for i := 0; i < 3; i++ {
+		started := time.Now()
+		rec := readinessRequest(t, handler)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("request %d: got %d, want 503", i+1, rec.Code)
+		}
+		if elapsed := time.Since(started); elapsed > time.Second {
+			t.Fatalf("request %d took %s, want it bounded by the deadline", i+1, elapsed)
+		}
 	}
-	if elapsed := time.Since(started); elapsed > 2*time.Second {
-		t.Fatalf("readiness took %s, want it bounded by the deadline", elapsed)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("stalled check started %d times, want requests to share one run", got)
+	}
+}
+
+func TestReadinessHandler_RejectsSuccessAfterDeadline(t *testing.T) {
+	handler := NewReadinessHandler(50*time.Millisecond, ReadinessCheck{Name: "redis", Check: func(context.Context) error {
+		time.Sleep(200 * time.Millisecond)
+		return nil
+	}})
+
+	if rec := readinessRequest(t, handler); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("got %d, want 503 for a check that succeeds only after the deadline", rec.Code)
 	}
 }

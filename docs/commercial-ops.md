@@ -63,8 +63,10 @@ requests. These checks do not establish live login or AI readiness.
   restart the container.
 - `/readyz` is dependency readiness. It returns `200 ready` only when
   PostgreSQL and Redis both respond within 2 seconds; otherwise `503 not
-  ready`. The response never includes error details; the failing dependency is
-  logged server-side. It makes no AI provider calls. Use it to accept a release
+  ready`. The server enforces that deadline itself, so a stalled dependency
+  yields 503 rather than a late success. Concurrent requests share one
+  in-flight probe per dependency. The response never includes error details;
+  the failing dependency is logged server-side. It makes no AI provider calls. Use it to accept a release
   and to route traffic.
 - Neither endpoint requires authentication. Both are excluded from the
   frontend fallback in the Go server.

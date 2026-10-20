@@ -210,4 +210,19 @@ task IDs are recorded below as they complete.
 
 ### CI and review
 
-- Pending.
+- Round 1, GPT-6.1 Sol, task `issue43-pr55-review-r1` on head `4fb7b3e`:
+  REQUEST_CHANGES. One blocking finding: `/readyz` ran checks synchronously
+  and relied on drivers to honor the deadline; through a delaying TCP proxy,
+  both real clients produced `200 ready` after about 3 s. Fixed by enforcing
+  the deadline in the handler (late successes rejected), sharing one
+  in-flight probe per dependency so stalled checks cannot accumulate
+  goroutines, and enabling go-redis `ContextTimeoutEnabled`. New tests: a check
+  that ignores its context (503 within the bound, one shared run across three
+  requests), a success after the deadline (503), and a real Redis client
+  behind a stalled proxy (Ping bounded; the test fails after 5 s with the
+  option disabled). lib/pq may still hold its probe goroutine until the driver
+  returns; the handler response stays bounded and probes do not pile up.
+- Test-debugging: one unexpected failure at 04:25 UTC (the first fake Redis
+  server ignored the client's `HELLO` handshake); replaced with a stallable
+  proxy in front of miniredis by 04:26 UTC. About 1 minute used; about 12.5
+  minutes of the issue budget remain.

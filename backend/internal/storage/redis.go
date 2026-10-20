@@ -22,6 +22,9 @@ type redisClientImpl struct {
 func NewRedisClient(addr string) (RedisClient, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr: addr,
+		// Apply caller deadlines to socket I/O so a stalled server cannot
+		// hold a request (or readiness probe) past its context.
+		ContextTimeoutEnabled: true,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
