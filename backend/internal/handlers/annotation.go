@@ -55,9 +55,9 @@ type createAnnotationNuance struct {
 // acceptedProvenance keeps echoed provenance only when its configured fields
 // exactly match the server's current annotation producer, so arbitrary client
 // values (keys, request IDs, text) are never stored. A producer change between
-// analyze and save, or any mismatch, leaves the provenance unknown. An echoed
-// reportedModel is kept only if the route accepts it from the gateway (selected
-// model or documented alias); otherwise just that field stays unknown.
+// analyze and save, or any mismatch, leaves the provenance unknown. The server
+// cannot tie an echoed reportedModel to the saved output, so saved annotations
+// never record one: it stays unknown even when the analyze response showed it.
 func (h *AnnotationHandlers) acceptedProvenance(raw json.RawMessage) *models.AIProvenance {
 	current := provenanceFor(h.aiClient, "annotation", nil)
 	if current == nil || len(raw) == 0 {
@@ -67,13 +67,9 @@ func (h *AnnotationHandlers) acceptedProvenance(raw json.RawMessage) *models.AIP
 	if err := json.Unmarshal(raw, &echoed); err != nil {
 		return nil
 	}
-	reported := echoed.ReportedModel
 	echoed.ReportedModel = ""
 	if echoed != *current {
 		return nil
-	}
-	if ai.ReportedModelAllowed(h.aiClient, "annotation", reported) {
-		current.ReportedModel = reported
 	}
 	return current
 }

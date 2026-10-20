@@ -125,7 +125,7 @@ Saved output records which configured producer generated it, so later quality di
 - **Historical rows:** existing rows are not backfilled and stay unknown.
 - **`reportedModel`** is the model the gateway reported back. It is recorded only for routed calls, where the adapter has already checked it against the selected model and the route's `reported_model_aliases`. The value comes from the last attempt for that task in #42's request-scoped `usage.Calls(ctx)`, and only when that attempt succeeded.
   - Legacy and Gemini clients, `AnalyzeWithLanguageAPI` (not metered), and attempts that report no model leave it unknown. The configured model is never substituted.
-  - When an annotation is saved, an echoed `reportedModel` is kept only if the route accepts it. Otherwise only that field is dropped, and the configured producer is kept.
+  - The analyze response shows `reportedModel`, but saved annotations never store it. The server cannot tie a client-echoed value to the saved output, so only the exact-matched configured producer is kept. OCR records it because the server observes that call directly.
 
 ## Migrate an existing install
 

@@ -240,6 +240,7 @@ func readBody(t *testing.T, r *http.Request) string {
 }
 
 func TestRoutedProvenanceRecordsReportedModel(t *testing.T) {
+
 	configured := models.AIProvenance{Version: 1, Provider: "routed", Gateway: "openrouter", Region: "global", Model: "test-vision"}
 
 	t.Run("ocr stores the alias the gateway reported", func(t *testing.T) {
@@ -331,14 +332,14 @@ func TestRoutedProvenanceRecordsReportedModel(t *testing.T) {
 			annotation, _ := db.GetAnnotationByID(context.Background(), created.AnnotationID)
 			return annotation.NuanceData.Provenance
 		}
-		if got := saveWith("test-vision-20261020"); got == nil || *got != want {
-			t.Fatalf("approved reported model not kept: %+v", got)
-		}
+		// The server cannot bind an echoed reportedModel to the saved output, so
+		// every echo, including the genuine alias, a swapped selected model, an
+		// invented value or none at all, saves the configured producer only.
 		configuredOnly := want
 		configuredOnly.ReportedModel = ""
-		for _, forged := range []string{"req-123", "sk-test-secret", "other-model"} {
-			if got := saveWith(forged); got == nil || *got != configuredOnly {
-				t.Fatalf("reported model %q: saved %+v, want configured producer only", forged, got)
+		for _, echoed := range []string{"test-vision-20261020", "test-vision", "", "req-123", "sk-test-secret", "other-model"} {
+			if got := saveWith(echoed); got == nil || *got != configuredOnly {
+				t.Fatalf("echoed reported model %q: saved %+v, want configured producer only", echoed, got)
 			}
 		}
 	})
