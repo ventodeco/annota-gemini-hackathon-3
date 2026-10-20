@@ -119,10 +119,16 @@ export default function DocumentPage(): ReactElement {
 
   const [contextText, setContextText] = useState<string>('')
 
+  // Which selection (page and text) an Explain request belongs to; a new or
+  // cleared selection cancels a pending one. Repeated reports of the same
+  // selection, and scrolling, do not.
+  const selectionIdentityRef = useRef('')
+
   const resetTextSelectionState = useCallback(() => {
     clearSelection()
     setContextText('')
     setSelectedPage(null)
+    selectionIdentityRef.current = ''
   }, [clearSelection])
 
   const initialPage = useMemo(() => {
@@ -238,16 +244,17 @@ export default function DocumentPage(): ReactElement {
 
   const handleTextSelect = useCallback((selectedTextFromViewer: string, pageNumber?: number): void => {
     const selectedTextValue = selectedTextFromViewer.trim()
-    if (selectedTextValue === '') {
-      resetTextSelectionState()
-      return
+    const selectionResult = selectedTextValue === '' ? null : handleSelection(selectedTextValue)
+    const nextIdentity = selectionResult?.valid ? `${pageNumber ?? ''}:${selectedTextValue}` : ''
+    if (selectionIdentityRef.current !== '' && nextIdentity !== selectionIdentityRef.current) {
+      resetAnnotationState()
     }
 
-    const selectionResult = handleSelection(selectedTextValue)
-    if (!selectionResult.valid) {
+    if (!selectionResult?.valid) {
       resetTextSelectionState()
       return
     }
+    selectionIdentityRef.current = nextIdentity
     setSelectedPage(pageNumber ?? null)
 
     const selection = window.getSelection()
@@ -259,7 +266,7 @@ export default function DocumentPage(): ReactElement {
     const range = selection.getRangeAt(0)
     const context = range.cloneContents().textContent?.trim() ?? ''
     setContextText(context || selectedTextValue)
-  }, [handleSelection, resetTextSelectionState])
+  }, [handleSelection, resetAnnotationState, resetTextSelectionState])
 
   const handleReaderViewChange = useCallback((nextView: ReaderView): void => {
     if (readerView === nextView) {

@@ -238,6 +238,37 @@ describe('DocumentPage', () => {
     expect(screen.queryByLabelText('Annotation drawer')).not.toBeInTheDocument()
   })
 
+  it('drops a pending explanation when a different text is selected', async () => {
+    let resolveAnalyze: (value: NuanceData) => void = () => undefined
+    vi.mocked(createScanFromPage).mockResolvedValue({ scanId: 101 })
+    vi.mocked(analyzeText).mockImplementation(() => new Promise((resolve) => { resolveAnalyze = resolve }))
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 1,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    renderPage()
+
+    const explainButton = await screen.findByRole('button', { name: /explain this/i })
+    fireEvent.click(screen.getByRole('button', { name: 'Pick page 1 text' }))
+    fireEvent.click(explainButton)
+    await waitFor(() => expect(analyzeText).toHaveBeenCalledTimes(1))
+
+    // Re-reporting the same selection keeps the request; a new one replaces it.
+    fireEvent.click(screen.getByRole('button', { name: 'Pick page 1 text' }))
+    fireEvent.click(screen.getByRole('button', { name: /scroll to page 2/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pick page 2 text' }))
+    await act(async () => {
+      resolveAnalyze(nuance('stale meaning'))
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(screen.queryByLabelText('Annotation drawer')).not.toBeInTheDocument()
+  })
+
   it('cancels a pending progress save when scroll returns to the saved page', async () => {
     getDocumentMock.mockResolvedValueOnce({
       id: 1,
