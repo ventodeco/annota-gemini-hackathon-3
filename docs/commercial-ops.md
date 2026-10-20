@@ -133,9 +133,25 @@ recovery procedure, not just restarting an old binary.
 
 ## Secrets Rotation
 
-- Rotate `JWT_SECRET`, Google OAuth secret, Gemini API key, Redis credentials, and database credentials on a scheduled cadence or immediately after exposure.
-- When rotating `JWT_SECRET`, expect existing sessions to be invalidated.
-- Production must use `APP_ENV=production`, explicit `ALLOWED_ORIGINS`, and secure HTTPS origins.
+- Rotate `JWT_SECRET`, Google OAuth secret, AI provider keys (Gemini, OpenRouter, MiniMax, routed `api_key_env` values), Redis credentials, and database credentials on a scheduled cadence or immediately after exposure.
+- When rotating `JWT_SECRET`, expect existing sessions to be invalidated. The Clerk migration (#39) replaces `JWT_SECRET` and `GOOGLE_OAUTH_*`. Revoke the old Google OAuth client after cutover.
+- Production must use `APP_ENV=production`, explicit `ALLOWED_ORIGINS`, and secure HTTPS origins. In production the backend refuses to start when the database password is a known default (`password`, `postgres`, or the built-in `gemini_password` used when `POSTGRES_PASSWORD` is unset).
+- `docker-compose.yml` is for local development only and binds to loopback. Never reuse its credentials elsewhere.
+
+Where credentials live:
+
+- Runtime values are in the production host's own compose/env configuration, outside this repository.
+- CI/CD credentials (`DOCKERHUB_TOKEN`, `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`) are in the GitHub `ENV_PRODUCTION` environment. Administration is tracked in #43/#50.
+- Developer values are in the untracked `backend/.env`, which git and Docker ignore.
+
+Rotation steps for an exposed credential:
+
+1. Issue a replacement at the provider (or database/Redis), and revoke the old value there once the deploy uses the new one. Revoking first causes an outage, but if active abuse is suspected, revoke immediately.
+2. Update the production host configuration or GitHub secret, then restart or redeploy.
+3. Verify without printing values: `/readyz` returns 200 after database or Redis rotation, a small AI request succeeds after a provider key rotation, and login works after an auth secret rotation.
+4. Record the date, credential name, provider, and who rotated it in the tracking issue. Never record the value.
+
+If a secret is ever committed, rotate it first. Rewriting git history does not un-expose a pushed value. A force-push rewrite needs owner approval and coordination with every clone and open PR. The assessment for #12 found no secret in git history: see [the evidence](evidence/issue-12/secret-exposure-assessment.md).
 
 ## Support And Data Requests
 
