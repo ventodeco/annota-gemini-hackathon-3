@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type { UseMutationResult } from '@tanstack/react-query'
 import type {
   Annotation,
@@ -76,18 +76,25 @@ export function useAnnotationDrawerFlow(
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null)
   const [annotationVersion, setAnnotationVersion] = useState<number>(1)
   const [isLoadingAnnotation, setIsLoadingAnnotation] = useState<boolean>(false)
+  // Bumped on every reset (page change, view change, close) so a request
+  // that finishes afterwards can't show an explanation for the old selection.
+  const requestGenerationRef = useRef(0)
 
   const handleExplain = useCallback(async (): Promise<void> => {
     if (!selectedText) return
 
+    const generation = requestGenerationRef.current
+    const isStale = (): boolean => generation !== requestGenerationRef.current
     setIsLoadingAnnotation(true)
     try {
       const scanId = await resolveScanIdForExplain()
+      if (isStale()) return
       const result = await analyzeText.mutateAsync({
         textToAnalyze: selectedText,
         context: contextText,
         scanId,
       })
+      if (isStale()) return
 
       const annotation: Annotation = {
         id: Date.now(),
@@ -104,6 +111,7 @@ export function useAnnotationDrawerFlow(
       setAnnotationVersion(1)
       setIsDrawerOpen(true)
     } catch (err) {
+      if (isStale()) return
       console.error('Failed to analyze text:', err)
       reportError(getUsageErrorMessage(err) ?? analyzeErrorMessage)
     } finally {
@@ -119,6 +127,7 @@ export function useAnnotationDrawerFlow(
   ])
 
   const resetAnnotationState = useCallback((): void => {
+    requestGenerationRef.current += 1
     setIsDrawerOpen(false)
     setCurrentAnnotation(null)
     setAnnotationVersion(1)
@@ -156,11 +165,15 @@ export function useAnnotationDrawerFlow(
       return
     }
 
+    const generation = requestGenerationRef.current
     try {
+      // Same scan as the first explanation, so the server uses the same page context.
       const result = await analyzeText.mutateAsync({
         textToAnalyze: currentAnnotation.highlighted_text,
         context: currentAnnotation.context_text ?? '',
+        ...(currentAnnotation.scan_id ? { scanId: currentAnnotation.scan_id } : {}),
       })
+      if (generation !== requestGenerationRef.current) return
 
       setCurrentAnnotation({
         ...currentAnnotation,
@@ -169,6 +182,7 @@ export function useAnnotationDrawerFlow(
       })
       setAnnotationVersion((prev) => Math.min(prev + 1, maxVersions))
     } catch (err) {
+      if (generation !== requestGenerationRef.current) return
       console.error('Failed to regenerate annotation:', err)
       reportError(getUsageErrorMessage(err) ?? regenerateErrorMessage)
     }

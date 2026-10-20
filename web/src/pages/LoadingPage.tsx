@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, type ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Hourglass } from 'lucide-react'
 import Header from '@/components/layout/Header'
+import ScanFailureState from '@/components/scanpage/ScanFailureState'
 import { useScan, isScanFailed, isScanOcrReady } from '@/hooks/useScan'
+import { getScanFailureCopy } from '@/lib/scanStatus'
 import type { Scan } from '@/lib/types'
 
 const LOADING_POLL_INTERVAL_MS = 3000
 
-export default function LoadingPage() {
+export default function LoadingPage(): ReactElement {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const hasNavigatedRef = useRef(false)
@@ -24,7 +26,9 @@ export default function LoadingPage() {
     })
   }, [id, navigate])
 
-  const { data: scan, error } = useScan(scanId, {
+  // Poll until the scan is ready or failed; the server always settles a scan
+  // within its OCR deadline, so there is no client-side timeout.
+  const { data: scan, error, refetch, isRefetching } = useScan(scanId, {
     pollIntervalMs: LOADING_POLL_INTERVAL_MS,
     retry: false,
   })
@@ -36,51 +40,54 @@ export default function LoadingPage() {
   }, [navigate, scanId])
 
   useEffect(() => {
-    if (!scanId) return
-    // navigateToScan ignores this fallback when the ready effect has already navigated.
-    const timeoutId = setTimeout(() => navigateToScan(), 30000)
-    return () => clearTimeout(timeoutId)
-  }, [navigateToScan, scanId])
-
-  useEffect(() => {
     if (scan && isScanOcrReady(scan)) {
       navigateToScan(scan)
     }
   }, [navigateToScan, scan])
 
-  const status: 'processing' | 'error' = error || isScanFailed(scan) ? 'error' : 'processing'
+  const header = (
+    <Header
+      title="Scan Result"
+      rightAction="bookmark"
+      rightActionTo={scanHistoryPath}
+    />
+  )
 
-  if (status === 'error') {
+  if (isScanFailed(scan)) {
+    const copy = getScanFailureCopy(scan?.failureReason)
     return (
       <div className="min-h-screen bg-white flex flex-col pb-20">
-        <Header
-          title="Scan Result"
-          rightAction="bookmark"
-          rightActionTo={scanHistoryPath}
+        {header}
+        <ScanFailureState
+          title={copy.title}
+          description={copy.description}
+          actionLabel="Upload another page"
+          onAction={() => navigate('/welcome')}
         />
-        <div className="flex-1 flex flex-col items-center justify-center p-6">
-          <p className="text-center text-red-600 text-sm">
-            {scan?.failureReason ? `Scan failed: ${scan.failureReason}` : 'Failed to load scan'}
-          </p>
-          <button
-            onClick={() => navigate('/welcome')}
-            className="mt-4 px-4 py-2 bg-gray-900 text-white rounded-full text-sm"
-          >
-            Go back
-          </button>
-        </div>
+      </div>
+    )
+  }
+
+  if (error && !isRefetching) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col pb-20">
+        {header}
+        <ScanFailureState
+          title="Couldn't check this scan"
+          description="Your scan is saved. Check your connection and try again."
+          actionLabel="Try again"
+          onAction={() => void refetch()}
+          secondaryActionLabel="Go back"
+          onSecondaryAction={() => navigate('/welcome')}
+        />
       </div>
     )
   }
 
   return (
     <div className="min-h-screen bg-white flex flex-col pb-20">
-      <Header
-        title="Scan Result"
-        rightAction="bookmark"
-        rightActionTo={scanHistoryPath}
-      />
-      <div className="flex-1 flex flex-col items-center justify-center p-6">
+      {header}
+      <div className="flex-1 flex flex-col items-center justify-center p-6" role="status" aria-live="polite">
         <h1 className="text-center text-gray-900 font-semibold text-lg leading-6">
           Scanning in Progress..
         </h1>

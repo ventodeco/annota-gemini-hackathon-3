@@ -19,7 +19,7 @@ type DocumentPdfSectionProps = {
   document: Document
   currentPage: number
   onPageChange: (page: number, change: PageChange) => void
-  onTextSelect: (selectedText: string) => void
+  onTextSelect: (selectedText: string, pageNumber?: number) => void
 }
 
 type PageChangeSource = 'scroll' | 'navigation'
@@ -100,7 +100,11 @@ export default function DocumentPage(): ReactElement {
 
   const { data: document, isLoading, error } = useDocument(documentId)
   const [pageOverride, setPageOverride] = useState<{ documentId: number; page: number } | null>(null)
-  const [bridgeScanId, setBridgeScanId] = useState<number | null>(null)
+  // The page scan the explanation is saved against, kept per page so a
+  // selection on another page never reuses it.
+  const [bridgeScan, setBridgeScan] = useState<{ page: number; scanId: number } | null>(null)
+  // The page the current selection was made on; scrolling doesn't change it.
+  const [selectedPage, setSelectedPage] = useState<number | null>(null)
   const [readerView, setReaderView] = useState<ReaderView>('pdf')
   const updateProgress = useUpdateDocumentProgress(documentId)
   const progressSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
@@ -115,9 +119,16 @@ export default function DocumentPage(): ReactElement {
 
   const [contextText, setContextText] = useState<string>('')
 
+  // Which selection (page and text) an Explain request belongs to; a new or
+  // cleared selection cancels a pending one. Repeated reports of the same
+  // selection, and scrolling, do not.
+  const selectionIdentityRef = useRef('')
+
   const resetTextSelectionState = useCallback(() => {
     clearSelection()
     setContextText('')
+    setSelectedPage(null)
+    selectionIdentityRef.current = ''
   }, [clearSelection])
 
   const initialPage = useMemo(() => {
@@ -131,6 +142,7 @@ export default function DocumentPage(): ReactElement {
   const currentPage =
     pageOverride && pageOverride.documentId === documentId ? pageOverride.page : initialPage
   const documentPage = useDocumentPage(readerView === 'text' ? documentId : undefined, currentPage)
+  const selectionPage = selectedPage ?? currentPage
 
   useEffect(() => {
     lastRequestedProgressRef.current = document?.lastPageNumber ?? null
@@ -149,13 +161,13 @@ export default function DocumentPage(): ReactElement {
     if (!documentId) {
       throw new Error('Missing document')
     }
-    if (bridgeScanId !== null) {
-      return bridgeScanId
+    if (bridgeScan?.page === selectionPage) {
+      return bridgeScan.scanId
     }
-    const bridgeResult = await createScanFromPage(documentId, currentPage)
-    setBridgeScanId(bridgeResult.scanId)
+    const bridgeResult = await createScanFromPage(documentId, selectionPage)
+    setBridgeScan({ page: selectionPage, scanId: bridgeResult.scanId })
     return bridgeResult.scanId
-  }, [documentId, currentPage, bridgeScanId])
+  }, [documentId, selectionPage, bridgeScan])
 
   const {
     isDrawerOpen,
@@ -221,28 +233,29 @@ export default function DocumentPage(): ReactElement {
     }
 
     if (change.source === 'navigation') {
-      clearSelection()
+      resetTextSelectionState()
       resetAnnotationState()
-      setBridgeScanId(null)
     }
 
     if (pageChanged) {
       scheduleProgressSave(page)
     }
-  }, [clearSelection, currentPage, documentId, resetAnnotationState, scheduleProgressSave])
+  }, [currentPage, documentId, resetAnnotationState, resetTextSelectionState, scheduleProgressSave])
 
-  const handleTextSelect = useCallback((selectedTextFromViewer: string): void => {
+  const handleTextSelect = useCallback((selectedTextFromViewer: string, pageNumber?: number): void => {
     const selectedTextValue = selectedTextFromViewer.trim()
-    if (selectedTextValue === '') {
-      resetTextSelectionState()
-      return
+    const selectionResult = selectedTextValue === '' ? null : handleSelection(selectedTextValue)
+    const nextIdentity = selectionResult?.valid ? `${pageNumber ?? ''}:${selectedTextValue}` : ''
+    if (selectionIdentityRef.current !== '' && nextIdentity !== selectionIdentityRef.current) {
+      resetAnnotationState()
     }
 
-    const selectionResult = handleSelection(selectedTextValue)
-    if (!selectionResult.valid) {
+    if (!selectionResult?.valid) {
       resetTextSelectionState()
       return
     }
+    selectionIdentityRef.current = nextIdentity
+    setSelectedPage(pageNumber ?? null)
 
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) {
@@ -253,7 +266,7 @@ export default function DocumentPage(): ReactElement {
     const range = selection.getRangeAt(0)
     const context = range.cloneContents().textContent?.trim() ?? ''
     setContextText(context || selectedTextValue)
-  }, [handleSelection, resetTextSelectionState])
+  }, [handleSelection, resetAnnotationState, resetTextSelectionState])
 
   const handleReaderViewChange = useCallback((nextView: ReaderView): void => {
     if (readerView === nextView) {
@@ -263,7 +276,6 @@ export default function DocumentPage(): ReactElement {
     setReaderView(nextView)
     resetTextSelectionState()
     resetAnnotationState()
-    setBridgeScanId(null)
   }, [readerView, resetAnnotationState, resetTextSelectionState])
 
   if (isLoading) {
@@ -324,6 +336,8 @@ export default function DocumentPage(): ReactElement {
           pageNumber={currentPage}
           totalPages={document.pageCount}
           isLoading={documentPage.isLoading}
+          isError={documentPage.isError}
+          onRetry={() => void documentPage.refetch()}
           onPageChange={handlePageChange}
           onTextSelect={handleTextSelect}
         />

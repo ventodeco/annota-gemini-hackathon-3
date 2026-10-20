@@ -4,12 +4,20 @@ import { useMutation } from '@tanstack/react-query'
 import { Camera, FileText, Image as ImageIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/useAuth'
-import { createScan, trackEvent, uploadDocument } from '@/lib/api'
+import { ApiError, createScan, trackEvent, uploadDocument } from '@/lib/api'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { AvatarMenu } from '@/components/layout/AvatarMenu'
 import { ScanAllowanceNotice } from '@/components/usage/AllowancePanel'
 import { useInvalidateEntitlements } from '@/hooks/useEntitlements'
 import { getUsageErrorMessage } from '@/lib/usage'
+
+// The server's own message when it sent one; ApiError.message is the raw body.
+function getUploadErrorMessage(error: Error, fallback: string): string {
+  const usageMessage = getUsageErrorMessage(error)
+  if (usageMessage) return usageMessage
+  if (error instanceof ApiError) return error.serverMessage || fallback
+  return fallback
+}
 
 export default function WelcomePage() {
   const navigate = useNavigate()
@@ -26,7 +34,7 @@ export default function WelcomePage() {
       navigate(`/loading/${data.scanId}`)
     },
     onError: (error: Error) => {
-      setUploadError(getUsageErrorMessage(error) ?? (error.message || 'Failed to upload image'))
+      setUploadError(getUploadErrorMessage(error, 'Failed to upload image. Please try again.'))
     },
     onSettled: invalidateEntitlements,
   })
@@ -38,7 +46,7 @@ export default function WelcomePage() {
       navigate(`/documents/${data.documentId}`)
     },
     onError: (error: Error) => {
-      setUploadError(error.message || 'Failed to upload PDF')
+      setUploadError(getUploadErrorMessage(error, 'Failed to upload PDF. Please try again.'))
     },
   })
 
@@ -54,6 +62,8 @@ export default function WelcomePage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    // Reset so choosing the same file again after an error still fires.
+    e.target.value = ''
     if (!file) return
 
     if (!file.type.startsWith('image/')) {
@@ -71,6 +81,7 @@ export default function WelcomePage() {
 
   const handlePDFFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    e.target.value = ''
     if (!file) return
 
     if (file.type !== 'application/pdf') {
@@ -102,7 +113,7 @@ export default function WelcomePage() {
         </p>
 
         {uploadError && (
-          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">
+          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg" role="alert">
             {uploadError}
           </div>
         )}
@@ -128,6 +139,7 @@ export default function WelcomePage() {
           </Button>
           <Button
             onClick={handleUploadPDF}
+            aria-describedby="pdf-support-note"
             variant="secondary"
             disabled={isAnyPending}
             className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
@@ -135,6 +147,9 @@ export default function WelcomePage() {
             <FileText className="w-5 h-5" />
             {pdfUploadMutation.isPending ? 'Uploading...' : 'Upload PDF'}
           </Button>
+          <p id="pdf-support-note" className="max-w-[260px] text-center text-xs text-gray-500">
+            PDFs need selectable text. For scanned PDFs, take a photo of each page instead.
+          </p>
           <ScanAllowanceNotice />
         </div>
       </div>

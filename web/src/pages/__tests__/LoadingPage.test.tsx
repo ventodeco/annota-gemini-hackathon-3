@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import React, { StrictMode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Scan } from '@/lib/types'
@@ -99,16 +100,44 @@ describe('LoadingPage', () => {
     expect(getScanMock.mock.calls.length).toBeGreaterThan(1)
   })
 
-  it('shows error state when polling fails', async () => {
+  it('offers a retry when checking the scan fails', async () => {
+    const processingScan: Scan = {
+      id: 5,
+      imageUrl: '/uploads/5.jpg',
+      sourceType: 'image',
+      status: 'processing',
+      createdAt: '2026-02-08T20:30:41+07:00',
+    }
     getScanMock.mockRejectedValueOnce(new Error('boom'))
+    getScanMock.mockResolvedValue(processingScan)
 
     renderPage()
 
-    expect(await screen.findByRole('heading', { name: 'Scan Result' })).toBeInTheDocument()
-    expect(await screen.findByText('Failed to load scan')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't check this scan")
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Scanning in Progress..')).toBeInTheDocument()
+    expect(getScanMock).toHaveBeenCalledTimes(2)
   })
 
-  it('navigates to scan page when timeout is reached', async () => {
+  it('shows a readable failure instead of the raw reason code', async () => {
+    getScanMock.mockResolvedValue({
+      id: 5,
+      imageUrl: '/uploads/5.jpg',
+      sourceType: 'image',
+      status: 'failed',
+      failureReason: 'ocr_timeout',
+      createdAt: '2026-02-08T20:30:41+07:00',
+    })
+
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Reading this page took too long')
+    expect(screen.queryByText(/ocr_timeout/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Upload another page' }))
+    expect(navigateMock).toHaveBeenCalledWith('/welcome')
+  })
+
+  it('keeps polling a slow scan instead of leaving after 30 seconds', async () => {
     vi.useFakeTimers()
 
     const processingScan: Scan = {
@@ -124,14 +153,12 @@ describe('LoadingPage', () => {
     renderPage()
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(30000)
-      await vi.runOnlyPendingTimersAsync()
+      await vi.advanceTimersByTimeAsync(45000)
     })
 
-    expect(navigateMock).toHaveBeenCalledWith('/scans/5', {
-      replace: true,
-      state: undefined,
-    })
+    expect(navigateMock).not.toHaveBeenCalled()
+    expect(getScanMock.mock.calls.length).toBeGreaterThan(10)
+    expect(screen.getByRole('status')).toHaveTextContent('Scanning in Progress..')
   })
 
   it('navigates once under StrictMode when OCR is already ready', async () => {
@@ -161,7 +188,7 @@ describe('LoadingPage', () => {
     expect(navigateMock).toHaveBeenCalledTimes(1)
   })
 
-  it('does not navigate again when the timeout elapses after OCR became ready', async () => {
+  it('navigates once when OCR becomes ready while polling', async () => {
     vi.useFakeTimers()
 
     const processingScan: Scan = {

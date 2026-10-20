@@ -342,7 +342,7 @@ describe('ContinuousPDFViewer', () => {
 
       fireEvent.mouseUp(textLayer)
 
-      expect(mockOnTextSelect).toHaveBeenCalledWith('お母さん、ちょっと来て！')
+      expect(mockOnTextSelect).toHaveBeenCalledWith('お母さん、ちょっと来て！', 1)
       selection.removeAllRanges()
     })
 
@@ -382,7 +382,7 @@ describe('ContinuousPDFViewer', () => {
 
       fireEvent.touchEnd(textLayer)
 
-      expect(mockOnTextSelect).toHaveBeenCalledWith('お母さん、ちょっと来て！')
+      expect(mockOnTextSelect).toHaveBeenCalledWith('お母さん、ちょっと来て！', 1)
       selection.removeAllRanges()
     })
 
@@ -472,7 +472,7 @@ describe('ContinuousPDFViewer', () => {
       fireEvent(document, new Event('selectionchange'))
 
       expect(mockOnTextSelect).toHaveBeenCalledTimes(1)
-      expect(mockOnTextSelect).toHaveBeenCalledWith('二ページ目の文章')
+      expect(mockOnTextSelect).toHaveBeenCalledWith('二ページ目の文章', 2)
     })
 
     it('keeps the PDF text layer selectable on touch devices', () => {

@@ -21,6 +21,11 @@ import (
 	"github.com/gemini-hackathon/app/internal/storage"
 )
 
+const (
+	unreadablePDFMessage   = "This file couldn't be read as a PDF. Try another file."
+	pageTextFailureMessage = "Couldn't read the text on this page. Please try again."
+)
+
 // DocumentHandlers handles HTTP requests for document (PDF) operations.
 type DocumentHandlers struct {
 	db           storage.DB
@@ -131,11 +136,11 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 		}
 
 		pageCount, err = h.pdfExtractor.PageCount(filePath)
-		if err != nil {
+		if err != nil || pageCount < 1 {
 			// Parser errors can quote bytes of the uploaded file; log none of it.
 			log.WithField("document_id", docID).Warn("Uploaded PDF could not be parsed")
 			h.discardFailedUpload(ctx, log, doc)
-			return &lockedStepFailure{http.StatusInternalServerError, "Failed to read PDF page count"}
+			return &lockedStepFailure{http.StatusUnprocessableEntity, unreadablePDFMessage}
 		}
 
 		if err := h.db.UpdateDocumentFileInfo(ctx, docID, filePath, pageCount); err != nil {
@@ -328,9 +333,17 @@ func (h *DocumentHandlers) createScanFromPageHandler(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Idempotency: check if scan already exists for this document+page
+	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
+
+	// Fast path for a page that already has its scan; creation below is
+	// idempotent too, so this only skips re-extracting the text.
 	existing, err := h.db.GetScanByDocumentPage(r.Context(), doc.ID, pageNumber)
-	if err == nil && existing != nil {
+	if err != nil {
+		log.ErrorWithErr(err, "Failed to look up page scan")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to prepare this page. Please try again.")
+		return
+	}
+	if existing != nil {
 		httputil.WriteJSON(w, http.StatusOK, CreateScanFromPageResponse{ScanID: existing.ID})
 		return
 	}
@@ -338,7 +351,8 @@ func (h *DocumentHandlers) createScanFromPageHandler(w http.ResponseWriter, r *h
 	// Extract text from page
 	text, err := h.pdfExtractor.ExtractText(doc.FileURL, pageNumber)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to extract text from page")
+		log.WithField("document_id", doc.ID).Warn("Failed to extract page text")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, pageTextFailureMessage)
 		return
 	}
 
@@ -353,13 +367,22 @@ func (h *DocumentHandlers) createScanFromPageHandler(w http.ResponseWriter, r *h
 		CreatedAt:   time.Now(),
 	}
 
-	scanID, err := h.db.CreateScanFromDocument(r.Context(), scan)
+	scanID, created, err := h.db.GetOrCreateDocumentPageScan(r.Context(), scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		httputil.WriteJSONError(w, http.StatusNotFound, "Document not found")
+		return
+	}
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create scan")
+		log.ErrorWithErr(err, "Failed to create page scan")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to prepare this page. Please try again.")
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusCreated, CreateScanFromPageResponse{ScanID: scanID})
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	httputil.WriteJSON(w, status, CreateScanFromPageResponse{ScanID: scanID})
 }
 
 func (h *DocumentHandlers) updateDocumentProgressHandler(w http.ResponseWriter, r *http.Request, doc *models.Document) {
@@ -438,7 +461,7 @@ func (h *DocumentHandlers) getPageTextHandler(w http.ResponseWriter, doc *models
 
 	text, err := h.pdfExtractor.ExtractText(doc.FileURL, pageNumber)
 	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to extract page text")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, pageTextFailureMessage)
 		return
 	}
 

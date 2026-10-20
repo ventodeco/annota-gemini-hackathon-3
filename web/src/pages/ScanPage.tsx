@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
@@ -11,10 +11,15 @@ import { useTextSelection } from '@/hooks/useTextSelection'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { formatDate } from '@/lib/api'
 import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
+import ScanFailureState from '@/components/scanpage/ScanFailureState'
+import { getScanFailureCopy, NO_TEXT_SCAN_COPY } from '@/lib/scanStatus'
 import ScanImage from '@/components/scanpage/ScanImage'
 import type { Scan } from '@/lib/types'
 import { SelectionSpeechButton } from '@/components/scanpage/SelectionSpeechButton'
 import { useAnnotationDrawerFlow, DEFAULT_MAX_ANNOTATION_VERSIONS } from '@/hooks/useAnnotationDrawerFlow'
+
+// A direct link can open a scan that is still processing; poll until it settles.
+const SCAN_POLL_INTERVAL_MS = 3000
 
 type SelectionRect = {
   top: number
@@ -60,6 +65,7 @@ function getPreloadedScan(state: unknown): Scan | undefined {
 
 export default function ScanPage(): ReactElement {
   const location = useLocation()
+  const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const scanId = id ? Number.parseInt(id, 10) : 0
   const scanHistoryPath = scanId > 0 ? `/history?scanId=${scanId}` : '/history'
@@ -69,7 +75,7 @@ export default function ScanPage(): ReactElement {
     isScanOcrReady(preloadedScan)
   const { data: fetchedScan, isLoading, error } = useScan(scanId, {
     enabled: !hasReadyPreloadedScan,
-    pollIntervalMs: 0,
+    pollIntervalMs: SCAN_POLL_INTERVAL_MS,
   })
   const scan = fetchedScan ?? (preloadedScan?.id === scanId ? preloadedScan : undefined)
   const analyzeText = useAnalyzeText()
@@ -189,33 +195,36 @@ export default function ScanPage(): ReactElement {
   }
 
   if (!scan.fullText) {
-    if (scan.status === 'failed') {
+    const header = (
+      <Header
+        title="Scan Result"
+        rightAction="bookmark"
+        rightActionTo={scanHistoryPath}
+      />
+    )
+
+    if (scan.status === 'processing') {
       return (
         <div className="min-h-screen bg-white flex flex-col">
-          <Header
-            title="Scan Result"
-            rightAction="bookmark"
-            rightActionTo={scanHistoryPath}
-          />
+          {header}
           <div className="flex-1 flex items-center justify-center p-6">
-            <p className="text-center text-red-600">
-              {scan.failureReason ? `Scan failed: ${scan.failureReason}` : 'Scan failed. Please try again.'}
-            </p>
+            <LoadingSpinner message="Reading the text on your page..." />
           </div>
         </div>
       )
     }
 
+    // A failed scan, or a finished scan whose page had no readable text.
+    const copy = scan.status === 'failed' ? getScanFailureCopy(scan.failureReason) : NO_TEXT_SCAN_COPY
     return (
       <div className="min-h-screen bg-white flex flex-col">
-        <Header
-          title="Scan Result"
-          rightAction="bookmark"
-          rightActionTo={scanHistoryPath}
+        {header}
+        <ScanFailureState
+          title={copy.title}
+          description={copy.description}
+          actionLabel="Upload another page"
+          onAction={() => navigate('/welcome')}
         />
-        <div className="flex-1 flex items-center justify-center p-6">
-          <LoadingSpinner />
-        </div>
       </div>
     )
   }

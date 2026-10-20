@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
 import HistoryPage from '../HistoryPage'
 
 const useAnnotationsMock = vi.fn()
@@ -103,5 +104,31 @@ describe('HistoryPage', () => {
     expect(screen.getByText(title)).toBeInTheDocument()
     fireEvent.click(screen.getByText('勉強'))
     expect(screen.getByText(detailPath)).toBeInTheDocument()
+  })
+
+  it('opens a saved annotation with the keyboard, separately from delete', async () => {
+    useAnnotationsMock.mockReturnValue({
+      data: { data: [savedAnnotation], meta: { currentPage: 1, pageSize: 20 } },
+      isLoading: false,
+      error: null,
+    })
+    const user = userEvent.setup()
+
+    render(
+      <MemoryRouter initialEntries={['/history']}>
+        <Routes>
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/annotations/:id" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: /^勉強/ })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Delete annotation: 勉強' })).toHaveFocus()
+    await user.tab({ shift: true })
+    await user.keyboard('{Enter}')
+    expect(screen.getByText('/annotations/7')).toBeInTheDocument()
   })
 })

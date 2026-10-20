@@ -329,8 +329,8 @@ func TestMalformedPDFUploadLeavesNoRecordOrFile(t *testing.T) {
 	rec := httptest.NewRecorder()
 	f.documentHandlers().DocumentsAPI(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 body=%s", rec.Code, rec.Body.String())
 	}
 	if got, _ := f.db.GetDocumentByID(context.Background(), 1); got != nil {
 		t.Fatalf("malformed upload left document record: %+v", got)
@@ -484,8 +484,8 @@ func TestMalformedPDFParseErrorIsNotLogged(t *testing.T) {
 	f.documentHandlers().DocumentsAPI(rec, req)
 
 	logged := readLogs()
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", rec.Code)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
 	}
 	if !strings.Contains(logged, "Uploaded PDF could not be parsed") {
 		t.Fatalf("expected a fixed parse-failure log line, got %s", logged)

@@ -107,7 +107,7 @@ export default function ProfilePage() {
           <div>
             <h2 className="text-sm font-medium">Preferred language</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Used for OCR and annotation responses.
+              Saved for future use. Explanations are currently in English.
             </p>
           </div>
 

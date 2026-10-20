@@ -39,7 +39,29 @@ describe('ExtractedTextReader', () => {
     renderReader({ pageText: '   ' })
 
     expect(screen.getByText(/No selectable text was found on this page/i)).toBeInTheDocument()
-    expect(screen.getByText(/Try PDF View or upload a text-based PDF/i)).toBeInTheDocument()
+    expect(screen.getByText(/Scanned \(image-only\) PDFs aren't supported yet/i)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows a retryable error, not the empty state, when the page text fails to load', async () => {
+    const onRetry = vi.fn()
+    render(
+      <ExtractedTextReader
+        pageText=""
+        pageNumber={2}
+        totalPages={4}
+        isLoading={false}
+        isError
+        onRetry={onRetry}
+        onTextSelect={mockOnTextSelect}
+        onPageChange={mockOnPageChange}
+      />
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load the text for this page.")
+    expect(screen.queryByText(/No selectable text/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
   })
 
   it('reports selected text from the reader content on mouse up', () => {
@@ -58,7 +80,7 @@ describe('ExtractedTextReader', () => {
 
     fireEvent.mouseUp(readerText)
 
-    expect(mockOnTextSelect).toHaveBeenCalledWith('一行目\n二行目')
+    expect(mockOnTextSelect).toHaveBeenCalledWith('一行目\n二行目', 2)
   })
 
   it('reports selected text from the reader content on document selection change', () => {
@@ -77,7 +99,7 @@ describe('ExtractedTextReader', () => {
 
     fireEvent(document, new Event('selectionchange'))
 
-    expect(mockOnTextSelect).toHaveBeenCalledWith('選択できる文章')
+    expect(mockOnTextSelect).toHaveBeenCalledWith('選択できる文章', 2)
   })
 
   it('disables previous and next controls at page boundaries', () => {

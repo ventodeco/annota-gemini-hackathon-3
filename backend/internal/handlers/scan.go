@@ -46,6 +46,23 @@ const ocrSettleMargin = time.Minute
 // no OCR and an immediate release instead.
 const ocrDispatchWindow = OCRReservationStaleAfter - ocrProcessingTimeout - ocrSettleMargin
 
+// ocrStatusWriteTimeout bounds the final status write, which must still run
+// after the OCR deadline has expired.
+const ocrStatusWriteTimeout = 10 * time.Second
+
+// ocrInterruptedAfter is when a scan still processing can no longer have a
+// running job: the job's deadline plus time for its final write. Such a scan
+// was interrupted, for example by a restart, and is reported failed.
+const ocrInterruptedAfter = ocrProcessingTimeout + time.Minute
+
+// OCR failure reasons returned in failureReason.
+const (
+	ocrFailureFailed      = "ocr_failed"
+	ocrFailureTimeout     = "ocr_timeout"
+	ocrFailureInterrupted = "ocr_interrupted"
+	ocrFailureNoText      = "no_text_found"
+)
+
 // errOCRIncomplete settles an OCR reservation whose job ended without a result.
 var errOCRIncomplete = errors.New("ocr job ended without a result")
 
@@ -222,7 +239,9 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 		"image_url": imageURL,
 	}).Infof("Scan created successfully, starting OCR processing")
 
-	ocrCtx, cancelOCR := context.WithTimeout(context.WithoutCancel(usageCtx), ocrProcessingTimeout)
+	// The deadline is absolute from the scan's created_at, so a slow upload
+	// can't push OCR work past the point where the scan reads as interrupted.
+	ocrCtx, cancelOCR := context.WithDeadline(context.WithoutCancel(usageCtx), now.Add(ocrProcessingTimeout))
 	go func() {
 		defer cancelOCR()
 		h.processOCR(ocrCtx, reservation, scanID, imageData, mimeType, storagePath)
@@ -268,6 +287,7 @@ func (h *ScanHandlers) GetScansAPI(w http.ResponseWriter, r *http.Request) {
 
 	data := make([]ScanListItem, len(scans))
 	for i, scan := range scans {
+		scan = h.recoverInterruptedScan(r.Context(), scan, log)
 		data[i] = ScanListItem{
 			ID:               scan.ID,
 			ImageURL:         scan.ImageURL,
@@ -436,6 +456,8 @@ func (h *ScanHandlers) getScanHandler(w http.ResponseWriter, r *http.Request, lo
 		return
 	}
 
+	scan = h.recoverInterruptedScan(r.Context(), scan, log)
+
 	fullText := ""
 	if scan.FullOCRText != nil {
 		fullText = *scan.FullOCRText
@@ -506,14 +528,39 @@ func (h *ScanHandlers) processOCR(ctx context.Context, reservation *usage.Reserv
 	outcome := errOCRIncomplete
 	defer func() { h.meter.Finish(ctx, reservation, outcome) }()
 
+	// Each final write gets its own short deadline, started when the write
+	// starts: after a provider timeout ctx has already expired, and the scan
+	// would otherwise stay processing forever.
+	writeContext := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.WithoutCancel(ctx), ocrStatusWriteTimeout)
+	}
+	markFailed := func(reason string) {
+		writeCtx, cancel := writeContext()
+		defer cancel()
+		if err := h.db.UpdateScanStatus(writeCtx, scanID, "failed", &reason); err != nil {
+			log.ErrorWithErr(err, "Failed to persist OCR failure")
+		}
+	}
+
+	// The upload can use up the whole deadline; then no provider call is
+	// made, so the page is released for both the user and the global budget.
+	// Release settles first, which makes the deferred Finish a no-op.
+	if ctx.Err() != nil {
+		log.Warn("OCR deadline passed before processing started")
+		h.meter.Release(ctx, reservation)
+		markFailed(ocrFailureTimeout)
+		return
+	}
+
 	log.Infof("Starting OCR processing: image_size=%d bytes, mime_type=%s", len(imageData), mimeType)
 	ocrResp, err := h.aiClient.OCR(ctx, imageData, mimeType)
 	if err != nil {
 		outcome = err
 		log.ErrorWithErr(err, "OCR processing failed")
-		reason := "ocr_failed"
-		if err := h.db.UpdateScanStatus(ctx, scanID, "failed", &reason); err != nil {
-			log.ErrorWithErr(err, "Failed to persist OCR failure")
+		if errors.Is(err, context.DeadlineExceeded) {
+			markFailed(ocrFailureTimeout)
+		} else {
+			markFailed(ocrFailureFailed)
 		}
 		return
 	}
@@ -523,9 +570,19 @@ func (h *ScanHandlers) processOCR(ctx context.Context, reservation *usage.Reserv
 
 	_ = imageURL
 
-	if err := h.db.UpdateScanOCR(ctx, scanID, ocrResp.RawText, ocrResp.Language, provenanceFor(h.aiClient, "ocr", usage.Calls(ctx))); err != nil {
+	if strings.TrimSpace(ocrResp.RawText) == "" {
+		// The provider did the work, so the page stays charged.
+		outcome = nil
+		markFailed(ocrFailureNoText)
+		return
+	}
+
+	writeCtx, cancelWrite := writeContext()
+	defer cancelWrite()
+	if err := h.db.UpdateScanOCR(writeCtx, scanID, ocrResp.RawText, ocrResp.Language, provenanceFor(h.aiClient, "ocr", usage.Calls(ctx))); err != nil {
 		outcome = err
 		log.ErrorWithErr(err, "Failed to update scan OCR in database")
+		markFailed(ocrFailureFailed)
 		return
 	}
 	outcome = nil
@@ -629,6 +686,39 @@ func statusOrDefault(scan *models.Scan) string {
 		return "ready"
 	}
 	return "processing"
+}
+
+// recoverInterruptedScan reports an image scan whose OCR job can no longer be
+// running as failed, persisting the change. The transition is conditional, so
+// an OCR result that landed concurrently wins and is returned instead.
+func (h *ScanHandlers) recoverInterruptedScan(ctx context.Context, scan *models.Scan, log *logger.Logger) *models.Scan {
+	if statusOrDefault(scan) != "processing" || scan.DocumentID != nil {
+		return scan
+	}
+	cutoff := time.Now().Add(-ocrInterruptedAfter)
+	if !scan.CreatedAt.Before(cutoff) {
+		return scan
+	}
+
+	changed, err := h.db.FailStaleProcessingScan(ctx, scan.ID, cutoff, ocrFailureInterrupted)
+	if err != nil {
+		log.WithField("scan_id", scan.ID).ErrorWithErr(err, "Failed to mark interrupted OCR scan")
+		return scan
+	}
+	if changed {
+		recovered := *scan
+		reason := ocrFailureInterrupted
+		recovered.Status = "failed"
+		recovered.FailureReason = &reason
+		log.WithField("scan_id", scan.ID).Warn("Marked interrupted OCR scan as failed")
+		return &recovered
+	}
+
+	latest, err := h.db.GetScanByID(ctx, scan.ID)
+	if err != nil || latest == nil {
+		return scan
+	}
+	return latest
 }
 
 func (h *ScanHandlers) ScansAPI(w http.ResponseWriter, r *http.Request) {
