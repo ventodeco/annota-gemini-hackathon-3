@@ -136,3 +136,18 @@ Paid AI work (image OCR, explanations and speech) is admitted against persisted 
 ## Out of scope
 
 Billing or paid plans, model selection (#35), a service layer (#14), auth changes, privacy/no-store/file cleanup (#41), a server-side audio cache, an automatic stale-reservation sweeper, and live provider cost reconciliation (pending keys).
+
+## Delivery evidence (branch `backlog/issue-42`, rebased on dev 3aa1675)
+
+- **Backend:**
+  - `go vet ./...` is clean.
+  - `go test -count=1 ./...` with the local `POSTGRES_TEST_DSN`: 470 passed in 15 packages.
+  - `go test -v ./internal/storage -run 'Postgres$'`: 18 PASS, 0 SKIP, 0 FAIL. This includes `TestUsageReserveConcurrency_Postgres` (25 concurrent, limit 7: exactly 7 admitted), `TestUsageReserveGlobalBudgetConcurrency_Postgres`, `TestUsageReserveLimits_Postgres`, `TestUsageSettle_Postgres` and `TestUsagePersistenceAndAccountDeletion_Postgres` (restart persistence, cascade, and a late settle after deletion that is a no-op).
+  - `go test -race ./internal/usage ./internal/handlers` is clean.
+- **Web:** `bun run test` (all pass), `bun run lint` (clean) and `bun run build` (ok).
+- **Screenshots** in `docs/screenshots/issue-42/`: allowance, exhausted, empty, error and recovery, each at desktop 1280×800 and mobile 390×844. They were captured with Playwright Chromium from a temporary, uncommitted Vite harness that renders the real `AllowanceView`, `ScanAllowanceLine` and `getUsageErrorMessage` with fixture data. This is not live Clerk sign-in.
+- **Request-scoped call metadata** is shared with #35 provenance through `usage.Calls(ctx)`. There is no second observer.
+- **Pending:**
+  - Owner confirmation of the default numbers.
+  - Live provider cost reconciliation, which needs keys.
+  - LegalPage privacy wording for usage counts. It is coordinated with #41/PR #67 and goes in whichever PR merges second.
