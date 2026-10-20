@@ -149,6 +149,16 @@ export default function DocumentPage(): ReactElement {
     lastSavedProgressRef.current = document?.lastPageNumber ?? null
   }, [document?.id, document?.lastPageNumber])
 
+  // Opening a document is reading it: save the stored page once per document so
+  // the server records last_opened_at without moving the reading position.
+  const recordedOpenRef = useRef<number | null>(null)
+  const recordOpen = updateProgress.mutate
+  useEffect(() => {
+    if (!document || recordedOpenRef.current === document.id) return
+    recordedOpenRef.current = document.id
+    recordOpen(document.lastPageNumber || 1)
+  }, [document, recordOpen])
+
   useEffect(() => {
     return () => {
       if (progressSaveTimerRef.current !== null) {

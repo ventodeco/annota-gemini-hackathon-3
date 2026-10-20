@@ -269,6 +269,22 @@ describe('DocumentPage', () => {
     expect(screen.queryByLabelText('Annotation drawer')).not.toBeInTheDocument()
   })
 
+  it('records the open with the stored page so last opened updates without moving progress', async () => {
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 2,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    renderPage()
+
+    await screen.findByTestId('continuous-pdf-viewer')
+    await waitFor(() => expect(updateDocumentProgressMock).toHaveBeenCalledWith(1, 2))
+    expect(updateDocumentProgressMock).toHaveBeenCalledTimes(1)
+  })
+
   it('cancels a pending progress save when scroll returns to the saved page', async () => {
     getDocumentMock.mockResolvedValueOnce({
       id: 1,
@@ -281,6 +297,8 @@ describe('DocumentPage', () => {
     renderPage()
 
     await screen.findByTestId('continuous-pdf-viewer')
+    await waitFor(() => expect(updateDocumentProgressMock).toHaveBeenCalledWith(1, 1))
+    updateDocumentProgressMock.mockClear()
     vi.useFakeTimers()
     try {
       fireEvent.click(screen.getByRole('button', { name: /scroll to page 2/i }))

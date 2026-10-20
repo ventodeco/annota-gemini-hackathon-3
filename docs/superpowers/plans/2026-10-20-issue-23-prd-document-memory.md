@@ -91,3 +91,23 @@ Files are deliberately limited to these three. Not touched: `HistoryPage`, `Docu
   - The link measures 44px high and resolves to `/history?documentId=9`.
   - The first layout put the link inline, which truncated filenames to about 10 characters at 375px. The link now sits on its own line under the metadata.
 - **Backend:** this workstation has no Go toolchain or Docker. That is a local tooling gap, not an app defect. `TestAnalyzeLoadsServerScanContext` runs in the CI Go job.
+
+## Follow-up: record `last_opened_at` on open (after #40, base `e77cb9f`)
+
+**Gap.** Only `PATCH /v1/documents/{id}/progress` writes `last_opened_at`. `DocumentPage.scheduleProgressSave` skips a page equal to the saved one, so opening a document and reading the page you left off on never updates "Last opened" in the library.
+
+**Scope (frontend only; no API or schema change):**
+- **`DocumentPage`:** once per loaded document id, send one progress save with the *stored* `lastPageNumber`.
+  - The server then sets `last_opened_at`, and the reading position stays unchanged.
+  - A deep link such as `?page=N` does not move saved progress; page changes still go through the existing debounced `scheduleProgressSave`.
+  - A ref guards against repeats, so React StrictMode and refetches of the same document send only one record.
+- **`DocumentPage.test.tsx`:**
+  - One test asserts that load sends exactly one save with the stored page.
+  - The existing "cancels a pending progress save" test clears that open record before scrolling, so it still asserts that no scroll-triggered save happens.
+
+**Edge cases:**
+- Navigating from one document to another in the same mounted reader records each one.
+- A failed open record is non-blocking: the mutation error is ignored, and reading continues.
+- A page change made quickly after opening sends its own later save, which carries the newer page.
+
+**Verification:** `bun run test -- DocumentPage DocumentsPage`, then lint and build. CI is the full gate. No screenshots: nothing in the UI changes, and the library already renders `lastOpenedAt` (#74).
