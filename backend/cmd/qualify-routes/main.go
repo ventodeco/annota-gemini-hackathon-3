@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -37,6 +38,9 @@ var (
 	allTasks = []string{"ocr", "annotation", "speech"}
 	// Model output is never copied into the report, including its language field.
 	japaneseLanguageCodes = []string{"ja", "jpn", "ja-jp", "japanese"}
+	// Provider IDs reach the report only as opaque ASCII tokens. Anything else,
+	// including URLs, paths and non-ASCII text, is treated as possible content.
+	providerIDToken = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
 
 type qualificationReport struct {
@@ -261,7 +265,7 @@ func qualify(ctx context.Context, client ai.Client, task string, in inputs, resu
 			"structured_json_valid": resp.StructuredJSON == "" || json.Valid([]byte(resp.StructuredJSON)),
 			"language_is_japanese":  slices.Contains(japaneseLanguageCodes, strings.ToLower(strings.TrimSpace(resp.Language))),
 		}
-		return []string{resp.RawText, resp.StructuredJSON}, nil
+		return []string{resp.RawText, resp.StructuredJSON, resp.Language}, nil
 	case "annotation":
 		resp, err := client.Annotate(ctx, in.context, in.selection)
 		if err != nil {
@@ -351,9 +355,9 @@ func (o *observations) take(task string) []ai.CallMetadata {
 }
 
 // redactEchoes replaces provider IDs that may carry sample or output text: any
-// Japanese script (real IDs are not expected to contain it), a content
-// fragment, or a complete short text. Reported models are already validated
-// against the configuration.
+// ID that is not an opaque ASCII token, or one containing a content fragment
+// or a complete short text. Reported models are already validated against the
+// configuration.
 func redactEchoes(attempts []ai.CallMetadata, texts []string) bool {
 	fragments := contentFragments(texts)
 	for _, text := range texts {
@@ -367,7 +371,7 @@ func redactEchoes(attempts []ai.CallMetadata, texts []string) bool {
 		if id == "" {
 			continue
 		}
-		if containsJapanese(id) || slices.ContainsFunc(fragments, func(fragment string) bool { return strings.Contains(id, fragment) }) {
+		if !providerIDToken.MatchString(id) || slices.ContainsFunc(fragments, func(fragment string) bool { return strings.Contains(id, fragment) }) {
 			attempts[i].RequestID = redactedID
 			echoed = true
 		}
@@ -376,7 +380,7 @@ func redactEchoes(attempts []ai.CallMetadata, texts []string) bool {
 }
 
 // contentFragments returns every 3-rune window of Japanese script and every
-// ASCII word of at least 8 letters, long enough to avoid matching random IDs.
+// ASCII word of at least 5 letters, long enough to rarely match random IDs.
 func contentFragments(texts []string) []string {
 	seen := map[string]bool{}
 	var fragments []string
@@ -403,7 +407,7 @@ func contentFragments(texts []string) []string {
 		}
 		flush()
 		for _, word := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return r > unicode.MaxASCII || !unicode.IsLetter(r) }) {
-			if len(word) >= 8 {
+			if len(word) >= 5 {
 				add(word)
 			}
 		}

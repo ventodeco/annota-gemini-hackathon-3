@@ -295,6 +295,26 @@ func TestLiveFlagsCompleteShortASCIIOutput(t *testing.T) {
 	}
 }
 
+func TestLiveRedactsUnsafeProviderIDs(t *testing.T) {
+	tests := []struct{ name, raw, language, id string }{
+		{"URL-shaped ID", ocrText, "ja", "https://private.example/doc/42"},
+		{"path-shaped ID", ocrText, "ja", "gen/doc/42"},
+		{"short OCR language", ocrText, "Secret", "gen-secret-1"},
+		{"short word inside output", "Top merit plan", "ja", "gen-merit-7"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.ocrRaw, f.ocrLanguage, f.ocrID = tt.raw, tt.language, tt.id
+			code, stdout, _ := f.run(t, f.liveArgs("-tasks", "ocr")...)
+			ocr := taskResult(t, decodeReport(t, stdout), "ocr")
+			if code != 1 || !ocr.MetadataEchoesContent || ocr.Attempts[0].RequestID != redactedID || strings.Contains(stdout, tt.id) {
+				t.Fatalf("unsafe ID not redacted: exit %d %+v", code, ocr)
+			}
+		})
+	}
+}
+
 func TestInvalidFlagValuesAreNotEchoed(t *testing.T) {
 	f := newFixture(t)
 	for _, args := range [][]string{{"-live=秘密の本文"}, {"-tasks", "ocr,秘密の本文"}, {"-秘密の本文"}} {
