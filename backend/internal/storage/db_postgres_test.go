@@ -246,8 +246,10 @@ func TestDeleteDocument_Postgres(t *testing.T) {
 	owner := createPGUser(t, store, "del_owner")
 	other := createPGUser(t, store, "del_other")
 	doc := createPGDocument(t, store, owner.ID, "delete.pdf", pgBaseTime)
-	createPGPageScan(t, store, owner.ID, doc.ID, 1)
-	createPGPageScan(t, store, owner.ID, doc.ID, 2)
+	pageScanIDs := []int64{
+		createPGPageScan(t, store, owner.ID, doc.ID, 1).ID,
+		createPGPageScan(t, store, owner.ID, doc.ID, 2).ID,
+	}
 	imageScanID, err := store.CreateScan(ctx, &models.Scan{UserID: owner.ID, ImageURL: "/uploads/photo.jpg", CreatedAt: pgBaseTime})
 	if err != nil {
 		t.Fatalf("CreateScan failed: %v", err)
@@ -258,6 +260,14 @@ func TestDeleteDocument_Postgres(t *testing.T) {
 	}
 	if got, _ := store.GetDocumentByID(ctx, doc.ID); got == nil {
 		t.Fatal("non-owner delete removed the document")
+	}
+	if err := store.DeleteScansByDocument(ctx, doc.ID, other.ID); err != nil {
+		t.Fatalf("DeleteScansByDocument(non-owner) failed: %v", err)
+	}
+	for _, id := range pageScanIDs {
+		if got, err := store.GetScanByID(ctx, id); err != nil || got == nil {
+			t.Fatalf("non-owner DeleteScansByDocument removed scan %d: %v, %v", id, got, err)
+		}
 	}
 
 	// Same order as the delete-document handler.
@@ -271,9 +281,11 @@ func TestDeleteDocument_Postgres(t *testing.T) {
 	if got, err := store.GetDocumentByID(ctx, doc.ID); got != nil || err != nil {
 		t.Fatalf("GetDocumentByID after delete = %v, %v; want nil, nil", got, err)
 	}
-	for _, page := range []int{1, 2} {
-		if got, err := store.GetScanByDocumentPage(ctx, doc.ID, page); got != nil || err != nil {
-			t.Fatalf("page %d scan after delete = %v, %v; want nil, nil", page, got, err)
+	// Look scans up by ID: scans.document_id is ON DELETE SET NULL, so a
+	// page lookup would also miss scans that DeleteScansByDocument left behind.
+	for _, id := range pageScanIDs {
+		if got, err := store.GetScanByID(ctx, id); !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("page scan %d after delete = %v, %v; want sql.ErrNoRows", id, got, err)
 		}
 	}
 	if got, err := store.GetScanByID(ctx, imageScanID); err != nil || got == nil {
