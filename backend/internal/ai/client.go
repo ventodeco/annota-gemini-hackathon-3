@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -274,22 +276,21 @@ func (c *geminiClient) AnnotateWithKnowledge(ctx context.Context, ocrText string
 	return annotation, nil
 }
 
-func (c *geminiClient) SynthesizeSpeech(ctx context.Context, highlightedText string, contextText string) (*SpeechResponse, error) {
+// Gemini 3.8 TTS reads request text verbatim, so only the selection is sent;
+// delivery guidance travels in speech metadata and context is never spoken.
+const (
+	geminiSpeechModel = "gemini-3.8-flash-tts"
+	geminiSpeechVoice = "Kore"
+	geminiSpeechStyle = "Clear, natural, realistic Japanese delivery at a calm pace for language learners."
+)
+
+func (c *geminiClient) SynthesizeSpeech(ctx context.Context, highlightedText string, _ string) (*SpeechResponse, error) {
 	if err := c.ensureReady(); err != nil {
 		return nil, err
 	}
 
-	cfg := &genai.GenerateContentConfig{
-		ResponseModalities: []string{"AUDIO"},
-		SpeechConfig: &genai.SpeechConfig{
-			VoiceConfig: &genai.VoiceConfig{
-				PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{VoiceName: "Kore"},
-			},
-			LanguageCode: "ja-JP",
-		},
-	}
-
-	result, err := c.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash-preview-tts", genai.Text(buildSpeechPrompt(highlightedText, contextText)), cfg)
+	contents, cfg := geminiSpeechRequest(highlightedText)
+	result, err := c.genaiClient.Models.GenerateContent(ctx, geminiSpeechModel, contents, cfg)
 	if err != nil {
 		return nil, wrapGeminiError("failed to synthesize speech", err)
 	}
@@ -302,17 +303,51 @@ func (c *geminiClient) SynthesizeSpeech(ctx context.Context, highlightedText str
 			if part == nil || part.InlineData == nil || len(part.InlineData.Data) == 0 {
 				continue
 			}
-			mimeType := strings.ToLower(strings.TrimSpace(part.InlineData.MIMEType))
-			audio := part.InlineData.Data
-			if mimeType == "" || strings.Contains(mimeType, "pcm") {
-				audio = wrapPCMAsWAV(audio, 24000, 1, 16)
-				mimeType = "audio/wav"
-			}
+			audio, mimeType := geminiSpeechAudio(part.InlineData.Data, part.InlineData.MIMEType)
 			return &SpeechResponse{Audio: audio, MIMEType: mimeType}, nil
 		}
 	}
 
 	return nil, fmt.Errorf("no audio data in Gemini response")
+}
+
+func geminiSpeechRequest(highlightedText string) ([]*genai.Content, *genai.GenerateContentConfig) {
+	contents := []*genai.Content{{
+		Role: genai.RoleUser,
+		Parts: []*genai.Part{{
+			Text:           highlightedText,
+			SpeechMetadata: &genai.SpeechMetadata{Style: geminiSpeechStyle},
+		}},
+	}}
+	cfg := &genai.GenerateContentConfig{
+		ResponseModalities: []string{"AUDIO"},
+		SpeechConfig: &genai.SpeechConfig{
+			VoiceConfig: &genai.VoiceConfig{
+				PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{VoiceName: geminiSpeechVoice},
+			},
+			LanguageCode: "ja-JP",
+		},
+	}
+	return contents, cfg
+}
+
+// geminiSpeechAudio returns playable audio. Gemini 3.8 TTS returns WAV by
+// default; older or explicitly requested formats return headerless L16 PCM.
+func geminiSpeechAudio(data []byte, mimeType string) ([]byte, string) {
+	if len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WAVE" {
+		return data, "audio/wav"
+	}
+	normalized := strings.ToLower(strings.TrimSpace(mimeType))
+	if normalized != "" && !strings.HasPrefix(normalized, "audio/l16") && !strings.Contains(normalized, "pcm") {
+		return data, normalized
+	}
+	sampleRate := 24000
+	if _, params, err := mime.ParseMediaType(normalized); err == nil {
+		if rate, err := strconv.Atoi(params["rate"]); err == nil && rate > 0 {
+			sampleRate = rate
+		}
+	}
+	return wrapPCMAsWAV(data, sampleRate, 1, 16), "audio/wav"
 }
 
 func (c *geminiClient) generateWithRetry(ctx context.Context, model string, contents []*genai.Content, cfg *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
@@ -756,29 +791,6 @@ func buildEnhancedPrompt(ocrText string, selectedText string, entries []knowledg
 	sb.WriteString("Return only valid JSON, no markdown formatting.")
 
 	return sb.String()
-}
-
-func buildSpeechPrompt(highlightedText string, contextText string) string {
-	context := strings.TrimSpace(contextText)
-	if len(context) > 400 {
-		context = context[:400]
-	}
-
-	return fmt.Sprintf(
-		`You are a Japanese text-to-speech assistant.
-Speak only the "Selected text" exactly as written.
-Use "Context" only to infer subtle, natural tone and pacing.
-Do not read context out loud.
-Avoid exaggerated acting; keep delivery clear and realistic.
-
-Selected text:
-%s
-
-Context:
-%s`,
-		highlightedText,
-		context,
-	)
 }
 
 func wrapPCMAsWAV(pcm []byte, sampleRate, channels, bitsPerSample int) []byte {

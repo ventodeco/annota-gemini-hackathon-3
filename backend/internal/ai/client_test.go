@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -198,5 +199,73 @@ func TestClassifyMiniMaxStatusMapsTPMRateLimit(t *testing.T) {
 func TestClassifyMiniMaxStatusMapsUnsupportedModelToConfig(t *testing.T) {
 	if got := classifyMiniMaxStatus(0, "your current token plan not support model, speech-2.8-turbo"); got != ErrorKindConfig {
 		t.Fatalf("classifyMiniMaxStatus() = %s, want %s", got, ErrorKindConfig)
+	}
+}
+
+func TestGeminiSpeechRequestSendsOnlySelectionWithStyleMetadata(t *testing.T) {
+	contents, cfg := geminiSpeechRequest("今日は雨です")
+
+	if len(contents) != 1 || len(contents[0].Parts) != 1 {
+		t.Fatalf("contents = %+v, want one content with one part", contents)
+	}
+	part := contents[0].Parts[0]
+	if part.Text != "今日は雨です" {
+		t.Fatalf("part text = %q, want only the selected text", part.Text)
+	}
+	if part.SpeechMetadata == nil || part.SpeechMetadata.Style == "" {
+		t.Fatal("delivery style must be sent as speech metadata, not spoken text")
+	}
+	if geminiSpeechModel != "gemini-3.8-flash-tts" {
+		t.Fatalf("geminiSpeechModel = %q, want gemini-3.8-flash-tts", geminiSpeechModel)
+	}
+	if cfg.SpeechConfig == nil || cfg.SpeechConfig.LanguageCode != "ja-JP" {
+		t.Fatalf("speech config = %+v, want ja-JP", cfg.SpeechConfig)
+	}
+	if voice := cfg.SpeechConfig.VoiceConfig.PrebuiltVoiceConfig.VoiceName; voice != "Kore" {
+		t.Fatalf("voice = %q, want Kore", voice)
+	}
+	if len(cfg.ResponseModalities) != 1 || cfg.ResponseModalities[0] != "AUDIO" {
+		t.Fatalf("ResponseModalities = %v, want [AUDIO]", cfg.ResponseModalities)
+	}
+}
+
+func TestGeminiSpeechAudio(t *testing.T) {
+	pcm := []byte{1, 2, 3, 4}
+	wav := wrapPCMAsWAV(pcm, 24000, 1, 16)
+
+	tests := []struct {
+		name     string
+		data     []byte
+		mimeType string
+		wantMIME string
+		wantRate uint32
+		wantSame bool
+	}{
+		{name: "wav default passes through", data: wav, mimeType: "audio/wav", wantMIME: "audio/wav", wantSame: true},
+		{name: "riff detected without mime", data: wav, mimeType: "", wantMIME: "audio/wav", wantSame: true},
+		{name: "legacy pcm mime is wrapped", data: pcm, mimeType: "audio/L16;codec=pcm;rate=24000", wantMIME: "audio/wav", wantRate: 24000},
+		{name: "bare l16 is wrapped at its rate", data: pcm, mimeType: "audio/l16; rate=16000", wantMIME: "audio/wav", wantRate: 16000},
+		{name: "empty mime is wrapped", data: pcm, mimeType: "", wantMIME: "audio/wav", wantRate: 24000},
+		{name: "other formats pass through", data: pcm, mimeType: "audio/mulaw", wantMIME: "audio/mulaw", wantSame: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			audio, mimeType := geminiSpeechAudio(tt.data, tt.mimeType)
+			if mimeType != tt.wantMIME {
+				t.Fatalf("mime = %q, want %q", mimeType, tt.wantMIME)
+			}
+			if tt.wantSame {
+				if string(audio) != string(tt.data) {
+					t.Fatal("audio should pass through unchanged")
+				}
+				return
+			}
+			if len(audio) != 44+len(tt.data) || string(audio[0:4]) != "RIFF" {
+				t.Fatalf("audio was not wrapped as WAV: %v", audio)
+			}
+			if rate := binary.LittleEndian.Uint32(audio[24:28]); rate != tt.wantRate {
+				t.Fatalf("sample rate = %d, want %d", rate, tt.wantRate)
+			}
+		})
 	}
 }

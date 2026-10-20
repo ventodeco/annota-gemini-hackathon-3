@@ -5,7 +5,7 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 ## Features
 
 - **Image Upload**: Upload JPEG, PNG, or WebP images of book pages
-- **OCR Processing**: Extract Japanese text using OpenRouter `baidu/qianfan-ocr-fast:free`
+- **OCR Processing**: Extract Japanese text through a configurable OCR model (see the [model matrix](docs/evidence/issue-35/model-matrix-2026-10-20.md))
 - **Text Annotation**: Select text to get contextual explanations including:
   - Meaning
   - Usage examples in professional/work context
@@ -103,11 +103,12 @@ See `backend/.env.example` for backend configuration options:
 - `AI_PROVIDER`: `minimax` (legacy default), `gemini`, or `routed`.
 - `AI_ROUTING_CONFIG`: required JSON routing-file path in routed mode; see [gateway routing](docs/ai-routing.md).
 - `OPENROUTER_API_KEY` (required in legacy `minimax` mode): API key for OCR through OpenRouter
-- `OPENROUTER_OCR_MODEL`: OCR model (default: `baidu/qianfan-ocr-fast:free`)
+- `OPENROUTER_OCR_MODEL`: OCR model (default: `baidu/qianfan-ocr-fast:free`, which has no active OpenRouter provider as of 2026-10-20; set a qualified model)
 - `MINIMAX_API_KEY` (required in legacy `minimax` mode): API key for MiniMax annotation and speech
-- `MINIMAX_TEXT_MODEL`: MiniMax Anthropic-compatible text model (default: `MiniMax-M2.7`)
+- `MINIMAX_TEXT_MODEL`: MiniMax Anthropic-compatible text model (default: `MiniMax-M2.7`; MiniMax currently documents only `MiniMax-M3.1-Flash`/`MiniMax-M3` on that API)
 - `MINIMAX_TTS_MODEL`: MiniMax speech model (default: `speech-2.8-hd`)
-- `MINIMAX_TTS_VOICE_ID`: MiniMax voice ID (default: `Japanese_Whisper_Belle`)
+- `MINIMAX_TTS_VOICE_ID`: MiniMax voice ID (default: `Japanese_Whisper_Belle`, not in the published system voice list; verify before use)
+- Model availability and qualification status: [model matrix](docs/evidence/issue-35/model-matrix-2026-10-20.md)
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY`: required only in legacy `gemini` mode. Routed mode requires only the environment keys referenced by active profiles.
 - `DB_CONNECTION_STRING` or `POSTGRES_*` values (required): PostgreSQL connection settings
 - `CLERK_SECRET_KEY` (required, backend only): Clerk secret key (`sk_test_`/`sk_live_`)
