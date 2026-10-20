@@ -216,6 +216,39 @@ CREATE TABLE IF NOT EXISTS deleted_clerk_users (
 - **Deletion:** a tombstone in `deleted_clerk_users`. Retry is idempotent through `DELETE /v1/users/me`. #41 owns the end-to-end deletion and service-worker cache scoping.
 - **Redis:** unused by code after this change, but kept as a startup dependency for #43 `/readyz`.
 
-## Verification log
+## Verification log (2026-10-20, rebased on `dev` 58deb43)
 
-(Filled in during execution.)
+Toolchain: Go 1.27.3 (official darwin-arm64 archive, SHA-256 verified), Bun 1.4.x, and a disposable Homebrew
+PostgreSQL 17 cluster in `/tmp` (`POSTGRES_TEST_DSN=postgres://postgres@127.0.0.1:55439/annota_test`).
+
+- Backend:
+  - `go vet ./...`, `go build ./cmd/server` and `go test -count=1 ./...` pass, with `POSTGRES_TEST_DSN` set.
+  - `go test -count=1 -race -v ./internal/storage -run 'Postgres$'` passes with no skips, covering
+    `TestClerkProvisioning_Postgres` (concurrent first requests → one row, legacy link keeps id and content,
+    email-only legacy collision → `ErrLegacyLinkRequired`, tombstone blocks re-provisioning, unique
+    `clerk_user_id`) and all #43 runner tests on the new atomic advisory-locked runner.
+  - Migration 005 applies on fresh and upgraded schemas and is idempotent on re-run.
+  - The real-PostgreSQL run caught and fixed one bug: inconsistent parameter types when `$2` was reused for the
+    `VARCHAR` and `TEXT` columns.
+- Deletion invariant: `TestDeleteAccountTombstonesAndRetriesClerkDeletion` deletes data, then a forced Clerk
+  failure returns 502. The tombstone persists and `Resolve` reports deleted (no recreation). A retry with only
+  the Clerk subject returns 204, and the tombstone remains. The middleware test proves a deleted subject reaches
+  only `DELETE /v1/users/me`.
+- Frontend: `bun install --frozen-lockfile`, `bun run lint`, `bun run build` (main chunk 922.79 kB / 276.89 kB
+  gzip) and `bun run test` (42 files passed, 1 skipped; 174 tests passed, 2 skipped) all pass. The diff adds no
+  `as` type assertions.
+- Browser (production `vite preview` build without a Clerk key, deep link `/documents/5?page=2`):
+  - desktop 1280×800: `/Users/naufaldisatriya/.t3/userdata/browser-artifacts/browser-screenshot-localhost-mvg755c0-04088d1f.png`
+  - mobile 390×844: `/Users/naufaldisatriya/.t3/userdata/browser-artifacts/browser-screenshot-localhost-mvg757ql-709c411d.png`
+
+  Both show the accessible "Sign-in is not configured" alert with no console errors and no horizontal overflow.
+- **Pending owner credentials (not verified):**
+  - Clerk prebuilt sign-in UI screenshots;
+  - real Google and email sign-in on desktop and mobile;
+  - deep-link return through Clerk;
+  - live provisioning and legacy Google linking (including whether Clerk `provider_user_id` equals the legacy
+    Google `id`);
+  - Clerk-side user deletion;
+  - the Clerk plan, email limits and cost review;
+  - the owner's choice of email method.
+- Not run locally: Docker image builds and `scripts/ops/smoke-images.sh` (no Docker here). CI runs both.
