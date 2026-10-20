@@ -38,7 +38,7 @@ Judging transcription accuracy and annotation quality across a fixed Japanese da
 For that scoring, `-live -output-dir <new directory>` also writes the model output to a private local directory: `ocr.txt` (OCR text) and `annotation.json` (the annotation response). Audio still uses `-audio-out`. Note what each location holds:
 
 - **The report stays content-free.** It records only whether each file was written (`output_written`).
-- **The directory holds private source and model text.** It must be a new path inside an existing parent. The command creates it with mode 0700 and its files with mode 0600. It never reuses, merges into, or follows a symlink at an existing path.
+- **The directory holds private source and model text.** It must be a new path inside an existing parent. The command creates it with mode 0700 and its files with mode 0600. It never reuses, merges into, or follows a symlink at an existing path. Files are written through a handle to the directory created for the run, so replacing the path mid-run cannot redirect them.
 - **Where to put it:** outside the repository, for example under `/tmp`. Never commit it.
 
 An invalid or existing path exits with status 2 before any request. A failed write after a call marks that task failed with a fixed message, and the report is still printed. Delete the directory after scoring.

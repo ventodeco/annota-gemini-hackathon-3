@@ -33,6 +33,7 @@ type fixture struct {
 	ocrID, ocrLanguage      string
 	ocrRaw                  string
 	annotationStatus        int
+	beforeOCRResponse       func()
 	configPath, imagePath   string
 	contextPath, dir        string
 	env                     map[string]string
@@ -58,6 +59,9 @@ func newFixture(t *testing.T) *fixture {
 		}))
 	}
 	f.ocr = chat(&f.ocrCalls, f.env["QUALIFY_OCR_KEY"], func() (string, string, int) {
+		if f.beforeOCRResponse != nil {
+			f.beforeOCRResponse()
+		}
 		return `{"raw_text":"` + f.ocrRaw + `","language":"` + f.ocrLanguage + `"}`, f.ocrID, http.StatusOK
 	})
 	f.annotation = chat(&f.annotationCalls, f.env["QUALIFY_ANNOTATION_KEY"], func() (string, string, int) {
@@ -453,20 +457,54 @@ func TestLiveOutputDirStoresOutputOutsideReport(t *testing.T) {
 	assertPrivate(t, f, stdout, stderr)
 }
 
-func TestWriteOutputFailureIsFixedAndRecorded(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "ocr.txt"), []byte("keep"), 0o600); err != nil {
+func TestLiveOutputDirIgnoresPathReplacedDuringCall(t *testing.T) {
+	f := newFixture(t)
+	outputDir := filepath.Join(f.dir, "private-output")
+	movedDir := filepath.Join(f.dir, "moved-output")
+	victimDir := filepath.Join(f.dir, "victim")
+	if err := os.Mkdir(victimDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	f.beforeOCRResponse = func() {
+		if err := os.Rename(outputDir, movedDir); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(victimDir, outputDir); err != nil {
+			t.Error(err)
+		}
+	}
+	code, stdout, stderr := f.run(t, f.liveArgs("-tasks", "ocr", "-output-dir", outputDir)...)
+	if code != 0 {
+		t.Fatalf("exit %d: %s %s", code, stderr, stdout)
+	}
+	if entries, err := os.ReadDir(victimDir); err != nil || len(entries) != 0 {
+		t.Fatalf("output followed the replaced path into another directory: %v %v", entries, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(movedDir, "ocr.txt")); err != nil || string(data) != ocrText {
+		t.Fatalf("output must stay in the directory created for this run: %q %v", data, err)
+	}
+	assertPrivate(t, f, stdout, stderr)
+}
+
+func TestWriteOutputFailureIsFixedAndRecorded(t *testing.T) {
+	dirPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dirPath, "ocr.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.OpenRoot(dirPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
 	result := taskReport{Checks: map[string]any{}}
-	err := writeOutput(dir, "ocr.txt", []byte(ocrText), &result)
+	err = writeOutput(dir, "ocr.txt", []byte(ocrText), &result)
 	if err == nil || err.Error() != "cannot create -output-dir file" || result.Checks["output_written"] != false {
 		t.Fatalf("err = %v, checks = %+v", err, result.Checks)
 	}
-	if data, _ := os.ReadFile(filepath.Join(dir, "ocr.txt")); string(data) != "keep" {
+	if data, _ := os.ReadFile(filepath.Join(dirPath, "ocr.txt")); string(data) != "keep" {
 		t.Fatal("existing output overwritten")
 	}
-	if err := writeOutput("", "ocr.txt", []byte(ocrText), &result); err != nil {
+	if err := writeOutput(nil, "ocr.txt", []byte(ocrText), &result); err != nil {
 		t.Fatalf("no output dir must be a no-op: %v", err)
 	}
 }

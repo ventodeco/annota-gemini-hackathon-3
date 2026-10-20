@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -74,7 +73,7 @@ type inputs struct {
 	context   string
 	selection string
 	audioOut  string
-	outputDir string
+	outputDir *os.Root
 }
 
 func main() {
@@ -146,13 +145,14 @@ func run(ctx context.Context, args []string, lookupEnv func(string) string, stdo
 	if err != nil {
 		return usage("invalid routing configuration: %v", err)
 	}
-	// Created last so an invalid run leaves nothing behind. Mkdir fails on any
-	// existing path, including a symlink, so output never merges into old data.
+	// Created last so an invalid run leaves nothing behind.
 	if *outputDir != "" {
-		if err := os.Mkdir(*outputDir, 0o700); err != nil {
+		root, err := createOutputDir(*outputDir)
+		if err != nil {
 			return usage("-output-dir must name a new directory in an existing parent")
 		}
-		in.outputDir = *outputDir
+		defer root.Close()
+		in.outputDir = root
 	}
 	code := exitOK
 	for _, task := range tasks {
@@ -327,13 +327,38 @@ func qualify(ctx context.Context, client ai.Client, task string, in inputs, resu
 	}
 }
 
+const exclusiveCreate = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+
+// createOutputDir makes a new private directory and keeps a handle to it.
+// Mkdir fails on any existing path, including a symlink, and later writes go
+// through the handle, so replacing the path mid-run cannot redirect output.
+func createOutputDir(path string) (*os.Root, error) {
+	if err := os.Mkdir(path, 0o700); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := root.Stat(".")
+	created, lerr := os.Lstat(path)
+	if err != nil || lerr != nil || !created.IsDir() || !os.SameFile(opened, created) {
+		root.Close()
+		return nil, errors.New("output directory changed during creation")
+	}
+	return root, nil
+}
+
 // writeOutput stores model output in the private output directory, when set,
 // and records only whether it was written.
-func writeOutput(dir, name string, data []byte, result *taskReport) error {
-	if dir == "" {
+func writeOutput(dir *os.Root, name string, data []byte, result *taskReport) error {
+	if dir == nil {
 		return nil
 	}
-	err := writeNew(filepath.Join(dir, name), data, "-output-dir")
+	err := errors.New("cannot create -output-dir file")
+	if f, openErr := dir.OpenFile(name, exclusiveCreate, 0o600); openErr == nil {
+		err = writeAndClose(f, data, "-output-dir")
+	}
 	result.Checks["output_written"] = err == nil
 	return err
 }
@@ -341,10 +366,14 @@ func writeOutput(dir, name string, data []byte, result *taskReport) error {
 // writeNew creates path exclusively (O_EXCL does not follow a final symlink)
 // and reports failures by flag name only, never by path.
 func writeNew(path string, data []byte, flagName string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(path, exclusiveCreate, 0o600)
 	if err != nil {
 		return fmt.Errorf("cannot create %s file", flagName)
 	}
+	return writeAndClose(f, data, flagName)
+}
+
+func writeAndClose(f *os.File, data []byte, flagName string) error {
 	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return fmt.Errorf("cannot write %s file", flagName)
