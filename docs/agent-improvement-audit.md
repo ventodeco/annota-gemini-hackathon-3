@@ -130,4 +130,3 @@ These came up during reconciliation. They're recorded here rather than expanded 
 
 - 12 production TypeScript non-null (`!`) assertions remain, for example in `HistoryPage.tsx`, `DocumentsPage.tsx`, `OCRHistoryPage.tsx`, `useDocument.ts` and `main.tsx`. The audit and the AGENTS rule target `as` casts.
 - In `HistoryPage.tsx`, the clickable annotation summary is a `div` with `onClick`, so it can't be reached by keyboard. Fixing it changes the markup and needs its own visual check.
-
