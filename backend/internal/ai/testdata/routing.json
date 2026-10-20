@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "profiles": {
+    "active": {
+      "kind": "openrouter",
+      "region": "global",
+      "base_url": "https://openrouter.test/api/v1",
+      "api_key_env": "TEST_ACTIVE_GATEWAY_KEY",
+      "timeout_seconds": 60,
+      "max_attempts": 1,
+      "models": {
+        "test-vision": {
+          "image_input": true,
+          "text_input": true,
+          "text_output": true,
+          "json_mode": "json_schema",
+          "ocr_output": "json",
+          "max_output_tokens": 2048
+        },
+        "test-speech": {
+          "text_input": true,
+          "audio_output": true,
+          "japanese_voices": [
+            "test-ja"
+          ],
+          "audio_formats": [
+            "mp3"
+          ]
+        }
+      }
+    },
+    "unused": {
+      "kind": "openrouter",
+      "region": "global",
+      "base_url": "https://openrouter.test/api/v1",
+      "api_key_env": "UNUSED_KEY",
+      "timeout_seconds": 60,
+      "max_attempts": 1,
+      "models": {
+        "test-vision": {
+          "image_input": true,
+          "text_input": true,
+          "text_output": true,
+          "json_mode": "json_schema",
+          "ocr_output": "json",
+          "max_output_tokens": 2048
+        },
+        "test-speech": {
+          "text_input": true,
+          "audio_output": true,
+          "japanese_voices": [
+            "test-ja"
+          ],
+          "audio_formats": [
+            "mp3"
+          ]
+        }
+      }
+    }
+  },
+  "tasks": {
+    "ocr": {
+      "profile": "active",
+      "model": "test-vision"
+    },
+    "annotation": {
+      "profile": "active",
+      "model": "test-vision"
+    },
+    "speech": {
+      "profile": "active",
+      "model": "test-speech",
+      "voice": "test-ja",
+      "format": "mp3"
+    }
+  }
+}

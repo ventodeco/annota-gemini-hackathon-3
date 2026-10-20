@@ -45,10 +45,11 @@ cd backend && go fmt ./...
 Use `backend/.env.example` and `internal/config/config.go` as the source of truth.
 
 Required:
-- `AI_PROVIDER` - AI provider mode: `minimax` (default) or `gemini`
+- `AI_PROVIDER` - AI provider mode: `minimax` (legacy default), `gemini`, or `routed`
 - `OPENROUTER_API_KEY` - OpenRouter API key for OCR when `AI_PROVIDER=minimax`
 - `MINIMAX_API_KEY` - MiniMax API key for annotation and speech when `AI_PROVIDER=minimax`
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` - Gemini API key when `AI_PROVIDER=gemini`
+- `AI_ROUTING_CONFIG` - Required only in routed mode: JSON path, absolute or relative to backend cwd. See `../docs/ai-routing.md` for schema, active-key validation, timeout/retry rules, and qualification gates. Routed mode ignores legacy AI keys unless an active profile explicitly references them.
 - `DB_CONNECTION_STRING` or the `POSTGRES_*` variables - PostgreSQL connection settings
 - `GOOGLE_OAUTH_CLIENT_ID` - Google OAuth client ID
 - `GOOGLE_OAUTH_CLIENT_SECRET` - Google OAuth client secret
@@ -148,6 +149,10 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 - Production migrations target PostgreSQL. Do not assume SQLite compatibility for `migrations/*.sql`.
 
 ### AI Provider Integration
+
+- Keep `ai.Client` and legacy `NewClient` compatible. Use `ai.NewRoutedClient` for validated ModelVerse/OpenRouter task profiles. `internal/ai/routing.go` owns routing schema/validation; the AI package must not import application config.
+- Routed profiles are immutable after construction. Only active profiles need secrets; never serialize resolved keys. Do not log raw upstream bodies, document text, images, or full config.
+- Keep chat and speech protocols explicit, disable silent substitution, and observe each bounded attempt with usage fields left unknown when absent. See `../docs/ai-routing.md`.
 
 - Use `ai.Client` interface for testability
 - Pass `context.Context` for timeout/cancellation control

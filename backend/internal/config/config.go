@@ -6,14 +6,19 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/gemini-hackathon/app/internal/ai"
 )
 
 const (
 	AIProviderGemini  = "gemini"
 	AIProviderMiniMax = "minimax"
+	AIProviderRouted  = ai.ProviderRouted
 )
 
 type Config struct {
+	AIRoutingConfigPath     string
+	AIRouting               *ai.RoutingConfig
 	AIProvider              string
 	GeminiAPIKey            string
 	OpenRouterAPIKey        string
@@ -75,6 +80,7 @@ func Load() (*Config, error) {
 	frontendBaseURL := getEnvOrDefault("FRONTEND_BASE_URL", appBaseURL)
 
 	cfg := &Config{
+		AIRoutingConfigPath:      os.Getenv("AI_ROUTING_CONFIG"),
 		AIProvider:               strings.ToLower(getEnvOrDefault("AI_PROVIDER", AIProviderMiniMax)),
 		GeminiAPIKey:             getGeminiAPIKey(),
 		OpenRouterAPIKey:         os.Getenv("OPENROUTER_API_KEY"),
@@ -107,6 +113,14 @@ func Load() (*Config, error) {
 		AIRateLimitWindowSeconds: getEnvAsIntOrDefault("AI_RATE_LIMIT_WINDOW_SECONDS", 3600),
 	}
 
+	if cfg.normalizedAIProvider() == AIProviderRouted {
+		routing, err := ai.LoadRoutingConfig(cfg.AIRoutingConfigPath, os.Getenv)
+		if err != nil {
+			return nil, err
+		}
+		cfg.AIRouting = &routing
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -115,7 +129,18 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) Validate() error {
+	if c.normalizedAIProvider() != AIProviderRouted && (c.AIRoutingConfigPath != "" || c.AIRouting != nil) {
+		return fmt.Errorf("AI_ROUTING_CONFIG requires AI_PROVIDER=routed")
+	}
+
 	switch c.normalizedAIProvider() {
+	case AIProviderRouted:
+		if c.AIRoutingConfigPath == "" || c.AIRouting == nil {
+			return fmt.Errorf("AI_PROVIDER=routed requires AI_ROUTING_CONFIG")
+		}
+		if err := ai.ValidateRoutingConfig(*c.AIRouting); err != nil {
+			return err
+		}
 	case AIProviderGemini:
 		if c.GeminiAPIKey == "" {
 			return fmt.Errorf("GEMINI_API_KEY or GOOGLE_API_KEY is required")
@@ -149,7 +174,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("MINIMAX_TTS_VOICE_ID cannot be empty")
 		}
 	default:
-		return fmt.Errorf("AI_PROVIDER must be one of: %s, %s", AIProviderMiniMax, AIProviderGemini)
+		return fmt.Errorf("AI_PROVIDER must be one of: %s, %s, %s", AIProviderMiniMax, AIProviderGemini, AIProviderRouted)
 	}
 	if c.DBConnectionString == "" {
 		return fmt.Errorf("DB_CONNECTION_STRING or PostgreSQL connection details are required")

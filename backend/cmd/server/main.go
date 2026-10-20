@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/handlers"
 	"github.com/gemini-hackathon/app/internal/knowledge"
+	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/pdf"
 	"github.com/gemini-hackathon/app/internal/storage"
@@ -24,6 +27,11 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	aiClient, err := buildAIClient(cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize AI routes: %v", err)
 	}
 
 	db, err := sql.Open("postgres", cfg.DBConnectionString)
@@ -51,20 +59,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to Redis at %s: %v. OAuth state storage is required for login to work.", cfg.RedisAddr, err)
 	}
-
-	aiClient := ai.NewClient(ai.ClientConfig{
-		AIProvider:              cfg.AIProvider,
-		GeminiAPIKey:            cfg.GeminiAPIKey,
-		OpenRouterAPIKey:        cfg.OpenRouterAPIKey,
-		OpenRouterBaseURL:       cfg.OpenRouterBaseURL,
-		OpenRouterOCRModel:      cfg.OpenRouterOCRModel,
-		MiniMaxAPIKey:           cfg.MiniMaxAPIKey,
-		MiniMaxAnthropicBaseURL: cfg.MiniMaxAnthropicBaseURL,
-		MiniMaxTextModel:        cfg.MiniMaxTextModel,
-		MiniMaxTTSBaseURL:       cfg.MiniMaxTTSBaseURL,
-		MiniMaxTTSModel:         cfg.MiniMaxTTSModel,
-		MiniMaxTTSVoiceID:       cfg.MiniMaxTTSVoiceID,
-	})
 
 	// Load knowledge service for vocabulary lookup
 	var knowledgeSvc knowledge.Service
@@ -151,4 +145,32 @@ func main() {
 	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func buildAIClient(cfg *config.Config) (ai.Client, error) {
+	mode := strings.ToLower(strings.TrimSpace(cfg.AIProvider))
+	if mode == ai.ProviderRouted {
+		if cfg.AIRouting == nil {
+			return nil, fmt.Errorf("routed AI configuration is missing")
+		}
+		return ai.NewRoutedClient(*cfg.AIRouting, ai.RoutedClientOptions{Observe: func(ctx context.Context, meta ai.CallMetadata) {
+			logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(ctx)).WithField("ai", meta).Info("AI gateway attempt")
+		}})
+	}
+	if mode != "" && mode != ai.ProviderGemini && mode != ai.ProviderMiniMax {
+		return nil, fmt.Errorf("unsupported AI_PROVIDER")
+	}
+	return ai.NewClient(ai.ClientConfig{
+		AIProvider:              cfg.AIProvider,
+		GeminiAPIKey:            cfg.GeminiAPIKey,
+		OpenRouterAPIKey:        cfg.OpenRouterAPIKey,
+		OpenRouterBaseURL:       cfg.OpenRouterBaseURL,
+		OpenRouterOCRModel:      cfg.OpenRouterOCRModel,
+		MiniMaxAPIKey:           cfg.MiniMaxAPIKey,
+		MiniMaxAnthropicBaseURL: cfg.MiniMaxAnthropicBaseURL,
+		MiniMaxTextModel:        cfg.MiniMaxTextModel,
+		MiniMaxTTSBaseURL:       cfg.MiniMaxTTSBaseURL,
+		MiniMaxTTSModel:         cfg.MiniMaxTTSModel,
+		MiniMaxTTSVoiceID:       cfg.MiniMaxTTSVoiceID,
+	}), nil
 }

@@ -3,8 +3,10 @@ package handlers_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -155,4 +157,88 @@ func TestSpeakAPI(t *testing.T) {
 			t.Fatalf("expected status 429, got %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
+}
+
+func TestRoutedAIHandlerContracts(t *testing.T) {
+	for _, status := range []int{200, 401, 402, 429} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			audio, err := os.ReadFile("../ai/testdata/silence.mp3")
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if status != 200 {
+					w.WriteHeader(status)
+					_, _ = w.Write([]byte("private-page fixture-key"))
+					return
+				}
+				if r.URL.Path == "/v1/audio/speech" {
+					w.Header().Set("Content-Type", "audio/mpeg")
+					_, _ = w.Write(audio)
+					return
+				}
+				annotation := `{"translation":"Japanese","contextual_explanation":"The Japanese language","usage_example":"日本語を話す。","when_to_use":"Speaking about language","word_breakdown":"日本: Japan; 語: language","alternative_meanings":"None","pronunciation":{"kana":"にほんご"}}`
+				_ = json.NewEncoder(w).Encode(map[string]any{"model": "test-vision", "choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": annotation}}}})
+			}))
+			defer server.Close()
+			cfg, err := ai.LoadRoutingConfig("../ai/testdata/routing.json", func(string) string { return "fixture-key" })
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile := cfg.Profiles["active"]
+			profile.BaseURL = server.URL + "/v1"
+			cfg.Profiles["active"] = profile
+			client, err := ai.NewRoutedClient(cfg, ai.RoutedClientOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			db := testutil.NewMockDB()
+			user := &models.User{Email: "test@example.test", Provider: "test", ProviderID: "test"}
+			if err := db.CreateUser(context.Background(), user); err != nil {
+				t.Fatal(err)
+			}
+			h := handlers.NewAIHandlers(db, client, knowledge.NewEmptyService())
+			for _, speech := range []bool{false, true} {
+				body := `{"textToAnalyze":"日本語","context":"private-page"}`
+				if speech {
+					body = `{"highlightedText":"日本語","contextText":"private-page"}`
+				}
+				req := httptest.NewRequest(http.MethodPost, "/v1/ai/analyze", strings.NewReader(body))
+				req = req.WithContext(middleware.WithUserID(req.Context(), user.ID))
+				rec := httptest.NewRecorder()
+				if speech {
+					h.SpeakAPI(rec, req)
+				} else {
+					h.AnalyzeAPI(rec, req)
+				}
+				want := 200
+				if status == 401 {
+					want = 502
+				}
+				if status == 402 || status == 429 {
+					want = 429
+				}
+				if rec.Code != want {
+					t.Fatalf("status=%d want=%d body=%s", rec.Code, want, rec.Body.String())
+				}
+				if status != 200 {
+					if strings.Contains(rec.Body.String(), "private-page") || strings.Contains(rec.Body.String(), "fixture-key") {
+						t.Fatal("private upstream error exposed")
+					}
+				} else if speech {
+					if rec.Header().Get("Content-Type") != "audio/mpeg" || !bytes.Equal(rec.Body.Bytes(), audio) {
+						t.Fatal("speech API contract changed")
+					}
+				} else {
+					var got handlers.AnalyzeResponse
+					if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+						t.Fatal(err)
+					}
+					if got.Translation != "Japanese" || got.Meaning != "The Japanese language" || got.Pronunciation.Kana != "にほんご" {
+						t.Fatal("annotation API contract changed")
+					}
+				}
+			}
+		})
+	}
 }

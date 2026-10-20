@@ -93,7 +93,10 @@ type ProviderError struct {
 	Kind       ErrorKind
 	StatusCode int
 	Message    string
+	Cause      error `json:"-"` // Internal cause; Error deliberately excludes upstream bodies and URLs.
 }
+
+func (e *ProviderError) Unwrap() error { return e.Cause }
 
 func (e *ProviderError) Error() string {
 	if e.StatusCode > 0 {
