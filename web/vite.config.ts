@@ -14,18 +14,21 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'pwa-icon.svg', 'robots.txt'],
       manifest: {
-        name: 'Gemini OCR+Annotation PWA',
-        short_name: 'ANOTA',
-        description: 'Mobile-first PWA for OCR and annotation of Japanese book pages',
+        name: 'ANNOTA',
+        short_name: 'ANNOTA',
+        description: 'ANNOTA (beta) helps Japanese learners read real text: open a text PDF or a page photo, select a word or sentence, and get an English explanation you can listen to and save.',
         theme_color: '#3b82f6',
         icons: [
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
           { src: '/pwa-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
           { src: '/pwa-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        navigateFallbackDenylist: [/^\/v1\//, /^\/healthz/],
+        // Static files opened directly (the sample PDF) must not get the SPA shell.
+        navigateFallbackDenylist: [/^\/v1\//, /^\/healthz/, /^\/samples\//],
         // No runtime caching: API responses are private to one account and a
         // URL-keyed cache would serve them to the next account or offline.
       },

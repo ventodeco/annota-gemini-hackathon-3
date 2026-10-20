@@ -7,7 +7,10 @@ export function AuthPageLayout({ children }: { children: ReactNode }) {
       <div className="flex flex-col items-center gap-6 max-w-md w-full">
         <img src="/logo-anota.png" alt="ANNOTA" className="h-16 w-auto" />
         <p className="text-center text-gray-700 text-base leading-relaxed">
-          You no longer need to worry about learning a new language!
+          Read Japanese PDFs and page photos, and get English explanations of the words you select.{' '}
+          <a href="/" className="inline-flex min-h-11 items-center font-medium underline underline-offset-2">
+            About ANNOTA
+          </a>
         </p>
         {children}
         <p className="text-center text-xs text-gray-500">

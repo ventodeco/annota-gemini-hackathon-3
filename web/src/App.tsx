@@ -8,6 +8,7 @@ import { ProtectedRoute, PublicRoute } from '@/components/auth/RouteGuards'
 import LoginPage from '@/pages/LoginPage'
 import SignUpPage from '@/pages/SignUpPage'
 import WelcomePage from '@/pages/WelcomePage'
+import IntroPage from '@/pages/IntroPage'
 import CameraPage from '@/pages/CameraPage'
 import LoadingPage from '@/pages/LoadingPage'
 import HistoryPage from '@/pages/HistoryPage'
@@ -195,7 +196,7 @@ function AppRoutes() {
         path="/"
         element={
           <PageErrorBoundary>
-            <Navigate to="/login" replace />
+            <IntroPage />
           </PageErrorBoundary>
         }
       />
