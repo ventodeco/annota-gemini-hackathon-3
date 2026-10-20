@@ -65,7 +65,8 @@ A unit test pins each prompt text to its version, so a prompt edit without a ver
 
 The provider-*reported* model for routed calls needs #42's `usage.Calls(ctx context.Context) []ai.CallMetadata` (owner #42, branch `backlog/issue-42`, not merged).
 - **This PR:** `reportedModel` stays omitted. That is correct: it is unknown, not the configured model.
-- **After #42 merges:** a one-line follow-up in `processOCR` and the analyze handlers sets `reportedModel` from the last attempt.
+- **After #42 merges:** a follow-up in `processOCR` and `AnalyzeAPI` sets `reportedModel` from the last successful, route-approved attempt in `usage.Calls(ctx)`. #42 merged as `d1200c6`.
+  - Saved annotations never store an echoed `reportedModel`, because the server cannot bind it to the saved output. They keep only the exact-matched configured producer (#71, review round 1). OCR and the analyze response carry the server-observed value.
 - **Legacy and Gemini clients** emit no metadata, so their `reportedModel` stays unknown.
 
 ## Out of scope

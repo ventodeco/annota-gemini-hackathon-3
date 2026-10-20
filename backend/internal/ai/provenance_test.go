@@ -69,3 +69,38 @@ func TestProducerReportsConfiguredRoutes(t *testing.T) {
 		t.Fatal("speech output is not persisted and has no producer record")
 	}
 }
+
+func TestReportedModelAllowed(t *testing.T) {
+	routing := routingFixture(t)
+	profile := routing.Profiles["active"]
+	model := profile.Models["test-vision"]
+	model.ReportedModelAliases = []string{"test-vision-20261020"}
+	profile.Models["test-vision"] = model
+	routing.Profiles["active"] = profile
+	routed, err := NewRoutedClient(routing, RoutedClientOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := NewClient(ClientConfig{OpenRouterOCRModel: "test-vision"})
+	tests := []struct {
+		name     string
+		client   Client
+		task     string
+		reported string
+		want     bool
+	}{
+		{"selected model", routed, "annotation", "test-vision", true},
+		{"documented alias", routed, "ocr", "test-vision-20261020", true},
+		{"other model", routed, "annotation", "other-model", false},
+		{"empty", routed, "annotation", "", false},
+		{"speech task", routed, "speech", "test-speech", false},
+		{"legacy client never receives reported models", legacy, "ocr", "test-vision", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ReportedModelAllowed(tt.client, tt.task, tt.reported); got != tt.want {
+				t.Fatalf("ReportedModelAllowed = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

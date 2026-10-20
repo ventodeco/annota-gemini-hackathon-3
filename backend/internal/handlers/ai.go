@@ -137,7 +137,7 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 		Meaning:            resp.Meaning,
 		UsageTiming:        resp.WhenToUse,
 		AlternativeMeaning: resp.AlternativeMeanings,
-		Provenance:         provenanceFor(h.aiClient, "annotation"),
+		Provenance:         provenanceFor(h.aiClient, "annotation", usage.Calls(usageCtx)),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -191,7 +191,7 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 		Meaning:            resp.Meaning,
 		UsageTiming:        resp.WhenToUse,
 		AlternativeMeaning: resp.AlternativeMeanings,
-		Provenance:         provenanceFor(h.aiClient, "annotation"),
+		Provenance:         provenanceFor(h.aiClient, "annotation", nil),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
