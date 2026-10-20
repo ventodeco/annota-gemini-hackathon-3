@@ -1,5 +1,7 @@
 package ai
 
+import "slices"
+
 // Prompt versions identify the prompt text behind a saved output. Bump the
 // version whenever the corresponding prompt changes; TestPromptVersionsArePinned
 // fails until the version and its pinned hash are updated together.
@@ -78,4 +80,24 @@ func (c *routedClient) Producer(task string) (Producer, bool) {
 
 func (g *taskGateway) producer(promptVersion string) Producer {
 	return Producer{Provider: ProviderRouted, Gateway: g.profile.Kind, Region: g.profile.Region, Model: g.route.Model, PromptVersion: promptVersion}
+}
+
+// ReportedModelAllowed reports whether reported is a model ID the client's task
+// route accepts from the gateway: its selected model or a documented alias.
+// Only routed clients receive reported models, so others always return false.
+func ReportedModelAllowed(c Client, task, reported string) bool {
+	routed, ok := c.(*routedClient)
+	if !ok || reported == "" {
+		return false
+	}
+	var g *taskGateway
+	switch task {
+	case "ocr":
+		g = routed.ocr
+	case "annotation":
+		g = routed.annotation
+	default:
+		return false
+	}
+	return reported == g.route.Model || slices.Contains(g.model.ReportedModelAliases, reported)
 }

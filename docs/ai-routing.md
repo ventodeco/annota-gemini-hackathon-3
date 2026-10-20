@@ -123,7 +123,9 @@ Saved output records which configured producer generated it, so later quality di
 - **OCR results:** stored in the nullable `scans.ocr_provenance` JSONB column (migration 007). A newer OCR result replaces the earlier provenance. A client that does not report a producer stores NULL.
 - **Annotations:** the analyze response includes a `provenance` object. The client echoes it inside `nuance_data` when it saves the annotation. The server keeps it only if it exactly matches the server's own current annotation producer, so a client cannot store arbitrary values such as keys, request IDs or text. A malformed or mismatched value is dropped without rejecting the save. So is a producer change between analyze and save. In those cases the annotation's provenance is unknown.
 - **Historical rows:** existing rows are not backfilled and stay unknown.
-- **`reportedModel`** (the model the gateway reports back) is recorded only when the gateway reports it. Routed calls will populate it from #42's request-scoped call capture once that lands.
+- **`reportedModel`** is the model the gateway reported back. It is recorded only for routed calls, where the adapter has already checked it against the selected model and the route's `reported_model_aliases`. The value comes from the last attempt for that task in #42's request-scoped `usage.Calls(ctx)`, and only when that attempt succeeded.
+  - Legacy and Gemini clients, `AnalyzeWithLanguageAPI` (not metered), and attempts that report no model leave it unknown. The configured model is never substituted.
+  - When an annotation is saved, an echoed `reportedModel` is kept only if the route accepts it. Otherwise only that field is dropped, and the configured producer is kept.
 
 ## Migrate an existing install
 
