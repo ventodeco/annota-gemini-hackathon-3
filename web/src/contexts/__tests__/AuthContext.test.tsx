@@ -15,18 +15,36 @@ interface FakeClerkState {
   auth: { isLoaded: boolean; isSignedIn: boolean; userId: string | null }
   user: FakeClerkUser | null
   signOut: ReturnType<typeof vi.fn>
+  /** Stable live instance, like the real useClerk(): reads current state. */
+  instance: {
+    signOut: (options: unknown) => unknown
+    readonly user: { id: string } | null
+    readonly session: { id: string } | null
+  }
 }
 
-const clerk = vi.hoisted((): FakeClerkState => ({
-  auth: { isLoaded: true, isSignedIn: false, userId: null },
-  user: null,
-  signOut: vi.fn(),
-}))
+const clerk = vi.hoisted((): FakeClerkState => {
+  const state: FakeClerkState = {
+    auth: { isLoaded: true, isSignedIn: false, userId: null },
+    user: null,
+    signOut: vi.fn(),
+    instance: {
+      signOut: (options) => state.signOut(options),
+      get user() {
+        return state.auth.userId ? { id: state.auth.userId } : null
+      },
+      get session() {
+        return state.auth.userId ? { id: `sess_${state.auth.userId}` } : null
+      },
+    },
+  }
+  return state
+})
 
 vi.mock('@clerk/react', () => ({
   useAuth: () => clerk.auth,
   useUser: () => ({ isLoaded: true, user: clerk.user }),
-  useClerk: () => ({ signOut: clerk.signOut, user: clerk.auth.userId ? { id: clerk.auth.userId } : null }),
+  useClerk: () => clerk.instance,
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -36,9 +54,19 @@ vi.mock('@/lib/api', () => ({
 
 const cachesDelete = vi.fn()
 
-/** Unsigned stand-in for a Clerk session JWT carrying only `sub`. */
+/** Unsigned stand-in for a Clerk session JWT carrying `sub` and `sid`. */
 function sessionToken(sub: string): string {
-  return `header.${btoa(JSON.stringify({ sub }))}.signature`
+  return `header.${btoa(JSON.stringify({ sub, sid: `sess_${sub}` }))}.signature`
+}
+
+function rerenderProvider(view: ReturnType<typeof render>, queryClient: QueryClient) {
+  view.rerender(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    </QueryClientProvider>,
+  )
 }
 
 function setClerkSession(userId: string | null, email = 'learner@example.com') {
@@ -132,7 +160,9 @@ describe('AuthProvider', () => {
 
     act(() => notifyUnauthorized({ message: 'Unauthorized: invalid token', token: sessionToken('user_a') }))
 
-    await waitFor(() => expect(clerk.signOut).toHaveBeenCalledWith({ redirectUrl: '/login' }))
+    await waitFor(() =>
+      expect(clerk.signOut).toHaveBeenCalledWith({ redirectUrl: '/login', sessionId: 'sess_user_a' }),
+    )
     expect(deleteAccount).not.toHaveBeenCalled()
   })
 
@@ -176,5 +206,36 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(clerk.signOut).toHaveBeenCalled())
     expect(deleteAccount).toHaveBeenCalledTimes(1)
     expect(deleteAccount).toHaveBeenCalledWith({ token })
+    expect(clerk.signOut).toHaveBeenCalledWith({ redirectUrl: '/login', sessionId: 'sess_user_a' })
+  })
+
+  it('does not sign out the next account when a deleted account finishes cleanup late', async () => {
+    let finishCleanup: () => void = () => undefined
+    vi.mocked(deleteAccount).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishCleanup = resolve
+      }),
+    )
+    const queryClient = new QueryClient()
+    setClerkSession('user_a', 'a@example.com')
+    const view = renderProvider(queryClient)
+    await screen.findByText('a@example.com JP')
+
+    act(() => notifyUnauthorized({ message: 'Unauthorized: account deleted', token: sessionToken('user_a') }))
+    expect(deleteAccount).toHaveBeenCalledWith({ token: sessionToken('user_a') })
+
+    // Account B signs in while A's cleanup request is still pending.
+    setClerkSession('user_b', 'b@example.com')
+    rerenderProvider(view, queryClient)
+    await screen.findByText('b@example.com JP')
+    queryClient.setQueryData(['documents'], ['B document'])
+
+    await act(async () => {
+      finishCleanup()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    expect(clerk.signOut).not.toHaveBeenCalled()
+    expect(queryClient.getQueryData(['documents'])).toEqual(['B document'])
   })
 })

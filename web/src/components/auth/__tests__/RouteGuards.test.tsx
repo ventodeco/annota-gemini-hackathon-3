@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { ProtectedRoute, PublicRoute } from '../RouteGuards'
 import type { AuthContextType } from '@/contexts/AuthContext'
 import { ApiError } from '@/lib/api'
-import { safeRedirectPath, tokenSubject } from '@/lib/authSession'
+import { safeRedirectPath, tokenSession } from '@/lib/authSession'
 
 const authState = vi.hoisted((): { value: AuthContextType } => ({
   value: {
@@ -132,17 +132,17 @@ describe('route guards', () => {
   })
 })
 
-describe('tokenSubject', () => {
-  it('reads the Clerk user id from a base64url payload', () => {
-    const payload = btoa(JSON.stringify({ sub: 'user_123', azp: 'http://localhost:5173' }))
+describe('tokenSession', () => {
+  it('reads the Clerk user and session ids from a base64url payload', () => {
+    const payload = btoa(JSON.stringify({ sub: 'user_123', sid: 'sess_9', azp: 'http://localhost:5173' }))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '')
-    expect(tokenSubject(`h.${payload}.s`)).toBe('user_123')
+    expect(tokenSession(`h.${payload}.s`)).toEqual({ userId: 'user_123', sessionId: 'sess_9' })
   })
 
   it.each(['', 'not-a-jwt', 'h.%%%.s', `h.${btoa('{"sub":42}')}.s`])('returns null for %s', (token) => {
-    expect(tokenSubject(token)).toBeNull()
+    expect(tokenSession(token)).toBeNull()
   })
 })
 

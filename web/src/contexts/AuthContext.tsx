@@ -6,7 +6,8 @@ import {
   ACCOUNT_DELETED_MESSAGE,
   clearUserScopedCaches,
   setUnauthorizedHandler,
-  tokenSubject,
+  tokenSession,
+  type TokenSession,
 } from '@/lib/authSession'
 import type { PreferredLanguage } from '@/lib/types'
 
@@ -85,31 +86,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clerk, queryClient])
 
+  // Ends one specific session after an API 401. Ownership is re-checked after
+  // every await so an account that signed in meanwhile is left untouched.
+  const endSession = useCallback(
+    async (session: TokenSession) => {
+      const isStillCurrent = () =>
+        clerk.user?.id === session.userId &&
+        (session.sessionId === null || clerk.session?.id === session.sessionId)
+      if (isSigningOut.current || !isStillCurrent()) return
+      isSigningOut.current = true
+      try {
+        await clearUserScopedCaches(queryClient)
+        if (!isStillCurrent()) return
+        await clerk.signOut({
+          redirectUrl: '/login',
+          ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+        })
+      } finally {
+        isSigningOut.current = false
+      }
+    },
+    [clerk, queryClient],
+  )
+
   const isFinishingDeletion = useRef(false)
   useEffect(() => {
     setUnauthorizedHandler(({ message, token }) => {
       // Only react to failures from the session that is signed in right now;
       // a late 401 from a previous account must not affect the next one.
-      const subject = token ? tokenSubject(token) : null
-      if (!token || subject === null || subject !== clerk.user?.id) return
+      const session = token ? tokenSession(token) : null
+      if (!token || session === null || session.userId !== clerk.user?.id) return
       if (isSigningOut.current || isFinishingDeletion.current) return
       if (message === ACCOUNT_DELETED_MESSAGE) {
         // A previous deletion may not have removed the Clerk user yet; the API
         // still accepts this one call from the deleted account to finish it.
-        // Use the token that reported it so no other session is affected.
+        // Both the cleanup and the sign-out stay bound to that session.
         isFinishingDeletion.current = true
         void deleteAccount({ token })
           .catch(() => undefined)
           .finally(() => {
             isFinishingDeletion.current = false
-            void logout()
+            void endSession(session)
           })
         return
       }
-      void logout()
+      void endSession(session)
     })
     return () => setUnauthorizedHandler(null)
-  }, [clerk, logout])
+  }, [clerk, endSession])
 
   const { refetch } = profileQuery
   const refreshUser = useCallback(async () => {

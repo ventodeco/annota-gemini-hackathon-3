@@ -82,11 +82,12 @@ type jwksFetcher interface {
 	Get(ctx context.Context, params *jwks.GetParams) (*clerk.JSONWebKeySet, error)
 }
 
-// jwksKeySource caches the instance JWKS. One refresh runs at a time, outside
-// the lock and detached from any single request. Refresh attempts, successful
-// or not, are spaced at least minRefresh apart, so forged key IDs or a Clerk
-// outage cannot turn every request into a network call. Previously trusted
-// keys keep verifying while a refresh is pending or failing.
+// jwksKeySource caches the instance JWKS. One refresh runs at a time in its own
+// goroutine with a bounded timeout, so no request holds the lock or cannot
+// cancel while Clerk responds. Refresh attempts, successful or not, are spaced
+// at least minRefresh apart, so forged key IDs or a Clerk outage cannot turn
+// every request into a network call. Previously trusted keys keep verifying
+// (stale-while-revalidate) while a refresh is pending or failing.
 type jwksKeySource struct {
 	client       jwksFetcher
 	ttl          time.Duration
@@ -115,6 +116,7 @@ func (s *jwksKeySource) Key(ctx context.Context, kid string) (*clerk.JSONWebKey,
 	if kid == "" {
 		return nil, ErrInvalidSession
 	}
+	mayStartRefresh := true
 	for {
 		s.mu.Lock()
 		now := s.now()
@@ -123,54 +125,48 @@ func (s *jwksKeySource) Key(ctx context.Context, kid string) (*clerk.JSONWebKey,
 			s.mu.Unlock()
 			return key, nil
 		}
-		if s.inflight != nil {
-			pending := s.inflight
-			s.mu.Unlock()
-			if known {
-				return key, nil
-			}
-			select {
-			case <-pending:
-				continue
-			case <-ctx.Done():
-				return nil, ErrVerifierUnavailable
-			}
+		pending := s.inflight
+		if pending == nil && mayStartRefresh && (s.lastAttempt.IsZero() || now.Sub(s.lastAttempt) >= s.minRefresh) {
+			pending = make(chan struct{})
+			s.inflight = pending
+			s.lastAttempt = now
+			go s.refresh(pending, now)
 		}
-		if !s.lastAttempt.IsZero() && now.Sub(s.lastAttempt) < s.minRefresh {
-			unavailable := s.lastFailed || s.keys == nil
-			s.mu.Unlock()
-			switch {
-			case known:
-				return key, nil
-			case unavailable:
-				return nil, ErrVerifierUnavailable
-			default:
-				return nil, ErrInvalidSession
-			}
-		}
-		pending := make(chan struct{})
-		s.inflight = pending
-		s.lastAttempt = now
+		unavailable := s.lastFailed || s.keys == nil
 		s.mu.Unlock()
 
-		s.refresh(ctx, now)
-
-		s.mu.Lock()
-		s.inflight = nil
-		close(pending)
-		s.mu.Unlock()
-		// Re-evaluate: the attempt is now throttled, so the next pass returns
-		// a fresh key, a trusted stale key, or the appropriate error.
+		if known {
+			// Serve the previously trusted key while it revalidates.
+			return key, nil
+		}
+		if pending == nil {
+			if unavailable {
+				return nil, ErrVerifierUnavailable
+			}
+			return nil, ErrInvalidSession
+		}
+		select {
+		case <-pending:
+			// Re-evaluate against the refreshed key set without starting
+			// another refresh for this request.
+			mayStartRefresh = false
+		case <-ctx.Done():
+			return nil, ErrVerifierUnavailable
+		}
 	}
 }
 
-func (s *jwksKeySource) refresh(ctx context.Context, attemptedAt time.Time) {
-	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.fetchTimeout)
+// refresh fetches the key set independently of any request so that callers
+// can stop waiting without abandoning the shared refresh.
+func (s *jwksKeySource) refresh(done chan struct{}, attemptedAt time.Time) {
+	fetchCtx, cancel := context.WithTimeout(context.Background(), s.fetchTimeout)
 	defer cancel()
 	set, err := s.client.Get(fetchCtx, &jwks.GetParams{})
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer close(done)
+	s.inflight = nil
 	if err != nil || set == nil {
 		s.lastFailed = true
 		return

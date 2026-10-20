@@ -28,22 +28,30 @@ export function notifyUnauthorized(event: UnauthorizedEvent): void {
   unauthorizedHandler?.(event)
 }
 
-function hasStringSubject(value: unknown): value is { sub: string } {
+export interface TokenSession {
+  /** Clerk user ID (`sub`). */
+  userId: string
+  /** Clerk session ID (`sid`), when present. */
+  sessionId: string | null
+}
+
+function isTokenPayload(value: unknown): value is { sub: string; sid?: unknown } {
   return typeof value === 'object' && value !== null && 'sub' in value && typeof value.sub === 'string'
 }
 
 /**
- * Reads the Clerk user ID (`sub`) from a session token without verifying it.
- * Only used to match a response to the session that sent it; the API performs
- * the actual verification.
+ * Reads the Clerk user and session IDs from a session token without verifying
+ * it. Only used to match a response to the session that sent it; the API
+ * performs the actual verification.
  */
-export function tokenSubject(token: string): string | null {
+export function tokenSession(token: string): TokenSession | null {
   const payload = token.split('.')[1]
   if (!payload) return null
   try {
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
     const parsed: unknown = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')))
-    return hasStringSubject(parsed) ? parsed.sub : null
+    if (!isTokenPayload(parsed)) return null
+    return { userId: parsed.sub, sessionId: typeof parsed.sid === 'string' ? parsed.sid : null }
   } catch {
     return null
   }
