@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
+type FacingMode = 'user' | 'environment'
+
 interface UseCameraReturn {
   stream: MediaStream | null
   error: string | null
   isSupported: boolean
-  facingMode: 'user' | 'environment'
+  facingMode: FacingMode
   videoRef: React.RefObject<HTMLVideoElement | null>
   startCamera: () => Promise<void>
   stopCamera: () => void
@@ -12,46 +14,60 @@ interface UseCameraReturn {
   capturePhoto: () => Promise<Blob | null>
 }
 
+function stopTracks(mediaStream: MediaStream) {
+  mediaStream.getTracks().forEach((track) => track.stop())
+}
+
 export function useCamera(): UseCameraReturn {
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
+  const [facingMode, setFacingMode] = useState<FacingMode>('environment')
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  // Incremented whenever a pending camera request must be abandoned (new request, stop, unmount).
+  const requestIdRef = useRef(0)
 
   const isSupported = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
 
-  useEffect(() => {
-    streamRef.current = stream
-  }, [stream])
-
-  const stopCamera = useCallback(() => {
+  const releaseStream = useCallback(() => {
+    requestIdRef.current += 1
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
+      stopTracks(streamRef.current)
       streamRef.current = null
-      setStream(null)
     }
   }, [])
 
-  const startCamera = useCallback(async () => {
+  const stopCamera = useCallback(() => {
+    releaseStream()
+    setStream(null)
+  }, [releaseStream])
+
+  const openCamera = useCallback(async (mode: FacingMode) => {
     if (!isSupported) {
       setError('Camera is not supported on this device')
       return
     }
 
-    try {
-      stopCamera()
+    stopCamera()
+    const requestId = requestIdRef.current
 
+    try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode,
+          facingMode: mode,
           width: { ideal: 1920 },
           height: { ideal: 1080 },
         },
         audio: false,
       })
 
+      if (requestId !== requestIdRef.current) {
+        stopTracks(mediaStream)
+        return
+      }
+
+      streamRef.current = mediaStream
       setStream(mediaStream)
       setError(null)
 
@@ -62,6 +78,7 @@ export function useCamera(): UseCameraReturn {
         })
       }
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       const errorMessage =
         err instanceof Error
           ? err.message
@@ -69,34 +86,37 @@ export function useCamera(): UseCameraReturn {
       setError(errorMessage)
       setStream(null)
     }
-  }, [isSupported, facingMode, stopCamera])
+  }, [isSupported, stopCamera])
+
+  const startCamera = useCallback(() => openCamera(facingMode), [openCamera, facingMode])
 
   const switchCamera = useCallback(async () => {
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user'
     setFacingMode(newFacingMode)
-    await startCamera()
-  }, [facingMode, startCamera])
+    await openCamera(newFacingMode)
+  }, [facingMode, openCamera])
 
   const capturePhoto = useCallback(async (): Promise<Blob | null> => {
-    if (!videoRef.current || !stream) {
+    const video = videoRef.current
+    if (!video || !stream) {
       return null
     }
 
     if (!canvasRef.current) {
-      const canvas = document.createElement('canvas')
-      canvas.width = videoRef.current.videoWidth
-      canvas.height = videoRef.current.videoHeight
-      canvasRef.current = canvas
+      canvasRef.current = document.createElement('canvas')
     }
 
     const canvas = canvasRef.current
+    // Resolution can change after switching cameras, so size the canvas for every capture.
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
     const ctx = canvas.getContext('2d')
 
     if (!ctx) {
       return null
     }
 
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
     return new Promise((resolve) => {
       canvas.toBlob(
@@ -109,14 +129,7 @@ export function useCamera(): UseCameraReturn {
     })
   }, [stream])
 
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-        streamRef.current = null
-      }
-    }
-  }, [])
+  useEffect(() => releaseStream, [releaseStream])
 
   return {
     stream,
