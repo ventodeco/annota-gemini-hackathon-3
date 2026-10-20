@@ -87,6 +87,9 @@ curl -s -X POST -H "Authorization: Bearer $ANNOTA_TOKEN" "$ANNOTA_URL/v1/documen
 
 curl -s -X PATCH -H "Authorization: Bearer $ANNOTA_TOKEN" -H 'Content-Type: application/json' \
   -d '{"lastPageNumber":4}' "$ANNOTA_URL/v1/documents/3/progress"
+
+# Record an open (updates lastOpenedAt only; the saved page is unchanged)
+curl -s -X POST -H "Authorization: Bearer $ANNOTA_TOKEN" "$ANNOTA_URL/v1/documents/3/open"
 ```
 
 Explain a selection. With `scanId`, the server uses the scan's text as context. Keep the response for saving:
