@@ -86,7 +86,8 @@ func main() {
 		log.Fatalf("Failed to initialize Clerk authentication: %v", err)
 	}
 
-	usageMeter := usage.NewMeter(storage.NewPostgresUsageStore(db), usage.LimitsFromConfig(cfg))
+	usageMeter := usage.NewMeter(storage.NewPostgresUsageStore(db), usage.LimitsFromConfig(cfg)).
+		WithStaleReservationTimeout(usage.FeatureOCR, handlers.OCRReservationStaleAfter)
 
 	userHandlers := handlers.NewUserHandlersWithStorage(storageDB, fileStorage, cfg, identityDirectory)
 	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, aiClient, cfg, usageMeter)

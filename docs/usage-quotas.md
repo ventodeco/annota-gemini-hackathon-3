@@ -46,7 +46,13 @@ The limits are **operation caps** (pages, requests, characters), not a currency 
    - The legacy `minimax`/`gemini` clients retry internally and report no attempts, so an earlier attempt may have been billed even when the final error is a clean rejection. For them, only a configuration error raised before any HTTP status counts as `released`; every other failure is `failed`.
    - Refunds apply to the reservation's own day, so a refund after midnight never credits the new day.
    - A second settlement is a no-op.
-3. **Stale reservations stay charged.** If the process dies mid-call, its reservation stays `reserved` and charged. This is deliberately conservative; operators can find these rows via `idx_usage_reservations_status_created`.
+3. **Abandoned OCR reservations are refunded to the user.**
+   - If the process dies mid-OCR (for example, a restart), its in-process settlement never runs.
+   - An OCR reservation still `reserved` 15 minutes after admission (`handlers.OCRReservationStaleAfter`: the 5-minute OCR timeout plus a 10-minute margin) is settled as `failed`. The user's counter is refunded once, on the reservation's own day. The global charge is kept, because the provider may have billed. The cost is recorded as `missing`.
+   - A live OCR always settles well before the cutoff. Its context ends at 5 minutes, and only the upload steps, the account-lock wait and a 5-second settle surround it. So the cutoff never refunds running work.
+   - Expiry runs lazily for the requesting user before an OCR admission and before the allowance is read. It needs no sweeper, and OCR is never re-dispatched (#40's `ocr_interrupted` follows the same rule).
+   - A late settlement from the abandoned job is a no-op, and a deleted user's rows are never recreated.
+   - Explanation and speech reservations stranded by a crash mid-request still stay charged until the reset. Operators can find them via `idx_usage_reservations_status_created`.
 
 ## Recorded usage and cost
 

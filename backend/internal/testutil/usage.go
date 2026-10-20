@@ -12,13 +12,14 @@ import (
 
 // MemoryUsageReservation is a recorded reservation for assertions.
 type MemoryUsageReservation struct {
-	ID      int64
-	UserID  int64
-	Feature string
-	Day     string
-	Units   int64
-	Status  string
-	Cost    storage.UsageCost
+	ID        int64
+	UserID    int64
+	Feature   string
+	Day       string
+	Units     int64
+	Status    string
+	Cost      storage.UsageCost
+	CreatedAt time.Time
 }
 
 // MemoryUsageStore is an in-memory storage.UsageStore with the same
@@ -68,6 +69,7 @@ func (s *MemoryUsageStore) ReserveUsage(_ context.Context, p storage.UsageReserv
 	s.nextID++
 	s.reservations[s.nextID] = &MemoryUsageReservation{
 		ID: s.nextID, UserID: p.UserID, Feature: p.Feature, Day: day, Units: p.Units, Status: storage.UsageStatusReserved,
+		CreatedAt: p.CreatedAt,
 	}
 	return s.nextID, nil
 }
@@ -113,6 +115,25 @@ func (s *MemoryUsageStore) GetUsageCounts(_ context.Context, userID int64, day t
 		counts[feature] = storage.UsageCount{User: s.user[memoryUserKey(userID, feature, date)], Global: used}
 	}
 	return counts, nil
+}
+
+func (s *MemoryUsageStore) ExpireStaleUsage(_ context.Context, userID int64, feature string, cutoff, _ time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Err != nil {
+		return 0, s.Err
+	}
+	var expired int64
+	for _, res := range s.reservations {
+		if res.UserID != userID || res.Feature != feature || res.Status != storage.UsageStatusReserved || !res.CreatedAt.Before(cutoff) {
+			continue
+		}
+		res.Status = storage.UsageStatusFailed
+		res.Cost = storage.UsageCost{CostStatus: "missing"}
+		s.user[memoryUserKey(res.UserID, res.Feature, res.Day)] -= res.Units
+		expired++
+	}
+	return expired, nil
 }
 
 // Reservations returns a copy of every reservation in creation order.

@@ -184,3 +184,46 @@ Billing or paid plans, model selection (#35), a service layer (#14), auth change
   - Web: `bun run test`, `lint` and `build`.
   - Screenshots at desktop and mobile sizes with the approved values (temporary uncommitted harness).
   - Final-head CI.
+
+## Follow-up: abandoned OCR reservations (branch `backlog/issue-42-stale-ocr`, no schema change)
+
+**Problem (confirmed in source on dev b368099).** `processOCR` settles through an in-process `defer`. If the process restarts mid-OCR, that defer never runs: the reservation stays `reserved`, and both the user and global counters stay charged until 00:00 UTC. `usage_reservations` has no link to the scan.
+
+**Outcome.** An OCR reservation still `reserved` after the cutoff (OCR processing timeout + a safety margin) is settled as `failed`. That refunds the user once and keeps the global charge, because the provider may have billed. No OCR is re-dispatched.
+
+**Cutoff.** `handlers.OCRReservationStaleAfter = ocrProcessingTimeout (5m) + 10m margin = 15m`, measured from the reservation's `created_at`. It cannot refund OCR that is still running normally:
+- the OCR context times out at 5m;
+- `UpdateScanOCR` and the 5s detached settle run right after it;
+- between reservation and dispatch there is only `CreateScan`, `SaveImage` and the shared account lock.
+
+So a live process settles well within 15m, and anything older is abandoned. The 10m margin also absorbs lock waits and replica clock skew. #40's `ocr_interrupted` uses the same rule (no re-dispatch); a cutoff is agreed with A40.
+
+**Mechanism.** Reuse the conditional settlement semantics, scoped per user and evaluated lazily:
+- `storage.UsageStore.ExpireStaleUsage(ctx, userID, feature, cutoff, settledAt)` runs one statement:
+  - lock the stale `reserved` rows `ORDER BY id FOR UPDATE`, re-checked after any wait;
+  - mark them `failed`, with `cost_status=missing`;
+  - refund `usage_counters` on each reservation's own `usage_day`, using `GREATEST(…, 0)`.
+- Global counters are untouched.
+- `usage.Meter` runs it for features configured with a stale timeout (OCR only), before `Reserve` and `Snapshot`, for that user only. An error is logged and never blocks admission.
+- A late `Finish` uses `WHERE status='reserved'`, so it becomes a no-op: no double refund or charge.
+- A deleted user has no reservations left (cascade) and `UPDATE` never inserts, so no rows are recreated.
+- Lock order is reservation then counter, the same as `SettleUsage`. `Reserve` locks no existing reservations, so there is no deadlock cycle.
+
+**Files.**
+- `backend/internal/storage/usage.go` (+ `usage_postgres_test.go`)
+- `backend/internal/usage/usage.go` (+ `usage_test.go`)
+- `backend/internal/testutil/usage.go`
+- `backend/internal/handlers/scan.go` (constant)
+- `backend/cmd/server/main.go` (wiring)
+- `docs/usage-quotas.md`
+- this plan
+
+**Out of scope.**
+- Synchronous explanation and speech reservations stranded by a crash mid-request. They are noted as possible future work using the same mechanism.
+- Schema or scan FK changes, sweeper goroutines, re-dispatch.
+
+**Focused regression questions.**
+1. PostgreSQL: is a stale OCR reservation refunded once, on its original day, with the global charge kept and recent reservations untouched? Is a late settle a no-op? Is nothing recreated after user deletion?
+2. Meter: does a user at the limit with only a stale reservation get admitted again, and does `Snapshot` show the refund?
+
+Required gates run once in CI.

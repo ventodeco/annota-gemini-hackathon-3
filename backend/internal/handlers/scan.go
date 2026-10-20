@@ -31,6 +31,12 @@ type ScanHandlers struct {
 
 const ocrProcessingTimeout = 5 * time.Minute
 
+// OCRReservationStaleAfter is when an OCR reservation still unsettled counts
+// as abandoned (its process died mid-OCR). A live OCR settles soon after its
+// ocrProcessingTimeout context expires; the margin covers the upload steps
+// and account-lock wait before dispatch, the settle itself and clock skew.
+const OCRReservationStaleAfter = ocrProcessingTimeout + 10*time.Minute
+
 // errOCRIncomplete settles an OCR reservation whose job ended without a result.
 var errOCRIncomplete = errors.New("ocr job ended without a result")
 
