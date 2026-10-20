@@ -1,5 +1,159 @@
 # ANNOTA Product Requirements Document
 
+## 0. Beta MVP: 10 Invited Testers
+
+This section is the launch contract for the first closed beta. It narrows the roadmap below to the loop that ten invited testers must be able to complete on their own phones. Everything outside §0 is roadmap, not a beta commitment. Where §0 and a later section disagree, §0 wins for the beta.
+
+### 0.1 Beta scope
+
+**In scope (the beta loop):**
+
+1. Sign in with an invited account (Google or email).
+2. Scan a physical book page with the camera, or upload a photo, and read the OCR text.
+3. Highlight a word, phrase, or sentence in the OCR text and get an English explanation plus Japanese audio for how it is read.
+4. Save the explanation.
+5. Reopen a past scan and read its OCR text again without re-scanning.
+6. Browse history: past scans and saved explanations.
+7. See the remaining daily allowance and understand what happens when it runs out.
+8. Delete a scan, a saved explanation, or the whole account.
+
+**Available but not a beta acceptance target:** the PDF reader, document library, and reading progress. They stay in the app and may be used by testers, but a PDF-only defect does not block the beta.
+
+**Out of scope for the beta** (in addition to §16): invitation self-service or admin UI, explanation languages other than English, furigana toggle, Anki export, saved-audio cache, image-only PDF OCR, vertical text, offline use, push notifications, a Contact Us form (support runs over a private tester chat group instead), and any payment or plan.
+
+### 0.2 Access control: invitation-only sign-in
+
+The beta is closed. A person who was not invited must not be able to create an account or reach any learning feature.
+
+**Decision:** use Clerk's restricted sign-up mode with Clerk invitations. The owner invites each tester's email from the Clerk dashboard; Clerk sends the invitation link and refuses sign-up for everyone else. This needs no ANNOTA code, is reversible per tester, and works for both Google and email sign-in. Record the setting in `docs/clerk-auth.md` under the owner-only dashboard steps.
+
+**Alternative, only if the owner wants a shareable code instead of per-email invitations:** an app-level invitation code. The backend keeps an `invitation_codes` table (code, max uses, used count, expiry, revoked). The first authenticated request for an unknown Clerk user must carry a valid code, checked inside the same transaction that provisions the local user; otherwise the API returns `403 invitation_required` and the web app shows a code entry screen. Existing linked users are never asked again. This alternative costs real implementation work and is tracked as its own issue; it is not required if the Clerk decision stands.
+
+**Requirements (apply to whichever mechanism is chosen):**
+
+| ID | Requirement |
+| --- | --- |
+| INV-1 | A visitor without an invitation cannot create an account and sees a clear "invitation only" message with the support contact. |
+| INV-2 | An invited tester can sign in with Google or email code using the invited address. A different Google account than the invited address is refused, not silently created. |
+| INV-3 | The owner can revoke a tester. After revocation, the next API request returns 401 and the app returns to the sign-in screen without losing other testers' data. |
+| INV-4 | Invitations and revocations need no deploy and no database edit. |
+| INV-5 | The owner keeps a private list of invited addresses outside the repository. No tester email appears in issues, logs, or commits. |
+
+### 0.3 User stories
+
+Format: *Given* / *When* / *Then*. Each story is a beta acceptance test; "US-x" IDs are referenced from §0.4 and from the beta issues.
+
+**Sign-in**
+
+- **US-1 Invited sign-in.** Given I received an invitation, when I open the invitation link and continue with Google or enter the email code, then I land on the welcome screen signed in, and my name or email is visible in the profile.
+- **US-2 Uninvited visitor.** Given I was not invited, when I try to sign up, then I am refused with a message that says the beta is invitation-only and how to ask for access.
+- **US-3 Session persists.** Given I signed in yesterday on my phone, when I open ANNOTA today, then I am still signed in and my history is present.
+- **US-4 Expired session.** Given my session expired or was revoked, when I tap any action, then I am sent to sign-in with a short explanation and no error page, and after signing in again I return to where I was.
+
+**Scan a book page**
+
+- **US-5 Camera scan.** Given I am signed in on a phone, when I tap scan, allow the camera, photograph a page, and confirm, then I see a progress state and within about 30 seconds the OCR text appears.
+- **US-6 Upload photo.** Given I have a photo of a page in my gallery, when I choose upload and pick it, then the same OCR flow runs as for a camera scan.
+- **US-7 Direct link to a processing scan.** Given OCR is still running, when I reload or open the scan URL directly, then the page keeps polling and resolves to ready or failed without manual reload.
+- **US-8 Failed OCR.** Given the photo is unreadable or the provider fails, when OCR finishes, then I see a plain-language failure with a retry action, the failed scan is marked as failed in history, and my allowance is refunded when no work was billed.
+
+**Highlight, understand, and listen**
+
+- **US-9 Highlight to explain.** Given I am reading OCR text, when I select a word or sentence and tap explain, then within about 3 seconds I see the translation, contextual explanation, word breakdown, and reading in kana.
+- **US-10 Listen.** Given an explanation is open, when I tap play, then the selected Japanese text is spoken exactly as written and nothing else; playback starts from my tap, never automatically.
+- **US-11 Listen without explaining.** Given I only want to hear a word, when I select it and tap play without requesting an explanation, then audio plays and no explanation allowance is spent.
+- **US-12 Replay.** Given I already played a selection, when I tap play again in the same session, then it replays from cache and does not spend speech allowance.
+- **US-13 Audio fails.** Given speech generation fails, when I tap play, then I see a short error and can still read and save the explanation.
+
+**Save and reopen**
+
+- **US-14 Save explanation.** Given an explanation is open, when I tap save, then it appears in history with the selected text, the scan it came from, and the time.
+- **US-15 Reopen OCR text.** Given I scanned a page last week, when I open it from scan history, then the OCR text is shown again without a new OCR call and without spending allowance.
+- **US-16 Open the source from a saved explanation.** Given I open a saved explanation, when I tap its source, then the originating scan opens with the OCR text.
+
+**History**
+
+- **US-17 Browse history.** Given I have scans and saved explanations, when I open history, then I see them newest first, each with a readable title, date, and status.
+- **US-18 Empty history.** Given I am a new tester, when I open history, then I see a short empty state that tells me to scan a page first.
+- **US-19 Delete.** Given I no longer need an item, when I delete a scan or a saved explanation, then it disappears from history, its file is removed, and deleting a scan does not delete explanations saved from it without telling me.
+
+**Allowance**
+
+- **US-20 See remaining allowance.** Given I am signed in, when I open the allowance panel, then I see today's remaining pages, explanations, and speech characters with the reset time in my local time.
+- **US-21 Allowance exhausted.** Given I used today's pages, when I try to scan again, then I am refused with the reset time and I stay signed in; reading, history, and saved explanations keep working.
+
+### 0.4 Edge cases
+
+| Flow | Edge case | Expected behavior |
+| --- | --- | --- |
+| Sign-in | Google popup blocked or cancelled | Return to sign-in with a retry hint; no half-created account. |
+| Sign-in | Invited by email but signs in with a different Google account | Refused (INV-2); message names the invited address rule without revealing other addresses. |
+| Sign-in | Same person signs in with Google and email for the same address | One local user, one history. |
+| Sign-in | Two accounts on one browser | Switching accounts clears cached history, allowance, and audio of the previous account. |
+| Sign-in | Session expires during OCR | OCR finishes server-side; after re-sign-in the scan is in history (US-4). |
+| Scan | Photo > 10 MB or unsupported format (HEIC on iPhone) | Clear message before upload; HEIC is either converted on device or named as unsupported. Decide and document before inviting testers. |
+| Scan | Blurry, dark, skewed, or two-page photo | OCR may partially succeed; result is still shown so the tester can retry; never a blank "ready" page. |
+| Scan | Vertical (縦書き) text | Out of scope; expect wrong line order and say so in the first-use guide. |
+| Scan | Photo with no Japanese text | OCR returns empty: status failed with "no text found", allowance refunded if the provider did no billable work. |
+| Scan | Provider timeout or restart mid-OCR | Scan settles to failed within the documented cutoff; never spins forever; user allowance refunded on the reservation's own day. |
+| Scan | Daily page allowance exhausted | Refused before upload with reset time (US-21). |
+| Scan | Two tabs submit the same page | Both get a scan; no crash, no double OCR of one upload. |
+| Highlight | Selection is empty, whitespace, or punctuation only | Explain and play are disabled. |
+| Highlight | Selection longer than the speech limit (250 characters) | Explanation still allowed; play shows "selection too long" instead of a generic error. |
+| Highlight | iOS native selection menu covers the explain button | Action bar stays reachable; selection does not scroll the page. |
+| Highlight | Explanation returns malformed or truncated output | Show a retry, do not save a partial explanation. |
+| Listen | Browser blocks autoplay | Audio only starts on tap; a blocked attempt shows "tap play again". |
+| Listen | Rapid repeated taps on play | One request in flight; later taps replay or are ignored. |
+| Listen | Speech allowance exhausted | Explanation still works; play shows reset time. |
+| Save | Save tapped twice | One saved item. |
+| Save | Offline when saving | Clear failure; explanation remains on screen for retry. |
+| History | Scan failed | Listed with a failed badge and retry; not hidden. |
+| History | Hundreds of items | Paginated; first page loads under 2 seconds on mobile. |
+| History | Source scan deleted after an explanation was saved | Explanation still opens with its stored text; source link says the scan was deleted. |
+| Account | Delete account | All scans, files, explanations, counters, and the Clerk identity are removed; a stale token cannot recreate the profile. |
+| Cost | Global daily budget reached before a user's allowance | User sees "beta budget reached for today" with reset time; no provider call. |
+
+### 0.5 Beta test plan
+
+- **Testers:** 10 invited people, at least 6 on iOS Safari and at least 3 on Android Chrome, all non-resident Japanese learners if possible.
+- **Duration:** 2 weeks from the first invitation. Week 1 is unguided use; week 2 adds the scripted checklist below.
+- **Scripted checklist per tester:** US-1, US-5, US-9, US-10, US-14, US-15, US-17, US-19, US-21. The owner records pass or fail per story per tester in a private sheet, not in the repository.
+- **Feedback channel:** a private tester chat group. Testers include the copyable request reference from an error screen when reporting a failure. No Contact Us form for the beta.
+- **Operator data:** daily check of the triage guide in `docs/beta-triage.md`: failed or stuck OCR, explanation or speech failures, allowance refusals, provider cost. Activation funnel events already recorded by `/v1/events` are enough; no new analytics platform.
+- **Content and cost:** default caps from `docs/usage-quotas.md` apply (10 pages, 50 explanations, 1,500 speech characters per tester per day; global caps sized for about 25 users). The owner reconciles provider-reported cost after the first week.
+- **Privacy:** testers are told in the invitation that uploaded photos are stored on the server, processed by the named AI providers, and deleted when they delete the scan or the account. Retention after the beta ends is stated in the Privacy Policy before invitations go out.
+
+### 0.6 Beta success criteria
+
+Percentages in §5 do not apply to ten people. The beta passes when:
+
+| Criterion | Target |
+| --- | --- |
+| Testers who complete scan → highlight → listen → save unaided in week 1 | 8 of 10 |
+| Testers who reopen a past scan or saved explanation in week 2 | 6 of 10 |
+| Scans that settle to ready or failed without manual reload | all |
+| Uninvited sign-up attempts that succeed | 0 |
+| Cross-account data exposure | 0 |
+| Data loss reports (missing scan or explanation) | 0 |
+| Median explanation latency on tester phones | ≤ 5 seconds |
+| Provider spend over 2 weeks | within the owner's approved budget |
+
+### 0.7 Beta blockers
+
+The beta cannot start until each row is done and recorded in its GitHub issue:
+
+| Blocker | Issue |
+| --- | --- |
+| Invitation-only sign-in configured and tested with one invited and one uninvited account | #84 |
+| Production Clerk instance, Google credentials, origins, and keys set privately; live sign-in on iOS and Android | #39 |
+| Exposed secrets rotated and old Google OAuth client revoked | #12 |
+| A qualified OCR, explanation, and speech route with live keys; the current OCR default is not served | #34, #35 |
+| One fresh live tester completes US-5 through US-19 on iOS Safari and Android Chrome | #40 |
+| Two-account isolation and account deletion verified live | #41 |
+| A pinned release deployed with production host settings and one proven rollback | #43 |
+| One controlled alert reaches the owner; triage guide in use | #44 |
+| First-use guide states beta limits: English only, horizontal text, 10 MB, daily caps | #45 |
+
 ## 1. Background
 
 Japanese learners who study from books, PDFs, and work documents often need to switch between a reader, dictionary, translator, pronunciation source, and note-taking tool. That context switching makes reading slow and breaks comprehension, especially for professional or textbook material where a phrase can mean different things depending on the surrounding paragraph.
@@ -29,29 +183,35 @@ The product should allow a user to:
 
 ## 3. Current Baseline
 
-This PRD is written against the current codebase baseline. The implementation already includes or partially wires these product capabilities:
+This PRD is written against the `dev` branch baseline (October 2026). The implementation already includes these product capabilities:
 
-- Google authentication and protected routes.
-- Image upload/camera OCR flow.
-- PDF upload, file retrieval, PDF.js rendering, and selectable PDF text layer.
-- PDF page-to-scan bridge for reusing the annotation pipeline.
-- Gemini-based annotation generation.
-- Gemini text-to-speech endpoint and frontend playback hooks.
-- Saved annotation history and detail views.
-- Document library with reading progress (`last_page_number`, `last_opened_at`) stored end-to-end.
-- User language preference field exists in the user model and persists through `/v1/users/me`, but is **not yet wired into the Gemini prompt** — see Phase 1.5.
+- Clerk sign-in with Google and email; the Go API verifies Clerk session tokens and owns all learning data by local user ID (`docs/clerk-auth.md`).
+- Public intro page, CC0 sample PDF, and a skippable first-use guide.
+- Image upload/camera OCR flow with status polling until ready or failed, an absolute OCR deadline, and interrupted-scan recovery.
+- Scan history (`/scans-history`) that reopens stored OCR text without a new provider call.
+- PDF upload, file retrieval, PDF.js rendering, selectable text layer, bounded page rendering, and lazy-loaded signed-in routes.
+- PDF page-to-scan bridge for reusing the annotation pipeline, with page identity preserved across scroll.
+- Configurable AI routing (AstraFlow, OpenRouter, legacy Gemini/MiniMax) with model provenance stored per output (`docs/ai-routing.md`).
+- Text-to-speech endpoint and frontend playback with in-session replay from the query cache.
+- Saved annotation history, detail views, and deletion; account deletion that removes files, rows, and the Clerk identity.
+- Persisted daily usage allowances per feature and per global budget, shown in the app (`docs/usage-quotas.md`).
+- Document library with reading progress (`last_page_number`, `last_opened_at`) and per-document annotation lists.
+- Request references in errors and a beta triage guide (`docs/beta-triage.md`).
+- User language preference field persists through `/v1/users/me`, but explanations are **English only**; the preference is not wired into the prompt.
 
 The roadmap below distinguishes current baseline, next product work, and future enhancements. It should not be read as claiming every roadmap feature is already complete.
 
-### 3.1 Known Gaps (Phase 1.5 targets)
+### 3.1 Known Gaps
 
-The following reliability and quality issues exist in the current baseline and are tracked as Phase 1.5 acceptance criteria:
+Resolved on `dev` since the previous revision: OCR scan polling (now polls until ready or failed), the single shared AI quota (per-feature persisted allowances replaced it; an in-memory burst throttle remains shared), and unbounded PDF page rendering.
 
-- **PDF viewer performance.** `ContinuousPDFViewer` mounts all pages upfront and registers one `selectionchange` listener per page, causing O(N) handler calls per cursor move on long documents. Acceptance: virtualize off-screen pages with a single shared handler.
-- **OCR scan polling disabled.** `ScanPage` passes `pollIntervalMs: 0`, so a freshly-created async scan displayed directly will spin on the loader forever without a manual reload.
-- **`preferredLanguage` not reaching Gemini.** The `AnalyzeWithLanguageAPI` handler exists (`backend/internal/handlers/ai.go`) but is not routed. The active `/v1/ai/analyze` handler hard-codes English.
-- **Annotation compat fields still on the wire.** `meaning`, `usageTiming`, `alternativeMeaning` are still emitted alongside the §9 richer schema with no documented migration cut-off.
-- **Single AI rate-limiter shared across scan, analyze, and speech.** TTS replays consume analyze quota from the same bucket.
+Still open:
+
+- **`preferredLanguage` not reaching the prompt.** `/v1/ai/analyze` produces English only. Disclosed as a beta limitation, not a blocker.
+- **Annotation compat fields still on the wire.** `meaning`, `usageTiming`, `alternativeMeaning` are still emitted alongside the §9 richer schema with no documented migration cut-off. Not a beta blocker.
+- **Explanation and speech reservations stranded by a crash** stay charged until the UTC reset. Disclosed limitation.
+- **Image-only PDFs and Type 3 fonts** are unsupported or may extract garbled text. Disclosed limitation.
+- **No invitation gate.** Any Clerk user can sign up today. Beta blocker; see §0.2.
 
 ## 4. Target Users
 
@@ -177,11 +337,15 @@ Goal: close the daily-practice loop for the primary persona — non-resident Jap
 | Text-To-Speech | System plays selected Japanese text exactly as written. | High | Current/Phase 1 |
 | Save Annotation | User can save useful annotations. | High | Current/Phase 1 |
 | Annotation History | User can revisit saved annotations. | Medium | Current/Phase 1 |
+| Invitation-Only Sign-In | Only invited testers can create an account (§0.2, INV-1 to INV-5). | High | Beta |
+| Scan History | User can list past scans and reopen stored OCR text without a new OCR call. | High | Beta |
+| Usage Allowance | Per-user and global daily caps for OCR, explanations, and speech; remaining allowance and reset time visible in the app. | High | Beta |
+| Delete Scan / Annotation / Account | User can delete a scan, a saved annotation, or the whole account; files and rows are removed. | High | Beta |
 | Long-PDF Performance | PDF viewer virtualizes off-screen pages and uses a single shared selection handler; selection latency ≤ 16 ms median on 200-page documents. | High | Phase 1.5 |
-| OCR Scan Polling | ScanPage polls scan status until ready or failed; no manual reload required after direct navigation. | High | Phase 1.5 |
+| OCR Scan Polling | ScanPage polls scan status until ready or failed; no manual reload required after direct navigation. | High | Done (dev) |
 | Language Preference Wiring | User's preferred language preference reaches the Gemini annotation prompt. | High | Phase 1.5 |
 | Annotation Schema Migration | Legacy compat fields (meaning, usageTiming, alternativeMeaning) removed from wire; migration cut-off documented. | High | Phase 1.5 |
-| AI Rate-Limiter Split | Separate rate-limit buckets for scan, analyze, and speech endpoints. | High | Phase 1.5 |
+| AI Rate-Limiter Split | Separate persisted allowances for scan, analyze, and speech. | High | Done (dev) |
 | iOS Safe-Area & Touch Targets | All bottom bars honor iOS safe-area inset; all interactive controls meet 44 px minimum touch target. | High | Phase 1.5 |
 | Document Library | User can view uploaded PDFs and continue reading. | High | Phase 2 |
 | Reading Progress | System stores current page and last opened time per document. | High | Phase 2 |
@@ -246,7 +410,9 @@ The current backend uses `/v1/...` routes. Product requirements should align to 
 | Current user profile | `GET /v1/users/me` |
 | User preferences | `PATCH /v1/users/me` |
 | Scan upload | `POST /v1/scans` |
+| Scan history list | `GET /v1/scans` |
 | Scan detail | `GET /v1/scans/{id}` |
+| Delete scan | `DELETE /v1/scans/{id}` |
 | Document upload | `POST /v1/documents` |
 | Document library list | `GET /v1/documents` |
 | Document detail | `GET /v1/documents/{id}` |
@@ -261,6 +427,10 @@ The current backend uses `/v1/...` routes. Product requirements should align to 
 | Save annotation | `POST /v1/annotations` |
 | Annotation history | `GET /v1/annotations` |
 | Annotation detail | `GET /v1/annotations/{id}` |
+| Delete annotation | `DELETE /v1/annotations/{id}` |
+| Usage allowance | `GET /v1/entitlements/me` |
+| Delete account | `DELETE /v1/users/me` |
+| Activation events | `POST /v1/events` |
 | Annotation export | `GET /v1/annotations/export` — Phase 5 |
 
 Future API changes should preserve backward compatibility or include a documented migration path for saved annotations.
@@ -342,6 +512,9 @@ graph TD
 These are not required for the stabilized roadmap phases unless explicitly promoted later:
 
 - Native iOS or Android apps.
+- **Invitation admin UI or self-service waitlist** — the beta uses Clerk dashboard invitations (§0.2).
+- **Contact Us form** — beta support runs over a private tester chat group; revisit for public beta.
+- **Dependency major upgrades (TypeScript 7, ESLint 10)** — blocked upstream and unrelated to the tester loop.
 - Handwriting recognition.
 - Real-time live camera OCR.
 - Full PDF editing.
@@ -373,3 +546,4 @@ These are not required for the stabilized roadmap phases unless explicitly promo
 - `/v1/...` route naming is used where API shapes are mentioned.
 - Every Phase 1.5 acceptance criterion has a matching row in §8 or §14.
 - The primary persona is explicitly named and drives §8 and §16 prioritization decisions.
+- §0 defines the closed-beta scope, invitation rule, user stories, edge cases, test plan, absolute success criteria, and the blocker-to-issue mapping.
