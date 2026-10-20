@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -68,16 +71,17 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrUploadTooLarge):
-			log.Warnf("PDF upload exceeds max size %d: %v", h.config.MaxUploadSize, err)
+			log.Warnf("PDF upload exceeds max size %d", h.config.MaxUploadSize)
 			httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fileTooLargeMBMessage(h.config.MaxUploadSize))
 		case errors.Is(err, ErrMultipartParse):
-			log.Warnf("Failed to parse multipart form: %v", err)
+			// Parser errors quote the malformed request; log only the classification.
+			log.Warn("Failed to parse multipart form")
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")
 		case errors.Is(err, ErrMultipartField):
-			log.Warnf("Missing file field: %v", err)
+			log.Warn("Missing file field")
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Please select a PDF file to upload")
 		default:
-			log.ErrorWithErr(err, "Failed to read uploaded file")
+			log.Error("Failed to read uploaded file")
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to read uploaded file")
 		}
 		return
@@ -111,28 +115,40 @@ func (h *DocumentHandlers) uploadDocumentHandler(w http.ResponseWriter, r *http.
 		UpdatedAt:      now,
 	}
 
-	docID, err := h.db.CreateDocument(r.Context(), doc)
-	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create document record")
-		return
-	}
+	var pageCount int
+	stored := runWithAccountLock(w, r, h.db, log, userID, false, "Failed to save PDF file", func(ctx context.Context) error {
+		docID, err := h.db.CreateDocument(ctx, doc)
+		if err != nil {
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to create document record"}
+		}
+		doc.ID = docID
 
-	filePath, err := h.fileStorage.SavePDF(strconv.FormatInt(docID, 10), pdfData)
-	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save PDF file")
-		return
-	}
+		filePath, err := h.fileStorage.SavePDF(strconv.FormatInt(docID, 10), pdfData)
+		if err != nil {
+			log.ErrorWithErr(err, "Failed to save PDF file")
+			h.discardFailedUpload(ctx, log, doc)
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to save PDF file"}
+		}
 
-	pageCount, err := h.pdfExtractor.PageCount(filePath)
-	if err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to read PDF page count")
-		return
-	}
+		pageCount, err = h.pdfExtractor.PageCount(filePath)
+		if err != nil {
+			// Parser errors can quote bytes of the uploaded file; log none of it.
+			log.WithField("document_id", docID).Warn("Uploaded PDF could not be parsed")
+			h.discardFailedUpload(ctx, log, doc)
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to read PDF page count"}
+		}
 
-	if err := h.db.UpdateDocumentFileInfo(r.Context(), docID, filePath, pageCount); err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to update document record")
+		if err := h.db.UpdateDocumentFileInfo(ctx, docID, filePath, pageCount); err != nil {
+			log.ErrorWithErr(err, "Failed to update document record")
+			h.discardFailedUpload(ctx, log, doc)
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to update document record"}
+		}
+		return nil
+	})
+	if !stored {
 		return
 	}
+	docID := doc.ID
 
 	httputil.WriteJSON(w, http.StatusCreated, UploadDocumentResponse{
 		DocumentID: docID,
@@ -364,22 +380,54 @@ func (h *DocumentHandlers) updateDocumentProgressHandler(w http.ResponseWriter, 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
+// deleteDocumentHandler removes the PDF first and stops on failure so a retry
+// can finish: once the row is gone nothing points at the file. The document
+// and its page scans are then removed in one transaction, so no page scan
+// (and its extracted text) outlives the document. Both run under the
+// exclusive account lock so an in-flight upload can't write its file after
+// its row is gone. Saved annotations are kept; they are separate learning items.
 func (h *DocumentHandlers) deleteDocumentHandler(w http.ResponseWriter, r *http.Request, doc *models.Document) {
 	userID := middleware.GetUserID(r.Context())
-	if err := h.db.DeleteScansByDocument(r.Context(), doc.ID, userID); err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete document scans")
+	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
+	deleted := runWithAccountLock(w, r, h.db, log, userID, true, "Failed to delete document", func(ctx context.Context) error {
+		if err := h.fileStorage.DeletePDF(documentPDFPath(h.config.UploadDir, doc)); err != nil {
+			log.ErrorWithErr(err, "Failed to delete PDF file")
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to delete document file"}
+		}
+		if err := h.db.DeleteDocumentAndPageScans(ctx, doc.ID, userID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return &lockedStepFailure{http.StatusNotFound, "Document not found"}
+			}
+			log.ErrorWithErr(err, "Failed to delete document records")
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to delete document"}
+		}
+		return nil
+	})
+	if deleted {
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// discardFailedUpload removes the PDF and record of an upload that could not
+// be completed (for example a malformed PDF), so neither is left behind.
+func (h *DocumentHandlers) discardFailedUpload(ctx context.Context, log *logger.Logger, doc *models.Document) {
+	if err := h.fileStorage.DeletePDF(documentPDFPath(h.config.UploadDir, doc)); err != nil {
+		log.ErrorWithErr(err, "Failed to remove PDF of failed upload")
 		return
 	}
-	if err := h.db.DeleteDocument(r.Context(), doc.ID, userID); err != nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, "Document not found")
-		return
+	if err := h.db.DeleteDocument(ctx, doc.ID, doc.UserID); err != nil {
+		log.ErrorWithErr(err, "Failed to remove record of failed upload")
 	}
-	if err := h.fileStorage.DeletePDF(doc.FileURL); err != nil {
-		logger.GetDefaultLogger().
-			WithRequestID(middleware.GetRequestID(r.Context())).
-			Warnf("Failed to delete PDF file: %v", err)
+}
+
+// documentPDFPath is the stored PDF location. Uploads that failed before the
+// record was updated have no file_url, but their file may still exist at the
+// path SavePDF derives from the document ID.
+func documentPDFPath(uploadDir string, doc *models.Document) string {
+	if doc.FileURL != "" {
+		return doc.FileURL
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return filepath.Join(uploadDir, "documents", strconv.FormatInt(doc.ID, 10)+".pdf")
 }
 
 func (h *DocumentHandlers) getPageTextHandler(w http.ResponseWriter, doc *models.Document, pageNumber int) {

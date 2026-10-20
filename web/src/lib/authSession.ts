@@ -1,9 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query'
 
-// Runtime cache populated by the service worker for API responses (see vite.config.ts).
+// Earlier service workers cached API responses here, keyed by URL only. The
+// current service worker never writes it; any copy left behind is purged.
 const API_CACHE_NAME = 'api-cache'
-// Pre-Clerk builds stored a locally minted token under this key.
-const LEGACY_TOKEN_KEY = 'auth_token'
+// Earlier builds kept account data in localStorage under these keys: a locally
+// minted token and saved annotations. Neither is scoped to an account.
+const LEGACY_STORAGE_KEYS = ['auth_token', 'savedAnnotations']
 
 /** Server message for a session whose ANNOTA account was deleted. */
 export const ACCOUNT_DELETED_MESSAGE = 'Unauthorized: account deleted'
@@ -58,19 +60,29 @@ export function tokenSession(token: string): TokenSession | null {
 }
 
 /**
+ * Removes account data that earlier builds stored in the browser without
+ * scoping it to an account. Safe to call at any time.
+ */
+export async function purgeLegacyBrowserData(): Promise<void> {
+  for (const key of LEGACY_STORAGE_KEYS) {
+    try {
+      window.localStorage.removeItem(key)
+    } catch {
+      // Storage can be unavailable (private mode); nothing to clear then.
+    }
+  }
+  if (typeof caches !== 'undefined') {
+    await caches.delete(API_CACHE_NAME).catch(() => false)
+  }
+}
+
+/**
  * Removes user-scoped data held in memory and browser caches so the next
  * account (or a signed-out visitor) cannot see it.
  */
 export async function clearUserScopedCaches(queryClient: QueryClient): Promise<void> {
   queryClient.clear()
-  try {
-    window.localStorage.removeItem(LEGACY_TOKEN_KEY)
-  } catch {
-    // Storage can be unavailable (private mode); nothing to clear then.
-  }
-  if (typeof caches !== 'undefined') {
-    await caches.delete(API_CACHE_NAME).catch(() => false)
-  }
+  await purgeLegacyBrowserData()
 }
 
 const AUTH_PATH_PREFIXES = ['/login', '/sign-up']

@@ -30,6 +30,31 @@ describe('API Client', () => {
       expect(window.localStorage.getItem).not.toHaveBeenCalled()
     })
 
+    it('bypasses the browser HTTP cache for every account request', async () => {
+      vi.mocked(getToken).mockResolvedValue('clerk-session-jwt')
+      vi.mocked(global.fetch)
+        .mockResolvedValueOnce(Response.json({ preferredLanguage: 'EN' }))
+        .mockResolvedValueOnce(new Response(new Blob(['image'])))
+
+      await getUserProfile()
+      await getScanImageBlob('/v1/scans/1/image')
+
+      for (const [, init] of vi.mocked(global.fetch).mock.calls) {
+        expect(init?.cache).toBe('no-store')
+      }
+      expect(global.fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('loads the profile with credentials so a cross-origin Clear-Site-Data applies', async () => {
+      vi.mocked(global.fetch).mockResolvedValueOnce(Response.json({ preferredLanguage: 'EN' }))
+
+      await getUserProfile()
+
+      const [, init] = vi.mocked(global.fetch).mock.calls[0]
+      expect(init?.credentials).toBe('include')
+      expect(init?.cache).toBe('no-store')
+    })
+
     it('omits Authorization when signed out', async () => {
       vi.mocked(global.fetch).mockResolvedValueOnce(Response.json({ preferredLanguage: 'EN' }))
 

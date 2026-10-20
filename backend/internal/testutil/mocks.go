@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ type MockDB struct {
 	nextDocID      int64
 	deletedClerk   map[string]bool
 	ocrProvenance  map[int64]*models.AIProvenance
+	accountLocks   sync.Map
 }
 
 func NewMockDB() *MockDB {
@@ -151,6 +153,8 @@ func (m *MockDB) UpdateUserLanguage(ctx context.Context, userID int64, language 
 }
 
 func (m *MockDB) DeleteUser(ctx context.Context, userID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, ok := m.users[userID]; !ok {
 		return sql.ErrNoRows
 	}
@@ -385,6 +389,52 @@ func (m *MockDB) DeleteScansByDocument(ctx context.Context, docID, userID int64)
 		}
 	}
 	return nil
+}
+
+func (m *MockDB) DeleteDocumentAndPageScans(ctx context.Context, docID, userID int64) error {
+	if doc, ok := m.documents[docID]; !ok || doc.UserID != userID {
+		return sql.ErrNoRows
+	}
+	if err := m.DeleteScansByDocument(ctx, docID, userID); err != nil {
+		return err
+	}
+	return m.DeleteDocument(ctx, docID, userID)
+}
+
+func (m *MockDB) GetUserUploads(ctx context.Context, userID int64) ([]*models.Scan, []*models.Document, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var scans []*models.Scan
+	for _, scan := range m.scans {
+		if scan.UserID == userID {
+			scanCopy := *scan
+			scans = append(scans, &scanCopy)
+		}
+	}
+	var docs []*models.Document
+	for _, doc := range m.documents {
+		if doc.UserID == userID {
+			docCopy := *doc
+			docs = append(docs, &docCopy)
+		}
+	}
+	return scans, docs, nil
+}
+
+func (m *MockDB) WithAccountLock(ctx context.Context, userID int64, exclusive bool, fn func(context.Context) error) error {
+	value, _ := m.accountLocks.LoadOrStore(userID, &sync.RWMutex{})
+	lock, ok := value.(*sync.RWMutex)
+	if !ok {
+		return fmt.Errorf("account lock has unexpected type %T", value)
+	}
+	if exclusive {
+		lock.Lock()
+		defer lock.Unlock()
+	} else {
+		lock.RLock()
+		defer lock.RUnlock()
+	}
+	return fn(ctx)
 }
 
 func (m *MockDB) DeleteDocument(ctx context.Context, docID, userID int64) error {

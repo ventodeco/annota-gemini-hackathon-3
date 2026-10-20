@@ -110,16 +110,17 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrUploadTooLarge):
-			log.Warnf("Image upload exceeds max size %d: %v", h.config.MaxUploadSize, err)
+			log.Warnf("Image upload exceeds max size %d", h.config.MaxUploadSize)
 			httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, fileTooLargeMBMessage(h.config.MaxUploadSize))
 		case errors.Is(err, ErrMultipartParse):
-			log.Warnf("Failed to parse multipart form: %v", err)
+			// Parser errors quote the malformed request; log only the classification.
+			log.Warn("Failed to parse multipart form")
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to parse form")
 		case errors.Is(err, ErrMultipartField):
-			log.Warnf("Failed to get image from form: %v", err)
+			log.Warn("Missing image field")
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Please select an image to upload")
 		default:
-			log.ErrorWithErr(err, "Failed to read uploaded file")
+			log.Error("Failed to read uploaded file")
 			httputil.WriteJSONError(w, http.StatusBadRequest, "Failed to read uploaded file")
 		}
 		return
@@ -156,27 +157,34 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:  now,
 	}
 
-	scanID, err := h.db.CreateScan(r.Context(), scan)
-	if err != nil {
-		log.ErrorWithErr(err, "Failed to create scan in database")
+	var scanID int64
+	var storagePath string
+	stored := runWithAccountLock(w, r, h.db, log, userID, false, "Failed to save uploaded image", func(ctx context.Context) error {
+		var err error
+		scanID, err = h.db.CreateScan(ctx, scan)
+		if err != nil {
+			log.ErrorWithErr(err, "Failed to create scan in database")
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to initialize scan"}
+		}
+
+		storagePath, _, err = h.fileStorage.SaveImage(strconv.FormatInt(scanID, 10), imageData, mimeType)
+		if err != nil {
+			log.ErrorWithErr(err, "Failed to save image to storage")
+			h.discardFailedScan(ctx, log, &models.Scan{ID: scanID, UserID: userID})
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to save uploaded image"}
+		}
+
+		if err := h.db.UpdateScanImageURL(ctx, scanID, privateScanImageURL(scanID)); err != nil {
+			log.ErrorWithErr(err, "Failed to update scan with image URL")
+		}
+		return nil
+	})
+	if !stored {
+		// No scan row or file exists, so no OCR will run: refund the page.
 		h.meter.Release(r.Context(), reservation)
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to initialize scan")
 		return
 	}
-
-	storagePath, _, err := h.fileStorage.SaveImage(strconv.FormatInt(scanID, 10), imageData, mimeType)
-	if err != nil {
-		log.ErrorWithErr(err, "Failed to save image to storage")
-		h.meter.Release(r.Context(), reservation)
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save uploaded image")
-		return
-	}
-
 	imageURL := privateScanImageURL(scanID)
-
-	if err := h.db.UpdateScanImageURL(r.Context(), scanID, imageURL); err != nil {
-		log.ErrorWithErr(err, "Failed to update scan with image URL")
-	}
 
 	log.WithFields(map[string]any{
 		"scan_id":   scanID,
@@ -336,15 +344,22 @@ func (h *ScanHandlers) deleteScanHandler(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if scan.ImageURL != "" {
+	// Remove the file first and keep the row on failure: once the row is gone
+	// nothing points at the image any more, so a retry could never remove it.
+	// The exclusive lock keeps an in-flight upload of this scan from writing
+	// its file after the row is gone.
+	deleted := runWithAccountLock(w, r, h.db, log, userID, true, "Failed to delete scan", func(ctx context.Context) error {
 		if err := h.deleteStoredScanImage(scan); err != nil {
-			log.Warnf("Failed to delete image file (continuing with DB delete): %v", err)
+			log.ErrorWithErr(err, "Failed to delete scan image")
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to delete scan"}
 		}
-	}
-
-	if err := h.db.DeleteScan(r.Context(), scanID, userID); err != nil {
-		log.ErrorWithErr(err, "Failed to delete scan")
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete scan")
+		if err := h.db.DeleteScan(ctx, scanID, userID); err != nil {
+			log.ErrorWithErr(err, "Failed to delete scan")
+			return &lockedStepFailure{http.StatusInternalServerError, "Failed to delete scan"}
+		}
+		return nil
+	})
+	if !deleted {
 		return
 	}
 
@@ -445,7 +460,9 @@ func (h *ScanHandlers) getScanImageHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "private, max-age=300")
+	// Images are fetched with a bearer token but cached by URL only; storing
+	// them would let another account on this browser, or a deleted scan, be shown.
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(data); err != nil {
 		log.WithUserID(userID).ErrorWithErr(err, "Failed to write scan image response")
@@ -484,6 +501,18 @@ func (h *ScanHandlers) processOCR(ctx context.Context, reservation *usage.Reserv
 	outcome = nil
 
 	log.Infof("OCR results saved to database successfully")
+}
+
+// discardFailedScan removes the row and any partially written image of a scan
+// whose upload failed, so no unusable record or unreachable file is left.
+func (h *ScanHandlers) discardFailedScan(ctx context.Context, log *logger.Logger, scan *models.Scan) {
+	if err := h.deleteStoredScanImage(scan); err != nil {
+		log.ErrorWithErr(err, "Failed to remove image of failed scan upload")
+		return
+	}
+	if err := h.db.DeleteScan(ctx, scan.ID, scan.UserID); err != nil {
+		log.ErrorWithErr(err, "Failed to remove record of failed scan upload")
+	}
 }
 
 func (h *ScanHandlers) openStoredScanImage(scan *models.Scan) ([]byte, string, error) {

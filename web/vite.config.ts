@@ -26,16 +26,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         navigateFallbackDenylist: [/^\/v1\//, /^\/healthz/],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/api\./,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              networkTimeoutSeconds: 10,
-            },
-          },
-        ],
+        // No runtime caching: API responses are private to one account and a
+        // URL-keyed cache would serve them to the next account or offline.
       },
     }),
   ],
