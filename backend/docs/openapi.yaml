@@ -1,14 +1,54 @@
 openapi: "3.0.3"
 info:
-  title: Gemini OCR+Annotation PWA API
+  title: ANNOTA API
   description: |
-    Backend API for a mobile-first PWA that uses Gemini Flash for OCR and
-    contextual annotations of Japanese text. Users scan book pages, convert
-    content to digital text via OCR, and interactively highlight words or
-    sentences to receive contextual explanations.
+    JSON API behind the ANNOTA mobile-first PWA. Users upload book-page images
+    or PDFs, get Japanese text through OCR, highlight words or sentences for
+    contextual explanations and speech, and save them as annotations. OCR,
+    explanation and speech run on the configured AI provider (see
+    docs/ai-routing.md); responses do not depend on which provider is used,
+    except for the speech audio format.
+
+    Usage guide with runnable examples: backend/docs/api.md.
+
+    ## Authentication
+
+    Every `/v1/*` route requires `Authorization: Bearer <Clerk session token>`
+    (see the `BearerAuth` scheme). The server maps the verified Clerk user to a
+    stable numeric local account; clients never send a user ID, and every
+    resource is scoped to the caller. The middleware returns these errors on
+    any `/v1/*` route, before the route's own validation:
+
+    | Status | `message` | Meaning |
+    |--------|-----------|---------|
+    | 401 | `Unauthorized: missing token` | No `Bearer` token |
+    | 401 | `Unauthorized: invalid token` | Invalid, expired or unknown session |
+    | 401 | `Unauthorized: account deleted` | The account was deleted; only `DELETE /v1/users/me` is still allowed |
+    | 403 | `Verified email required` | The Clerk user has no verified email |
+    | 409 | `legacy_google_link_required` | A pre-Clerk account must be linked first (docs/clerk-auth.md) |
+    | 503 | `Authentication service unavailable` | Clerk keys or user lookup unavailable |
+    | 500 | `Internal server error` | Local account could not be resolved |
+
+    ## Conventions
+
+    - Errors are JSON `ErrorResponse` objects. `code` is present only for
+      stable machine-readable reasons (rate limits, usage limits, provider
+      limits). Usage-limit errors add allowance fields (`UsageErrorResponse`).
+    - Unsupported methods on a known route return 405 `Method not allowed`.
+    - Every `/v1/*` response has `Cache-Control: no-store`.
+    - Optional response fields are omitted when empty, never sent as `null`.
+    - Timestamps are RFC 3339; IDs are positive 64-bit integers.
+    - List endpoints take `page` and `size`. Invalid or non-positive values fall
+      back to page 1 and the server default size (`DEFAULT_PAGE_SIZE`, 20);
+      `size` is capped at 100.
+    - Non-GET requests to `/v1/scans`, `/v1/ai/analyze` and `/v1/ai/speech`
+      share a per-user burst limit (`AI_RATE_LIMIT` requests per
+      `AI_RATE_LIMIT_WINDOW_SECONDS`, default 60 per hour): 429 `rate_limited`
+      with `Retry-After`. Daily usage allowances are separate; see
+      `GET /v1/entitlements/me` and docs/usage-quotas.md.
   version: "1.0.0"
   contact:
-    name: Gemini Hackathon Team
+    name: ANNOTA team
 
 servers:
   - url: http://localhost:8080
@@ -16,28 +56,34 @@ servers:
 
 tags:
   - name: Health
-    description: Service health checks
+    description: Liveness and readiness probes (no authentication)
   - name: Users
-    description: User profile and preferences
+    description: Account preferences, allowance and deletion
   - name: Scans
-    description: Image upload and OCR processing
+    description: Image upload, OCR status and scan images
+  - name: Documents
+    description: PDF upload, reading progress and page text
   - name: AI
-    description: Text analysis and speech synthesis via Gemini
+    description: Explanation and speech for highlighted text
   - name: Annotations
-    description: Saved annotation management
+    description: Saved explanations
+  - name: Events
+    description: Product analytics events
 
-security: []
+security:
+  - BearerAuth: []
 
 paths:
   /healthz:
     get:
       tags: [Health]
-      summary: Health check
-      description: Returns a simple health status to verify the service is running.
+      summary: Liveness check
+      description: Returns 200 while the process is running. Does not check dependencies.
       operationId: healthCheck
+      security: []
       responses:
         "200":
-          description: Service is healthy
+          description: Process is alive
           content:
             text/plain:
               schema:
@@ -53,6 +99,7 @@ paths:
         Otherwise returns 503 without dependency details. Use for deployment
         and monitoring checks; /healthz reports process liveness only.
       operationId: readinessCheck
+      security: []
       responses:
         "200":
           description: Dependencies are available
@@ -77,196 +124,276 @@ paths:
   /v1/users/me:
     get:
       tags: [Users]
-      summary: Get user profile
-      description: Returns the authenticated user's profile information.
+      summary: Get preferences
+      description: |
+        Returns the caller's ANNOTA preferences. Email and avatar come from the
+        Clerk client, not from this API. The response also sends
+        `Clear-Site-Data: "cache"` so cached responses from a previous account
+        on the same browser are dropped.
       operationId: getUserProfile
-      security:
-        - BearerAuth: []
       responses:
         "200":
-          description: User profile retrieved successfully
+          description: Preferences
+          headers:
+            Clear-Site-Data:
+              schema:
+                type: string
+                example: '"cache"'
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserProfileResponse"
+                $ref: "#/components/schemas/UserPreferences"
               example:
-                preferredLanguage: "ID"
+                preferredLanguage: ID
         "401":
-          description: Unauthorized - missing or invalid token
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: Unauthorized
+          $ref: "#/components/responses/Unauthorized"
         "404":
-          description: User not found
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: User not found
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
     patch:
       tags: [Users]
-      summary: Update user preferences
-      description: |
-        Updates the authenticated user's preferences. Currently supports
-        changing the preferred language for annotation explanations.
-        Valid languages are: ID (Indonesian), JP (Japanese), EN (English).
+      summary: Update preferences
+      description: Sets the preferred explanation language (`ID`, `JP` or `EN`).
       operationId: updateUserPreferences
-      security:
-        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateUserPreferencesRequest"
+              $ref: "#/components/schemas/UserPreferences"
             example:
-              preferredLanguage: "EN"
+              preferredLanguage: EN
       responses:
         "200":
-          description: Preferences updated successfully
+          description: Preferences updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UpdateUserPreferencesResponse"
+                $ref: "#/components/schemas/UserPreferences"
               example:
-                preferredLanguage: "EN"
+                preferredLanguage: EN
         "400":
-          description: Invalid request body or unsupported language
+          description: "`Invalid request body` or `Invalid language`"
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                example: Invalid language
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Bad Request
+                message: Invalid language
         "401":
-          description: Unauthorized
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Users]
+      summary: Delete account
+      description: |
+        Deletes the caller's uploaded files, then the local account and its
+        data together with a permanent tombstone for the Clerk user, then the
+        Clerk user itself. The tombstone stops the same Clerk user from
+        recreating an account.
+
+        Safe to retry. If the Clerk step fails (502), local data is already
+        gone; the tombstoned session can still call this route, which then
+        only repeats the Clerk deletion. All other routes return 401 for that
+        session.
+      operationId: deleteAccount
+      responses:
+        "204":
+          description: Account deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          description: "`Failed to delete account data`; the account still exists, retry"
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                example: Unauthorized
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Local data deleted but the Clerk user could not be removed; retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Bad Gateway
+                message: Account data deleted; sign-in removal failed, please retry
 
   /v1/users/me/languages:
     get:
       tags: [Users]
-      summary: List supported languages
-      description: Returns the list of supported languages for annotation explanations.
+      summary: List explanation languages
       operationId: getLanguages
-      security:
-        - BearerAuth: []
       responses:
         "200":
-          description: Languages retrieved successfully
+          description: Supported languages
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetLanguagesResponse"
               example:
                 languages:
-                  - caption: "ID"
+                  - caption: ID
                     imageUrl: "https://flagcdn.com/w40/id.png"
-                  - caption: "JP"
+                  - caption: JP
                     imageUrl: "https://flagcdn.com/w40/jp.png"
-                  - caption: "EN"
+                  - caption: EN
                     imageUrl: "https://flagcdn.com/w40/gb.png"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/entitlements/me:
+    get:
+      tags: [Users]
+      summary: Daily allowance
+      description: |
+        Returns the caller's daily allowance per metered feature. Counters are
+        persisted and include in-flight reservations; days are UTC. Global beta
+        budget totals are not exposed, only whether capacity remains. See
+        docs/usage-quotas.md.
+      operationId: getEntitlements
+      responses:
+        "200":
+          description: Plan, burst limits and today's usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntitlementResponse"
+              example:
+                plan: free
+                limits:
+                  aiRequestsPerWindow: 60
+                  aiWindowSeconds: 3600
+                  maxUploadSize: 10485760
+                usage:
+                  period: daily
+                  timezone: UTC
+                  resetAt: "2026-10-21T00:00:00Z"
+                  features:
+                    - feature: ocr
+                      unit: page
+                      limit: 10
+                      used: 2
+                      remaining: 8
+                      globalAvailable: true
+                    - feature: explanation
+                      unit: request
+                      limit: 50
+                      used: 5
+                      remaining: 45
+                      globalAvailable: true
+                    - feature: speech
+                      unit: character
+                      limit: 1500
+                      used: 40
+                      remaining: 1460
+                      maxPerRequest: 250
+                      globalAvailable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: The usage store could not be reached (`usage_unavailable`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Service Unavailable
+                message: Your usage allowance could not be loaded. Please try again shortly.
+                code: usage_unavailable
 
   /v1/scans:
     post:
       tags: [Scans]
-      summary: Upload image for OCR
+      summary: Upload an image for OCR
       description: |
-        Uploads an image file for OCR processing. The image is saved to
-        storage and OCR processing is started asynchronously in the
-        background via Gemini Flash. Supported formats: JPEG, PNG, WebP.
+        Stores the image and starts OCR in the background, then returns
+        immediately. Poll `GET /v1/scans/{id}` until `status` is `ready` or
+        `failed`. OCR must finish within 5 minutes of the upload
+        (`ocr_timeout`); a scan still processing after 6 minutes, for example
+        after a server restart, is reported as failed with `ocr_interrupted`.
+
+        The `image` part's Content-Type must be `image/jpeg`, `image/jpg`,
+        `image/png` or `image/webp`, and its size at most `MAX_UPLOAD_SIZE`
+        (default 10 MB). After validation the request takes one page from the
+        daily `ocr` allowance. The page is returned to the allowance if the
+        scan cannot be stored or OCR does not complete; it stays charged when
+        OCR succeeds, including `no_text_found`.
+
+        In rare cases where OCR can no longer start in time, the scan is
+        created as `failed` with `failureReason: ocr_failed` and the page is
+        refunded.
       operationId: createScan
-      security:
-        - BearerAuth: []
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
-              required:
-                - image
+              required: [image]
               properties:
                 image:
                   type: string
                   format: binary
-                  description: Image file (JPEG, PNG, or WebP)
+                  description: JPEG, PNG or WebP page image
+            encoding:
+              image:
+                contentType: image/jpeg, image/png, image/webp
       responses:
         "201":
-          description: Scan created, OCR processing started in background
+          description: Scan created; OCR is processing (or the scan already failed, see above)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CreateScanResponse"
               example:
                 scanId: 42
-                fullText: ""
-                imageUrl: "/uploads/42.jpg"
+                imageUrl: /v1/scans/42/image
+                sourceType: image
+                status: processing
+        "400":
+          description: |
+            `Failed to parse form`, `Please select an image to upload`,
+            `Failed to read uploaded file`, or
+            `Invalid image type. Please use JPEG, PNG, or WebP.`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Bad Request
+                message: Invalid image type. Please use JPEG, PNG, or WebP.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
         "429":
-          $ref: "#/components/responses/UsageLimited"
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          description: "`Failed to initialize scan` or `Failed to save uploaded image`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           $ref: "#/components/responses/UsageUnavailable"
-        "400":
-          description: Invalid form data or image type
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Bad Request"
-                message: "Invalid image type. Please use JPEG, PNG, or WebP."
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Unauthorized"
-                message: "Unauthorized"
-        "413":
-          description: File too large
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Request Entity Too Large"
-                message: "File too large. Maximum size is 10 MB."
     get:
       tags: [Scans]
       summary: List scans
       description: |
-        Returns a paginated list of scans belonging to the authenticated
-        user, ordered by creation date (newest first).
+        Returns the caller's scans, newest first. Includes image scans and
+        scans created from PDF pages.
       operationId: listScans
-      security:
-        - BearerAuth: []
       parameters:
-        - name: page
-          in: query
-          required: false
-          description: Page number (1-based, defaults to 1)
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-        - name: size
-          in: query
-          required: false
-          description: Number of items per page (defaults to server config, max 100)
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
       responses:
         "200":
-          description: Scans retrieved successfully
+          description: A page of scans
           content:
             application/json:
               schema:
@@ -274,129 +401,473 @@ paths:
               example:
                 data:
                   - id: 42
-                    imageUrl: "/uploads/42.jpg"
-                    detectedLanguage: "ja"
-                    createdAt: "2026-03-12T10:30:00Z"
+                    imageUrl: /v1/scans/42/image
+                    detectedLanguage: ja
+                    sourceType: image
+                    status: ready
+                    createdAt: "2026-10-20T10:30:00Z"
                   - id: 41
-                    imageUrl: "/uploads/41.png"
-                    createdAt: "2026-03-12T09:15:00Z"
+                    imageUrl: ""
+                    sourceType: pdf
+                    status: ready
+                    documentId: 3
+                    pageNumber: 2
+                    createdAt: "2026-10-20T09:15:00Z"
                 meta:
                   currentPage: 1
                   pageSize: 20
-                  nextPage: 2
         "401":
-          description: Unauthorized
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/scans/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ScanId"
+    get:
+      tags: [Scans]
+      summary: Get a scan
+      description: Returns the scan with its OCR text once `status` is `ready`.
+      operationId: getScan
+      responses:
+        "200":
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scan"
+              example:
+                id: 42
+                fullText: 駅前の小さな本屋で、新しい小説を買いました。
+                imageUrl: /v1/scans/42/image
+                detectedLanguage: ja
+                sourceType: image
+                status: ready
+                createdAt: "2026-10-20T10:30:00Z"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Scans]
+      summary: Delete a scan
+      description: |
+        Deletes the scan image and record. Annotations saved from the scan are
+        kept, with their scan link removed.
+      operationId: deleteScan
+      responses:
+        "204":
+          description: Scan deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/scans/{id}/image:
+    parameters:
+      - $ref: "#/components/parameters/ScanId"
+    get:
+      tags: [Scans]
+      summary: Get a scan image
+      description: |
+        Returns the uploaded image bytes with `Cache-Control: no-store`. This is
+        the `imageUrl` of image scans; scans created from PDF pages have no
+        image (`imageUrl` is empty).
+      operationId: getScanImage
+      responses:
+        "200":
+          description: Image bytes
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`Scan not found` or `Scan image not found`"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /v1/scans/{id}:
-    get:
-      tags: [Scans]
-      summary: Get scan details
+  /v1/documents:
+    post:
+      tags: [Documents]
+      summary: Upload a PDF
       description: |
-        Returns the full details of a scan including the OCR text (if
-        processing is complete) and detected language.
-      operationId: getScan
-      security:
-        - BearerAuth: []
+        Stores the PDF and reads its page count. The `file` part's Content-Type
+        must be `application/pdf` and its size at most `MAX_UPLOAD_SIZE`
+        (default 10 MB). A file that cannot be parsed as a PDF, or has no pages,
+        is rejected with 422. Page text is
+        extracted from the PDF itself, so PDF reading does not use OCR, the AI
+        provider or the daily allowance. A failed upload leaves no record or
+        file behind.
+      operationId: uploadDocument
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF file
+            encoding:
+              file:
+                contentType: application/pdf
+      responses:
+        "201":
+          description: Document stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadDocumentResponse"
+              example:
+                documentId: 3
+                pageCount: 12
+                filename: sample.pdf
+        "400":
+          description: |
+            `Failed to parse form`, `Please select a PDF file to upload`,
+            `Failed to read uploaded file`,
+            `Invalid file type. Please upload a PDF file.` or
+            `Uploaded file is empty`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Bad Request
+                message: Invalid file type. Please upload a PDF file.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "422":
+          description: The file is not a readable PDF, or has no pages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Unprocessable Entity
+                message: This file couldn't be read as a PDF. Try another file.
+        "500":
+          description: |
+            `Failed to create document record`, `Failed to save PDF file` or
+            `Failed to update document record`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      tags: [Documents]
+      summary: List documents
+      operationId: listDocuments
       parameters:
-        - $ref: "#/components/parameters/ScanId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
       responses:
         "200":
-          description: Scan details retrieved successfully
+          description: A page of documents
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetScanResponse"
+                $ref: "#/components/schemas/GetDocumentsResponse"
               example:
-                id: 42
-                fullText: "Japanese text extracted by OCR..."
-                imageUrl: "/uploads/42.jpg"
-                detectedLanguage: "ja"
-                createdAt: "2026-03-12T10:30:00Z"
-        "400":
-          description: Invalid scan ID format
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                data:
+                  - id: 3
+                    filename: sample.pdf
+                    pageCount: 12
+                    lastPageNumber: 4
+                    lastOpenedAt: "2026-10-20T11:00:00Z"
+                    createdAt: "2026-10-19T08:00:00Z"
+                    updatedAt: "2026-10-20T11:00:00Z"
+                meta:
+                  currentPage: 1
+                  pageSize: 20
         "401":
-          description: Unauthorized
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/documents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [Documents]
+      summary: Get a document
+      operationId: getDocument
+      responses:
+        "200":
+          description: Document metadata
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/Document"
+              example:
+                id: 3
+                filename: sample.pdf
+                pageCount: 12
+                lastPageNumber: 4
+                createdAt: "2026-10-19T08:00:00Z"
+                updatedAt: "2026-10-20T11:00:00Z"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Access denied - scan belongs to another user
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Forbidden"
-                message: "Access denied"
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Scan not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Not Found"
-                message: "Scan not found"
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
     delete:
-      tags: [Scans]
-      summary: Delete scan
+      tags: [Documents]
+      summary: Delete a document
       description: |
-        Deletes a scan and its associated image file. The scan must belong
-        to the authenticated user.
-      operationId: deleteScan
-      security:
-        - BearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/ScanId"
+        Deletes the PDF file, the document and the scans created from its
+        pages. Saved annotations are kept.
+      operationId: deleteDocument
       responses:
         "204":
-          description: Scan deleted successfully
+          description: Document deleted
         "400":
-          description: Invalid scan ID format
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/documents/{id}/file:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [Documents]
+      summary: Download the PDF
+      description: Returns the stored PDF for in-browser rendering.
+      operationId: getDocumentFile
+      responses:
+        "200":
+          description: PDF bytes
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: inline; filename="sample.pdf"
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/documents/{id}/pages/{pageNumber}:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+      - $ref: "#/components/parameters/PageNumber"
+    get:
+      tags: [Documents]
+      summary: Get page text
+      description: Extracts the text layer of one page. Image-only (scanned) PDF pages return empty text.
+      operationId: getDocumentPage
+      responses:
+        "200":
+          description: Page text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentPage"
+              example:
+                pageNumber: 4
+                text: 駅前の小さな本屋で、新しい小説を買いました。
+                totalPages: 12
+        "400":
+          description: "`Invalid document ID` or `Invalid page number`"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Access denied - scan belongs to another user
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Scan not found
+          description: "`Document not found` or `Page not found`"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Text extraction failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Internal Server Error
+                message: Couldn't read the text on this page. Please try again.
+
+  /v1/documents/{id}/pages/{pageNumber}/scan:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+      - $ref: "#/components/parameters/PageNumber"
+    post:
+      tags: [Documents]
+      summary: Get or create the scan for a page
+      description: |
+        Returns the scan that holds this page's extracted text, creating it if
+        needed. Idempotent and safe under concurrent requests: each page has
+        one scan, and only the request that creates it gets 201. The scan is
+        `ready` immediately and can be used as `scanId` for
+        `POST /v1/ai/analyze` and `POST /v1/annotations`. No request body.
+      operationId: createDocumentPageScan
+      responses:
+        "200":
+          description: The page already has a scan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentPageScanResponse"
+              example:
+                scanId: 41
+        "201":
+          description: Scan created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentPageScanResponse"
+              example:
+                scanId: 41
+        "400":
+          description: "`Invalid document ID` or `Invalid page number`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`Document not found` (also when it was deleted meanwhile), or `Page N not found. Document has M pages.`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Not Found
+                message: Page 13 not found. Document has 12 pages.
+        "500":
+          description: |
+            `Failed to prepare this page. Please try again.` or
+            `Couldn't read the text on this page. Please try again.`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/documents/{id}/progress:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    patch:
+      tags: [Documents]
+      summary: Save reading progress
+      operationId: updateDocumentProgress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDocumentProgressRequest"
+            example:
+              lastPageNumber: 4
+      responses:
+        "200":
+          description: Progress saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example:
+                status: saved
+        "400":
+          description: "`Invalid document ID`, `Invalid request body` or `lastPageNumber is out of range`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /v1/ai/analyze:
     post:
       tags: [AI]
-      summary: Analyze highlighted text
+      summary: Explain highlighted text
       description: |
-        Sends highlighted text and its surrounding context to Gemini for
-        contextual analysis. Returns meaning, usage examples, timing,
-        word breakdown, and alternative meanings in the user's preferred
-        language.
+        Explains `textToAnalyze` in context and returns translation, usage,
+        word breakdown and pronunciation. Takes one request from the daily
+        `explanation` allowance; a failed provider call is returned to the
+        caller's allowance.
+
+        Context: when `scanId` refers to a scan with OCR or page text, the
+        server uses that text (a window of up to 12,000 characters around the
+        selection) and ignores `context`. Otherwise `context` is used.
+
+        To keep the explanation's AI provenance on the saved annotation, send
+        the returned `provenance` back unchanged in
+        `POST /v1/annotations` `nuanceData`.
       operationId: analyzeText
-      security:
-        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -404,57 +875,80 @@ paths:
             schema:
               $ref: "#/components/schemas/AnalyzeRequest"
             example:
-              textToAnalyze: "お疲れ様です"
-              context: "会議が終わった後、同僚にお疲れ様ですと言いました。"
+              textToAnalyze: お疲れ様です
+              context: 会議が終わった後、同僚にお疲れ様ですと言いました。
+              scanId: 42
       responses:
         "200":
-          description: Analysis completed successfully
+          description: Explanation
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AnalyzeResponse"
+                $ref: "#/components/schemas/NuanceData"
               example:
-                meaning: "Good work / Thank you for your hard work"
-                usageExample: "会議後に上司に「お疲れ様です」と挨拶した。"
-                usageTiming: "Used when greeting colleagues after work or at the end of a meeting."
-                wordBreakdown: "お (honorific prefix) + 疲れ (tiredness) + 様 (formal suffix) + です (polite copula)"
-                alternativeMeaning: "Can also be used as a casual greeting among coworkers."
+                translation: Thank you for your hard work
+                contextualExplanation: A polite greeting to a colleague after finishing a meeting.
+                usageExample: 会議後に上司に「お疲れ様です」と挨拶した。
+                whenToUse: When greeting colleagues at work or after finishing a task together.
+                wordBreakdown: お (honorific prefix) + 疲れ (tiredness) + 様 (polite suffix) + です (copula)
+                alternativeMeanings: Also used as a casual hello between coworkers.
+                pronunciation:
+                  kana: おつかれさまです
+                  romaji: otsukaresama desu
+                meaning: Thank you for your hard work
+                usageTiming: When greeting colleagues at work or after finishing a task together.
+                alternativeMeaning: Also used as a casual hello between coworkers.
+                provenance:
+                  version: 1
+                  provider: routed
+                  gateway: openrouter
+                  model: example/model-name
+                  promptVersion: annotation/1
+        "400":
+          description: "`Invalid request body` or `textToAnalyze is required`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Bad Request
+                message: textToAnalyze is required
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`User not found` or `Scan not found`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
-          $ref: "#/components/responses/UsageLimited"
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          description: "`Database error` or `Failed to analyze text`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          $ref: "#/components/responses/ProviderError"
         "503":
           $ref: "#/components/responses/UsageUnavailable"
-        "400":
-          description: Invalid request body or missing required field
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: "textToAnalyze is required"
-        "401":
-          description: Unauthorized
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: Unauthorized
-        "500":
-          description: Failed to analyze text via Gemini
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: "Failed to analyze text"
 
   /v1/ai/speech:
     post:
       tags: [AI]
-      summary: Text-to-speech synthesis
+      summary: Speak highlighted text
       description: |
-        Synthesizes speech audio from the provided text using Gemini.
-        Returns raw audio binary data (typically WAV format).
+        Synthesizes `highlightedText` and returns the audio bytes. Only the
+        selection is spoken. Charges one `speech` character per Unicode
+        character of `highlightedText`; a selection longer than
+        `USAGE_SPEECH_MAX_CHARS_PER_REQUEST` (default 250) is rejected with
+        413 `usage_request_too_large`. A failed provider call is returned to
+        the caller's allowance. `contextText` and `tone` are accepted
+        for compatibility but not used by the current providers.
       operationId: synthesizeSpeech
-      security:
-        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -462,83 +956,66 @@ paths:
             schema:
               $ref: "#/components/schemas/SpeakRequest"
             example:
-              highlightedText: "お疲れ様です"
-              contextText: "会議が終わった後"
-              tone: "polite"
+              highlightedText: お疲れ様です
       responses:
         "200":
-          description: Audio synthesized successfully
+          description: |
+            Audio bytes. The format depends on the provider: usually
+            `audio/wav` or `audio/mpeg`, sometimes `audio/flac`.
           content:
             audio/wav:
               schema:
                 type: string
                 format: binary
-            audio/*:
+            audio/mpeg:
               schema:
                 type: string
                 format: binary
-        "413":
-          $ref: "#/components/responses/UsageRequestTooLarge"
-        "429":
-          $ref: "#/components/responses/UsageLimited"
-        "503":
-          $ref: "#/components/responses/UsageUnavailable"
+            audio/flac:
+              schema:
+                type: string
+                format: binary
         "400":
-          description: Invalid request body or missing required field
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: "highlightedText is required"
-        "401":
-          description: Unauthorized
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: Unauthorized
-        "500":
-          description: Failed to synthesize speech
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: "Failed to synthesize speech"
-
-  /v1/entitlements/me:
-    get:
-      tags: [Users]
-      summary: Daily beta allowance
-      description: |
-        Returns the caller's daily allowance per metered feature. Counters are
-        persisted and include in-flight reservations; days are UTC. Global beta
-        budget totals are not exposed, only whether capacity remains. See
-        docs/usage-quotas.md.
-      operationId: getEntitlements
-      security:
-        - BearerAuth: []
-      responses:
-        "200":
-          description: Current plan, configured limits and today's usage
+          description: "`Invalid request body` or `highlightedText is required`"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EntitlementResponse"
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Bad Request
+                message: highlightedText is required
         "401":
-          description: Unauthorized
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/UsageRequestTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          description: "`Failed to synthesize speech`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          $ref: "#/components/responses/ProviderError"
         "503":
           $ref: "#/components/responses/UsageUnavailable"
 
   /v1/annotations:
     post:
       tags: [Annotations]
-      summary: Create annotation
+      summary: Save an annotation
       description: |
-        Saves an annotation with the highlighted text, context, and
-        nuance data (analysis results). Optionally linked to a scan.
+        Saves a highlighted text with its explanation. With `scanId`, the
+        annotation is linked to that scan and gets `sourceType`,
+        `documentId`, `pageNumber` and `sourceLabel` from it. `scanId` 0 or
+        omitted saves it unlinked.
+
+        `nuanceData.provenance` is stored only if it matches the server's
+        current explanation producer exactly (as returned by
+        `POST /v1/ai/analyze`); otherwise it is dropped and the save still
+        succeeds. Saved provenance never includes `reportedModel`.
       operationId: createAnnotation
-      security:
-        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -547,82 +1024,84 @@ paths:
               $ref: "#/components/schemas/CreateAnnotationRequest"
             example:
               scanId: 42
-              highlightedText: "お疲れ様です"
-              contextText: "会議が終わった後、同僚にお疲れ様ですと言いました。"
+              highlightedText: お疲れ様です
+              contextText: 会議が終わった後、同僚にお疲れ様ですと言いました。
               nuanceData:
-                meaning: "Good work / Thank you for your hard work"
-                usageExample: "会議後に上司に「お疲れ様です」と挨拶した。"
-                usageTiming: "Used when greeting colleagues after work."
-                wordBreakdown: "お + 疲れ + 様 + です"
-                alternativeMeaning: "Casual greeting among coworkers."
+                translation: Thank you for your hard work
+                usageExample: 会議後に上司に「お疲れ様です」と挨拶した。
+                whenToUse: When greeting colleagues at work.
+                wordBreakdown: お + 疲れ + 様 + です
+                alternativeMeanings: Also a casual hello between coworkers.
+                pronunciation:
+                  kana: おつかれさまです
+                  romaji: otsukaresama desu
+                meaning: Thank you for your hard work
+                usageTiming: When greeting colleagues at work.
+                alternativeMeaning: Also a casual hello between coworkers.
       responses:
         "201":
-          description: Annotation created successfully
+          description: Annotation saved
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CreateAnnotationResponse"
               example:
                 annotationId: 7
-                status: "saved"
+                status: saved
         "400":
-          description: Invalid request body or missing required field
+          description: "`Invalid request body` or `highlightedText is required`"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
               example:
-                error: "Bad Request"
-                message: "highlightedText is required"
+                error: Bad Request
+                message: highlightedText is required
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
-          description: Failed to create annotation
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/InternalError"
     get:
       tags: [Annotations]
       summary: List annotations
       description: |
-        Returns a paginated list of annotations belonging to the
-        authenticated user. Optionally filter by scan ID.
+        Returns the caller's annotations, newest first. Filters: `scanId`, or
+        `documentId` with an optional `pageNumber`. `scanId` takes precedence
+        over `documentId`; `pageNumber` is ignored without `documentId`.
       operationId: listAnnotations
-      security:
-        - BearerAuth: []
       parameters:
-        - name: page
-          in: query
-          required: false
-          description: Page number (1-based, defaults to 1)
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-        - name: size
-          in: query
-          required: false
-          description: Number of items per page (defaults to server config, max 100)
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
         - name: scanId
           in: query
           required: false
-          description: Filter annotations by scan ID
+          description: Only annotations linked to this scan
           schema:
             type: integer
             format: int64
+            minimum: 1
+        - name: documentId
+          in: query
+          required: false
+          description: Only annotations from this PDF document
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: pageNumber
+          in: query
+          required: false
+          description: With `documentId`, only annotations from this page
+          schema:
+            type: integer
+            minimum: 1
       responses:
         "200":
-          description: Annotations retrieved successfully
+          description: A page of annotations
           content:
             application/json:
               schema:
@@ -630,125 +1109,133 @@ paths:
               example:
                 data:
                   - id: 7
-                    highlightedText: "お疲れ様です"
-                    nuanceSummary: "Good work / Thank you for your hard work"
-                    createdAt: "2026-03-12T11:00:00Z"
+                    highlightedText: お疲れ様です
+                    nuanceSummary: Thank you for your hard work
+                    scanId: 42
+                    sourceType: image
+                    sourceLabel: "OCR Scan #42"
+                    createdAt: "2026-10-20T11:00:00Z"
                   - id: 6
-                    highlightedText: "よろしくお願いします"
-                    nuanceSummary: "Please take care of it / Best regards"
-                    createdAt: "2026-03-12T10:45:00Z"
+                    highlightedText: よろしくお願いします
+                    nuanceSummary: Please treat me favorably / I look forward to working with you
+                    scanId: 41
+                    sourceType: pdf
+                    documentId: 3
+                    pageNumber: 2
+                    sourceLabel: sample.pdf page 2
+                    createdAt: "2026-10-20T10:45:00Z"
                 meta:
                   currentPage: 1
                   pageSize: 20
-                  nextPage: null
         "400":
-          description: Invalid scanId parameter
+          description: |
+            `scanId must be a positive integer`,
+            `documentId must be a positive integer` or
+            `pageNumber must be a positive integer`
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
               example:
-                error: "Bad Request"
-                message: "scanId must be a positive integer"
+                error: Bad Request
+                message: scanId must be a positive integer
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /v1/annotations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/AnnotationId"
     get:
       tags: [Annotations]
-      summary: Get annotation details
-      description: |
-        Returns the full details of an annotation including the complete
-        nuance data. The annotation must belong to the authenticated user.
+      summary: Get an annotation
       operationId: getAnnotation
-      security:
-        - BearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/AnnotationId"
       responses:
         "200":
-          description: Annotation details retrieved successfully
+          description: Annotation with its full explanation
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetAnnotationResponse"
+                $ref: "#/components/schemas/Annotation"
               example:
                 id: 7
-                highlightedText: "お疲れ様です"
-                contextText: "会議が終わった後、同僚にお疲れ様ですと言いました。"
+                scanId: 42
+                sourceType: image
+                sourceLabel: "OCR Scan #42"
+                highlightedText: お疲れ様です
+                contextText: 会議が終わった後、同僚にお疲れ様ですと言いました。
                 nuanceData:
-                  meaning: "Good work / Thank you for your hard work"
-                  usageExample: "会議後に上司に「お疲れ様です」と挨拶した。"
-                  usageTiming: "Used when greeting colleagues after work."
-                  wordBreakdown: "お + 疲れ + 様 + です"
-                  alternativeMeaning: "Casual greeting among coworkers."
-                createdAt: "2026-03-12T11:00:00Z"
+                  translation: Thank you for your hard work
+                  usageExample: 会議後に上司に「お疲れ様です」と挨拶した。
+                  whenToUse: When greeting colleagues at work.
+                  wordBreakdown: お + 疲れ + 様 + です
+                  alternativeMeanings: Also a casual hello between coworkers.
+                  pronunciation:
+                    kana: おつかれさまです
+                    romaji: otsukaresama desu
+                  meaning: Thank you for your hard work
+                  usageTiming: When greeting colleagues at work.
+                  alternativeMeaning: Also a casual hello between coworkers.
+                createdAt: "2026-10-20T11:00:00Z"
         "400":
-          description: Invalid annotation ID format
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Access denied - annotation belongs to another user
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Forbidden"
-                message: "Access denied"
+          $ref: "#/components/responses/Forbidden"
         "404":
-          description: Annotation not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              example:
-                error: "Not Found"
-                message: "Annotation not found"
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Annotations]
-      summary: Delete annotation
-      description: |
-        Deletes an annotation. The annotation must belong to the
-        authenticated user.
+      summary: Delete an annotation
+      description: Returns 404 both for unknown IDs and for another user's annotation.
       operationId: deleteAnnotation
-      security:
-        - BearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/AnnotationId"
       responses:
         "204":
-          description: Annotation deleted successfully
+          description: Annotation deleted
         "400":
-          description: Invalid annotation ID format
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/BadRequest"
         "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/Unauthorized"
         "404":
-          description: Annotation not found
+          $ref: "#/components/responses/NotFound"
+
+  /v1/events:
+    post:
+      tags: [Events]
+      summary: Record a product event
+      description: |
+        Records an allow-listed analytics event in the server log with the
+        caller's account. The body is limited to 2048 bytes and unknown fields
+        are rejected.
+      operationId: recordEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsEventRequest"
+            example:
+              name: first_annotation
+              properties:
+                source: pdf
+      responses:
+        "202":
+          description: Event accepted (no body)
+        "400":
+          description: |
+            `Invalid request body`, `name is required`, `unknown event`,
+            `unknown property` or `invalid property`
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Bad Request
+                message: unknown event
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
 components:
   securitySchemes:
@@ -759,412 +1246,227 @@ components:
       description: |
         Clerk session token from the web app (`getToken()`), sent as
         `Authorization: Bearer <token>`. The API verifies it against the
-        configured Clerk instance and maps it to the local numeric user;
-        see docs/clerk-auth.md. Errors: 401 invalid/expired/deleted session,
-        403 verified email required, 409 legacy_google_link_required,
-        503 identity service unavailable.
+        configured Clerk instance (issuer from `CLERK_PUBLISHABLE_KEY`,
+        authorized parties from `CLERK_AUTHORIZED_PARTIES`) and maps the Clerk
+        user to the local numeric account. Tokens are short-lived (about 60
+        seconds by default), so fetch a fresh one per request. See
+        docs/clerk-auth.md and the authentication table in the API
+        description for error responses.
 
   parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Page number, 1-based. Invalid values fall back to 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Size:
+      name: size
+      in: query
+      required: false
+      description: Items per page. Invalid values fall back to the server default (20); capped at 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
     ScanId:
       name: id
       in: path
       required: true
-      description: Unique scan identifier
+      description: Scan ID
       schema:
         type: integer
         format: int64
+        minimum: 1
         example: 42
     AnnotationId:
       name: id
       in: path
       required: true
-      description: Unique annotation identifier
+      description: Annotation ID
       schema:
         type: integer
         format: int64
+        minimum: 1
         example: 7
+    DocumentId:
+      name: id
+      in: path
+      required: true
+      description: Document ID
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+        example: 3
+    PageNumber:
+      name: pageNumber
+      in: path
+      required: true
+      description: 1-based page number, at most the document's `pageCount`
+      schema:
+        type: integer
+        minimum: 1
+        example: 4
 
   responses:
-    UsageLimited:
+    BadRequest:
+      description: Invalid path ID or request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Bad Request
+            message: Invalid scan ID
+    Unauthorized:
+      description: Missing, invalid or expired session, or deleted account (see the authentication table)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Unauthorized
+            message: "Unauthorized: invalid token"
+    Forbidden:
+      description: The resource belongs to another account (`Access denied`)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Forbidden
+            message: Access denied
+    NotFound:
+      description: The resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Not Found
+            message: Scan not found
+    FileTooLarge:
+      description: The upload exceeds `MAX_UPLOAD_SIZE`
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Request Entity Too Large
+            message: File too large. Maximum size is 10 MB.
+    InternalError:
+      description: Server-side failure; the message names the failed step
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ProviderError:
       description: |
-        Daily allowance reached. `usage_quota_exceeded` is the caller's own
-        allowance and includes limit/used/remaining. `usage_budget_exhausted`
-        is the global beta budget and includes only feature and resetAt.
-        Distinct from `rate_limited` (burst throttling) and
-        `ai_provider_limited` (upstream provider limit). Never 401, so the
-        session is kept. `Retry-After` gives seconds until the reset.
+        The AI provider failed: `AI provider configuration error` (provider
+        rejected credentials or configuration) or `AI provider error`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Bad Gateway
+            message: AI provider error
+    TooManyRequests:
+      description: |
+        Read `code`, and wait `Retry-After` seconds when present:
+
+        - `rate_limited`: per-user burst limit; retry after a short wait.
+        - `usage_quota_exceeded`: the caller's daily allowance for `feature`
+          is used; includes `limit`, `used` and `remaining`.
+        - `usage_budget_exhausted`: the global daily beta budget is used;
+          includes only `feature` and `resetAt`.
+        - `ai_provider_limited` (analyze and speech only): the upstream
+          provider's quota or rate limit; no `Retry-After`.
+
+        Never 401, so the session stays valid.
       headers:
         Retry-After:
+          description: Seconds to wait (rate limit) or until the daily reset (usage limits)
           schema:
             type: integer
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/UsageErrorResponse"
-          example:
-            error: Too Many Requests
-            message: "You have used today's explanation allowance. It resets daily at 00:00 UTC."
-            code: usage_quota_exceeded
-            feature: explanation
-            limit: 50
-            used: 50
-            remaining: 0
-            resetAt: "2026-10-21T00:00:00Z"
+          examples:
+            quotaExceeded:
+              value:
+                error: Too Many Requests
+                message: "You have used today's explanation allowance. It resets daily at 00:00 UTC."
+                code: usage_quota_exceeded
+                feature: explanation
+                limit: 50
+                used: 50
+                remaining: 0
+                resetAt: "2026-10-21T00:00:00Z"
+            budgetExhausted:
+              value:
+                error: Too Many Requests
+                message: "Today's beta capacity for image scans is used up. Please try again after the daily reset."
+                code: usage_budget_exhausted
+                feature: ocr
+                resetAt: "2026-10-21T00:00:00Z"
+            rateLimited:
+              value:
+                error: Too Many Requests
+                message: Too many requests. Please wait a moment and try again.
+                code: rate_limited
+            providerLimited:
+              value:
+                error: Too Many Requests
+                message: AI provider quota or rate limit reached
+                code: ai_provider_limited
     UsageRequestTooLarge:
-      description: A single request exceeds what any day allows (e.g. a long speech selection). Not retryable.
+      description: A single request exceeds the per-request limit (`usage_request_too_large`). Not retryable as is.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/UsageErrorResponse"
+          example:
+            error: Request Entity Too Large
+            message: This speech request is too large. The limit is 250 characters per request.
+            code: usage_request_too_large
+            feature: speech
+            max: 250
     UsageUnavailable:
-      description: The usage store could not be reached; requests fail closed (`usage_unavailable`).
+      description: The usage store could not be reached; metered requests fail closed (`usage_unavailable`).
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Service Unavailable
+            message: Your usage allowance could not be checked. Please try again shortly.
+            code: usage_unavailable
 
   schemas:
-    # --- User schemas ---
-    GetUserProfileResponse:
-      type: object
-      required:
-        - preferredLanguage
-      properties:
-        preferredLanguage:
-          type: string
-          description: "User's preferred language code (ID, JP, or EN)"
-          enum: [ID, JP, EN]
-
-    UpdateUserPreferencesRequest:
-      type: object
-      required:
-        - preferredLanguage
-      properties:
-        preferredLanguage:
-          type: string
-          description: "Language code to set as preferred"
-          enum: [ID, JP, EN]
-
-    UpdateUserPreferencesResponse:
-      type: object
-      required:
-        - preferredLanguage
-      properties:
-        preferredLanguage:
-          type: string
-          description: "Updated preferred language code"
-          enum: [ID, JP, EN]
-
-    Language:
-      type: object
-      required:
-        - caption
-        - imageUrl
-      properties:
-        caption:
-          type: string
-          description: Language code
-          example: "ID"
-        imageUrl:
-          type: string
-          format: uri
-          description: URL to the language flag icon
-          example: "https://flagcdn.com/w40/id.png"
-
-    GetLanguagesResponse:
-      type: object
-      required:
-        - languages
-      properties:
-        languages:
-          type: array
-          items:
-            $ref: "#/components/schemas/Language"
-
-    # --- Scan schemas ---
-    CreateScanResponse:
-      type: object
-      required:
-        - scanId
-        - imageUrl
-      properties:
-        scanId:
-          type: integer
-          format: int64
-          description: Unique identifier for the created scan
-        fullText:
-          type: string
-          description: "OCR text (empty initially; populated asynchronously)"
-        imageUrl:
-          type: string
-          description: Relative URL path to the uploaded image
-
-    ScanListItem:
-      type: object
-      required:
-        - id
-        - imageUrl
-        - createdAt
-      properties:
-        id:
-          type: integer
-          format: int64
-        imageUrl:
-          type: string
-          description: Relative URL path to the scan image
-        detectedLanguage:
-          type: string
-          nullable: true
-          description: Language detected by OCR (e.g. "ja")
-        createdAt:
-          type: string
-          format: date-time
-
-    GetScansResponse:
-      type: object
-      required:
-        - data
-        - meta
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/ScanListItem"
-        meta:
-          $ref: "#/components/schemas/PaginationMeta"
-
-    GetScanResponse:
-      type: object
-      required:
-        - id
-        - imageUrl
-        - createdAt
-      properties:
-        id:
-          type: integer
-          format: int64
-        fullText:
-          type: string
-          description: Full OCR text extracted from the image
-        imageUrl:
-          type: string
-          description: Relative URL path to the scan image
-        detectedLanguage:
-          type: string
-          nullable: true
-          description: Language detected by OCR
-        createdAt:
-          type: string
-          format: date-time
-
-    # --- AI schemas ---
-    AnalyzeRequest:
-      type: object
-      required:
-        - textToAnalyze
-      properties:
-        textToAnalyze:
-          type: string
-          description: The highlighted text to analyze
-        context:
-          type: string
-          description: Surrounding context text from the scanned page
-
-    AnalyzeResponse:
-      type: object
-      required:
-        - meaning
-        - usageExample
-        - usageTiming
-        - wordBreakdown
-        - alternativeMeaning
-      properties:
-        meaning:
-          type: string
-          description: Translation and explanation in the user's preferred language
-        usageExample:
-          type: string
-          description: Example sentence demonstrating usage
-        usageTiming:
-          type: string
-          description: When and in what situation this phrase is used
-        wordBreakdown:
-          type: string
-          description: Individual word-by-word breakdown with translations
-        alternativeMeaning:
-          type: string
-          description: Alternative meanings or interpretations
-
-    SpeakRequest:
-      type: object
-      required:
-        - highlightedText
-      properties:
-        highlightedText:
-          type: string
-          description: Text to synthesize into speech
-        contextText:
-          type: string
-          description: Surrounding context for pronunciation guidance
-        tone:
-          type: string
-          description: Desired tone for the speech synthesis
-
-    # --- Annotation schemas ---
-    NuanceData:
-      type: object
-      required:
-        - meaning
-        - usageExample
-        - usageTiming
-        - wordBreakdown
-        - alternativeMeaning
-      properties:
-        meaning:
-          type: string
-          description: Translation and explanation
-        usageExample:
-          type: string
-          description: Example sentence demonstrating usage
-        usageTiming:
-          type: string
-          description: When and in what situation this phrase is used
-        wordBreakdown:
-          type: string
-          description: Word-by-word breakdown
-        alternativeMeaning:
-          type: string
-          description: Alternative meanings or interpretations
-
-    CreateAnnotationRequest:
-      type: object
-      required:
-        - highlightedText
-        - nuanceData
-      properties:
-        scanId:
-          type: integer
-          format: int64
-          description: "ID of the scan this annotation belongs to (optional)"
-        highlightedText:
-          type: string
-          description: The text that was highlighted
-        contextText:
-          type: string
-          description: Surrounding context from the scan
-        nuanceData:
-          $ref: "#/components/schemas/NuanceData"
-
-    CreateAnnotationResponse:
-      type: object
-      required:
-        - annotationId
-        - status
-      properties:
-        annotationId:
-          type: integer
-          format: int64
-          description: Unique identifier for the created annotation
-        status:
-          type: string
-          description: Creation status
-          example: "saved"
-
-    AnnotationListItem:
-      type: object
-      required:
-        - id
-        - highlightedText
-        - nuanceSummary
-        - createdAt
-      properties:
-        id:
-          type: integer
-          format: int64
-        highlightedText:
-          type: string
-          description: The highlighted text
-        nuanceSummary:
-          type: string
-          description: Truncated summary of the meaning (max 100 characters)
-        createdAt:
-          type: string
-          format: date-time
-
-    GetAnnotationResponse:
-      type: object
-      required:
-        - id
-        - highlightedText
-        - nuanceData
-        - createdAt
-      properties:
-        id:
-          type: integer
-          format: int64
-        highlightedText:
-          type: string
-        contextText:
-          type: string
-          description: Surrounding context text (may be empty)
-        nuanceData:
-          $ref: "#/components/schemas/NuanceData"
-        createdAt:
-          type: string
-          format: date-time
-
-    GetAnnotationsResponse:
-      type: object
-      required:
-        - data
-        - meta
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/AnnotationListItem"
-        meta:
-          $ref: "#/components/schemas/PaginationMeta"
-
-    # --- Shared schemas ---
-    PaginationMeta:
-      type: object
-      required:
-        - currentPage
-        - pageSize
-      properties:
-        currentPage:
-          type: integer
-          description: Current page number (1-based)
-          example: 1
-        pageSize:
-          type: integer
-          description: Number of items per page
-          example: 20
-        nextPage:
-          type: integer
-          nullable: true
-          description: Next page number (null if on last page)
-        previousPage:
-          type: integer
-          nullable: true
-          description: Previous page number (null if on first page)
-
+    # --- Shared ---
     ErrorResponse:
       type: object
-      required:
-        - error
-        - message
+      required: [error, message]
       properties:
         error:
           type: string
-          description: HTTP status text (e.g. "Bad Request", "Not Found")
+          description: HTTP status text, e.g. `Bad Request`
         message:
           type: string
-          description: Human-readable error message with actionable detail
+          description: Human-readable reason
         code:
           type: string
-          description: Optional stable reason, e.g. rate_limited, ai_provider_limited, usage_unavailable
+          description: |
+            Stable machine-readable reason, present only for: `rate_limited`,
+            `ai_provider_limited`, `usage_unavailable` and the usage codes in
+            `UsageErrorResponse`.
 
     UsageErrorResponse:
       type: object
@@ -1176,22 +1478,91 @@ components:
           type: string
         code:
           type: string
-          enum: [usage_quota_exceeded, usage_budget_exhausted, usage_request_too_large]
+          enum:
+            - rate_limited
+            - ai_provider_limited
+            - usage_quota_exceeded
+            - usage_budget_exhausted
+            - usage_request_too_large
+            - usage_unavailable
         feature:
-          type: string
-          enum: [ocr, explanation, speech]
+          $ref: "#/components/schemas/UsageFeature"
         limit:
           type: integer
+          format: int64
         used:
           type: integer
+          format: int64
         remaining:
           type: integer
+          format: int64
         max:
           type: integer
-          description: Largest admissible single request (usage_request_too_large)
+          format: int64
+          description: Largest admissible single request (`usage_request_too_large`)
         resetAt:
           type: string
           format: date-time
+
+    UsageFeature:
+      type: string
+      enum: [ocr, explanation, speech]
+
+    PaginationMeta:
+      type: object
+      required: [currentPage, pageSize]
+      properties:
+        currentPage:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        nextPage:
+          type: integer
+          description: Present when this page is full (more items may follow)
+        previousPage:
+          type: integer
+          description: Present when `currentPage` > 1
+
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: saved
+
+    # --- Users ---
+    UserPreferences:
+      type: object
+      required: [preferredLanguage]
+      properties:
+        preferredLanguage:
+          type: string
+          enum: [ID, JP, EN]
+          description: Explanation language preference
+
+    Language:
+      type: object
+      required: [caption, imageUrl]
+      properties:
+        caption:
+          type: string
+          enum: [ID, JP, EN]
+        imageUrl:
+          type: string
+          format: uri
+          description: Flag icon URL
+
+    GetLanguagesResponse:
+      type: object
+      required: [languages]
+      properties:
+        languages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Language"
 
     EntitlementResponse:
       type: object
@@ -1202,13 +1573,17 @@ components:
           example: free
         limits:
           type: object
+          required: [aiRequestsPerWindow, aiWindowSeconds, maxUploadSize]
           properties:
             aiRequestsPerWindow:
               type: integer
+              description: Burst limit for AI-backed POST requests; 0 means disabled
             aiWindowSeconds:
               type: integer
             maxUploadSize:
               type: integer
+              format: int64
+              description: Largest image or PDF upload, in bytes
         usage:
           type: object
           required: [period, timezone, resetAt, features]
@@ -1229,20 +1604,408 @@ components:
                 required: [feature, unit, limit, used, remaining, globalAvailable]
                 properties:
                   feature:
-                    type: string
-                    enum: [ocr, explanation, speech]
+                    $ref: "#/components/schemas/UsageFeature"
                   unit:
                     type: string
                     enum: [page, request, character]
                   limit:
                     type: integer
+                    format: int64
                     description: Daily allowance; 0 means unavailable during the beta
                   used:
                     type: integer
+                    format: int64
                   remaining:
                     type: integer
+                    format: int64
                   maxPerRequest:
                     type: integer
+                    format: int64
+                    description: Largest single request, when limited (speech)
                   globalAvailable:
                     type: boolean
                     description: False when the global beta budget for today is used up
+
+    # --- Scans ---
+    ScanStatus:
+      type: string
+      enum: [processing, ready, failed]
+
+    ScanFailureReason:
+      type: string
+      description: |
+        Why a scan failed, present only when `status` is `failed`:
+
+        - `ocr_failed`: the OCR provider failed, or the result could not be saved
+        - `ocr_timeout`: OCR did not finish within 5 minutes of the upload
+        - `ocr_interrupted`: OCR stopped without a result (for example a server
+          restart); reported when the scan is read more than 6 minutes after upload
+        - `no_text_found`: OCR succeeded but found no text in the image
+
+        New reasons may be added; treat unknown values as a generic failure.
+      example: ocr_failed
+
+    CreateScanResponse:
+      type: object
+      required: [scanId, imageUrl, sourceType, status]
+      properties:
+        scanId:
+          type: integer
+          format: int64
+        fullText:
+          type: string
+          description: Always omitted here; OCR text arrives on `GET /v1/scans/{id}`
+        imageUrl:
+          type: string
+          description: API path of the image (`/v1/scans/{id}/image`)
+        sourceType:
+          type: string
+          enum: [image]
+        status:
+          $ref: "#/components/schemas/ScanStatus"
+        failureReason:
+          $ref: "#/components/schemas/ScanFailureReason"
+
+    ScanListItem:
+      type: object
+      required: [id, imageUrl, sourceType, status, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        imageUrl:
+          type: string
+          description: "`/v1/scans/{id}/image` for image scans; empty for PDF page scans"
+        detectedLanguage:
+          type: string
+          description: Language reported by OCR, e.g. `ja`
+        sourceType:
+          type: string
+          enum: [image, pdf]
+        status:
+          $ref: "#/components/schemas/ScanStatus"
+        failureReason:
+          $ref: "#/components/schemas/ScanFailureReason"
+        documentId:
+          type: integer
+          format: int64
+          description: Source document, for PDF page scans
+        pageNumber:
+          type: integer
+          description: Source page, for PDF page scans
+        createdAt:
+          type: string
+          format: date-time
+
+    Scan:
+      allOf:
+        - $ref: "#/components/schemas/ScanListItem"
+        - type: object
+          properties:
+            fullText:
+              type: string
+              description: OCR or PDF page text; omitted while processing or when empty
+
+    GetScansResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanListItem"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    # --- Documents ---
+    UploadDocumentResponse:
+      type: object
+      required: [documentId, pageCount, filename]
+      properties:
+        documentId:
+          type: integer
+          format: int64
+        pageCount:
+          type: integer
+        filename:
+          type: string
+          description: Filename sent by the client
+
+    Document:
+      type: object
+      required: [id, filename, pageCount, lastPageNumber, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        filename:
+          type: string
+        pageCount:
+          type: integer
+        lastPageNumber:
+          type: integer
+          description: Last saved reading position (1 when never saved)
+        lastOpenedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    GetDocumentsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Document"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    DocumentPage:
+      type: object
+      required: [pageNumber, text, totalPages]
+      properties:
+        pageNumber:
+          type: integer
+        text:
+          type: string
+          description: Extracted text layer; empty for image-only pages
+        totalPages:
+          type: integer
+
+    DocumentPageScanResponse:
+      type: object
+      required: [scanId]
+      properties:
+        scanId:
+          type: integer
+          format: int64
+
+    UpdateDocumentProgressRequest:
+      type: object
+      required: [lastPageNumber]
+      properties:
+        lastPageNumber:
+          type: integer
+          minimum: 1
+          description: Between 1 and the document's `pageCount`
+
+    # --- AI ---
+    AnalyzeRequest:
+      type: object
+      required: [textToAnalyze]
+      properties:
+        textToAnalyze:
+          type: string
+          description: The highlighted text
+        context:
+          type: string
+          description: Surrounding text, used when `scanId` gives no text
+        scanId:
+          type: integer
+          format: int64
+          description: Scan the selection comes from; its text is used as context
+
+    SpeakRequest:
+      type: object
+      required: [highlightedText]
+      properties:
+        highlightedText:
+          type: string
+          description: Text to speak; charged per character
+        contextText:
+          type: string
+          description: Accepted but not used by the current providers
+        tone:
+          type: string
+          description: Accepted but not used by the current providers
+
+    Pronunciation:
+      type: object
+      properties:
+        kana:
+          type: string
+        romaji:
+          type: string
+
+    AIProvenance:
+      type: object
+      description: |
+        Configured producer of an AI output. Identifiers only: never keys,
+        prompts, request IDs or text.
+      required: [version, provider, model, promptVersion]
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        provider:
+          type: string
+          enum: [minimax, gemini, routed]
+        gateway:
+          type: string
+        region:
+          type: string
+        model:
+          type: string
+        reportedModel:
+          type: string
+          description: Model reported by the provider for this response; never stored on annotations
+        promptVersion:
+          type: string
+
+    NuanceDataFields:
+      type: object
+      properties:
+        translation:
+          type: string
+        contextualExplanation:
+          type: string
+        usageExample:
+          type: string
+        whenToUse:
+          type: string
+        wordBreakdown:
+          type: string
+        alternativeMeanings:
+          type: string
+        pronunciation:
+          $ref: "#/components/schemas/Pronunciation"
+        meaning:
+          type: string
+          description: Short meaning; also used for list summaries
+        usageTiming:
+          type: string
+          description: Same value as `whenToUse` (kept for older clients)
+        alternativeMeaning:
+          type: string
+          description: Same value as `alternativeMeanings` (kept for older clients)
+        provenance:
+          $ref: "#/components/schemas/AIProvenance"
+
+    NuanceData:
+      description: |
+        Explanation of a highlighted text. `translation`,
+        `contextualExplanation`, `whenToUse` and `alternativeMeanings` are
+        omitted when empty; older saved annotations may lack them, and have no
+        `provenance` (unknown producer).
+      allOf:
+        - $ref: "#/components/schemas/NuanceDataFields"
+        - type: object
+          required: [usageExample, wordBreakdown, pronunciation, meaning, usageTiming, alternativeMeaning]
+
+    # --- Annotations ---
+    CreateAnnotationRequest:
+      type: object
+      required: [highlightedText]
+      properties:
+        scanId:
+          type: integer
+          format: int64
+          description: Scan to link; 0 or omitted saves the annotation unlinked
+        highlightedText:
+          type: string
+        contextText:
+          type: string
+        nuanceData:
+          $ref: "#/components/schemas/NuanceDataFields"
+
+    CreateAnnotationResponse:
+      type: object
+      required: [annotationId, status]
+      properties:
+        annotationId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [saved]
+
+    AnnotationSource:
+      type: object
+      properties:
+        scanId:
+          type: integer
+          format: int64
+          description: Linked scan; omitted when unlinked or after the scan was deleted
+        sourceType:
+          type: string
+          enum: [image, pdf]
+        documentId:
+          type: integer
+          format: int64
+        pageNumber:
+          type: integer
+        sourceLabel:
+          type: string
+          description: "Display label, e.g. `OCR Scan #42` or `sample.pdf page 2`"
+
+    AnnotationListItem:
+      allOf:
+        - $ref: "#/components/schemas/AnnotationSource"
+        - type: object
+          required: [id, highlightedText, nuanceSummary, createdAt]
+          properties:
+            id:
+              type: integer
+              format: int64
+            highlightedText:
+              type: string
+            nuanceSummary:
+              type: string
+              description: "`translation`, or `meaning` when empty, truncated to about 100 bytes with `...`"
+            createdAt:
+              type: string
+              format: date-time
+
+    Annotation:
+      allOf:
+        - $ref: "#/components/schemas/AnnotationSource"
+        - type: object
+          required: [id, highlightedText, nuanceData, createdAt]
+          properties:
+            id:
+              type: integer
+              format: int64
+            highlightedText:
+              type: string
+            contextText:
+              type: string
+              description: Omitted when empty
+            nuanceData:
+              $ref: "#/components/schemas/NuanceData"
+            createdAt:
+              type: string
+              format: date-time
+
+    GetAnnotationsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnnotationListItem"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    # --- Events ---
+    AnalyticsEventRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          enum: [first_annotation, reader_activation]
+        properties:
+          type: object
+          additionalProperties: false
+          properties:
+            source:
+              type: string
+              enum: [image, pdf, camera, gallery]
