@@ -806,8 +806,8 @@ components:
             message: "You have used today's explanation allowance. It resets daily at 00:00 UTC."
             code: usage_quota_exceeded
             feature: explanation
-            limit: 100
-            used: 100
+            limit: 50
+            used: 50
             remaining: 0
             resetAt: "2026-10-21T00:00:00Z"
     UsageRequestTooLarge:

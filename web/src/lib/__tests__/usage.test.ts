@@ -17,22 +17,22 @@ const entitlementsBody = {
     timezone: 'UTC',
     resetAt: '2026-10-21T00:00:00Z',
     features: [
-      { feature: 'ocr', unit: 'page', limit: 20, used: 3, remaining: 17, globalAvailable: true },
-      { feature: 'explanation', unit: 'request', limit: 100, used: 100, remaining: 0, globalAvailable: true },
-      { feature: 'speech', unit: 'character', limit: 3000, used: 0, remaining: 3000, maxPerRequest: 500, globalAvailable: false },
+      { feature: 'ocr', unit: 'page', limit: 10, used: 3, remaining: 7, globalAvailable: true },
+      { feature: 'explanation', unit: 'request', limit: 50, used: 50, remaining: 0, globalAvailable: true },
+      { feature: 'speech', unit: 'character', limit: 1500, used: 0, remaining: 1500, maxPerRequest: 250, globalAvailable: false },
     ],
   },
 }
 
 function allowance(overrides: Partial<FeatureAllowance>): FeatureAllowance {
-  return { feature: 'ocr', unit: 'page', limit: 20, used: 0, remaining: 20, globalAvailable: true, ...overrides }
+  return { feature: 'ocr', unit: 'page', limit: 10, used: 0, remaining: 10, globalAvailable: true, ...overrides }
 }
 
 describe('parseEntitlements', () => {
   it('accepts the API shape', () => {
     const parsed = parseEntitlements(entitlementsBody)
     expect(parsed?.usage.features.map((f) => f.feature)).toEqual(['ocr', 'explanation', 'speech'])
-    expect(parsed?.usage.features[2].maxPerRequest).toBe(500)
+    expect(parsed?.usage.features[2].maxPerRequest).toBe(250)
   })
 
   it.each([
@@ -47,11 +47,11 @@ describe('parseEntitlements', () => {
 
 describe('getAllowanceState', () => {
   it.each([
-    ['available', allowance({ remaining: 17 })],
-    ['low', allowance({ remaining: 4 })],
-    ['exhausted', allowance({ used: 20, remaining: 0 })],
+    ['available', allowance({ used: 3, remaining: 7 })],
+    ['low', allowance({ used: 8, remaining: 2 })],
+    ['exhausted', allowance({ used: 10, remaining: 0 })],
     ['disabled', allowance({ limit: 0, remaining: 0 })],
-    ['paused', allowance({ remaining: 10, globalAvailable: false })],
+    ['paused', allowance({ used: 5, remaining: 5, globalAvailable: false })],
   ])('derives %s', (state, value) => {
     expect(getAllowanceState(value)).toBe(state)
   })
@@ -67,7 +67,7 @@ describe('usage errors', () => {
   it('loads and validates entitlements', async () => {
     global.fetch = vi.fn().mockResolvedValueOnce(Response.json(entitlementsBody))
     const result = await getEntitlements()
-    expect(result.usage.features[0].remaining).toBe(17)
+    expect(result.usage.features[0].remaining).toBe(7)
 
     global.fetch = vi.fn().mockResolvedValueOnce(Response.json({ plan: 'free' }))
     await expect(getEntitlements()).rejects.toThrow('Unexpected entitlements response')
@@ -93,7 +93,7 @@ describe('usage errors', () => {
 
   it.each([
     ['usage_budget_exhausted', { feature: 'ocr', resetAt: '2026-10-21T00:00:00Z' }, /beta capacity for image scan is used up/],
-    ['usage_request_too_large', { feature: 'speech', max: 500 }, /Select up to 500 characters/],
+    ['usage_request_too_large', { feature: 'speech', max: 250 }, /Select up to 250 characters/],
     ['usage_unavailable', {}, /could not be checked/],
     ['rate_limited', {}, /Too many requests/],
     ['ai_provider_limited', {}, /AI service is busy/],
