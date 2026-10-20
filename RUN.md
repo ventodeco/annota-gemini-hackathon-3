@@ -4,7 +4,7 @@ Quick reference guide for running the application.
 
 ## Prerequisites
 
-- **Go 1.25.x** or later
+- **Go 1.27.3** or later
 - **bun** (for frontend)
 - **Nix dev shell** (for local PostgreSQL and Redis)
 - **OpenRouter API Key** for OCR

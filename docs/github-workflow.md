@@ -219,7 +219,7 @@ Types:
 CI runs on every PR to `dev`. Before merging, also check the items Dependabot does not handle:
 
 - **Runtime pins:** an `oven/bun` or `node` image bump does not update `packageManager` and `engines` in `package.json`, `.node-version`, `BUN_VERSION` in `.github/workflows/ci-cd.yml`, or `flake.nix`. Update them in the same PR.
-- **Go toolchain:** `backend/Dockerfile` sets `GOTOOLCHAIN` because the matching `golang` Alpine image was not yet published. Once it is, remove the override; until then, `golang` image bumps do not change the toolchain.
+- **Go toolchain:** the official `golang` image sets `GOTOOLCHAIN=local`, so the builder in `backend/Dockerfile` must be at least the `go` version in `backend/go.mod`. When raising `go.mod`, bump the image in the same PR.
 - **Alpine tag suffix:** image tags carry an `-alpineX.Y` suffix, and Dependabot keeps it. When upstream stops publishing that suffix, updates stop. Revisit the suffixes when a newer Alpine release is adopted.
 - **nginx:** only the even stable line is used. When a new stable line is adopted, add the next odd mainline to the `ignore` list.
 - **PostgreSQL/Redis:** intentionally not tracked. Major upgrades need a data migration (#43).
