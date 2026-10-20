@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AnnotationDrawer } from '../AnnotationDrawer'
@@ -37,8 +37,15 @@ vi.mock('framer-motion', () => ({
   },
 }))
 
+const contentRender = vi.hoisted(() => ({ shouldThrow: false }))
+
 vi.mock('../AnnotationContent', () => ({
-  AnnotationContent: () => <div>annotation-content</div>,
+  AnnotationContent: () => {
+    if (contentRender.shouldThrow) {
+      throw new Error('malformed annotation')
+    }
+    return <div>annotation-content</div>
+  },
 }))
 
 const annotation: Annotation = {
@@ -112,5 +119,37 @@ describe('AnnotationDrawer', () => {
     await user.click(screen.getByRole('button', { name: 'Regenerate' }))
 
     expect(onRegenerate).toHaveBeenCalledTimes(1)
+  })
+
+  describe('when the annotation content fails to render', () => {
+    afterEach(() => {
+      contentRender.shouldThrow = false
+      vi.restoreAllMocks()
+    })
+
+    it('shows a contained, closable fallback instead of crashing the page', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      contentRender.shouldThrow = true
+      const user = userEvent.setup()
+      const onClose = vi.fn()
+
+      const { rerender } = render(
+        <AnnotationDrawer isOpen onClose={onClose} annotation={annotation} />,
+      )
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Explanation unavailable')
+      expect(screen.getByRole('heading', { name: 'Explanation unavailable' })).toHaveFocus()
+      expect(screen.queryByRole('button', { name: 'Save Annotation' })).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Close' }))
+      expect(onClose).toHaveBeenCalledTimes(1)
+
+      contentRender.shouldThrow = false
+      rerender(<AnnotationDrawer isOpen={false} onClose={onClose} annotation={null} />)
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+      rerender(<AnnotationDrawer isOpen onClose={onClose} annotation={annotation} />)
+      expect(screen.getByText('annotation-content')).toBeInTheDocument()
+    })
   })
 })

@@ -1,7 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
+import { PageErrorBoundary } from '@/components/layout/PageErrorBoundary'
 import { AuthNotConfigured, ClerkRoot } from '@/components/auth/ClerkRoot'
 import { ProtectedRoute, PublicRoute } from '@/components/auth/RouteGuards'
 import LoginPage from '@/pages/LoginPage'
@@ -30,30 +31,22 @@ const queryClient = new QueryClient({
 
 const CLERK_PUBLISHABLE_KEY: string = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? ''
 
-function PageErrorBoundary({ children }: { children: React.ReactNode }) {
-  const location = useLocation()
-
-  return (
-    <ErrorBoundary resetKey={location.pathname}>
-      {children}
-    </ErrorBoundary>
-  )
-}
-
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        {CLERK_PUBLISHABLE_KEY ? (
-          <ClerkRoot publishableKey={CLERK_PUBLISHABLE_KEY}>
-            <AppRoutes />
-          </ClerkRoot>
-        ) : (
-          <AuthNotConfigured />
-        )}
-        <Toaster />
-      </BrowserRouter>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          {CLERK_PUBLISHABLE_KEY ? (
+            <ClerkRoot publishableKey={CLERK_PUBLISHABLE_KEY}>
+              <AppRoutes />
+            </ClerkRoot>
+          ) : (
+            <AuthNotConfigured />
+          )}
+          <Toaster />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary>
   )
 }
 
