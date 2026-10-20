@@ -12,7 +12,7 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
   - When to use
   - Word breakdown
   - Alternative meanings
-- **Google OAuth**: Authenticated user accounts with preferences and history
+- **Clerk sign-in**: Google and email accounts with ANNOTA preferences and history (see [docs/clerk-auth.md](docs/clerk-auth.md))
 - **PWA Support**: Installable as a Progressive Web App
 
 ## Prerequisites
@@ -35,7 +35,9 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 2. **Set up environment variables**:
    ```bash
    cp backend/.env.example backend/.env
-   # Edit backend/.env and set OpenRouter, MiniMax, database, Redis, OAuth, and JWT values
+   # Edit backend/.env and set AI provider, database, Redis, and Clerk values
+   cp web/.env.example web/.env
+   # Edit web/.env and set VITE_CLERK_PUBLISHABLE_KEY (public Clerk key)
    ```
 
 3. **Install dependencies**:
@@ -72,7 +74,7 @@ Start PostgreSQL and Redis first using your existing local or container setup. F
 bun run dev
 ```
 
-Set backend env for OAuth callback redirect to frontend dev server:
+Set the frontend origin the backend accepts in Clerk session tokens:
 ```bash
 # backend/.env
 APP_BASE_URL=http://localhost:8080
@@ -92,7 +94,7 @@ bun run dev
 ```
 
 Then access the frontend dev server at `http://localhost:5173`.
-In this split-dev mode, OAuth login does not require `bun run build`.
+In this split-dev mode, Clerk sign-in does not require `bun run build`.
 
 ## Environment Variables
 
@@ -108,11 +110,15 @@ See `backend/.env.example` for backend configuration options:
 - `MINIMAX_TTS_VOICE_ID`: MiniMax voice ID (default: `Japanese_Whisper_Belle`)
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY`: required only in legacy `gemini` mode. Routed mode requires only the environment keys referenced by active profiles.
 - `DB_CONNECTION_STRING` or `POSTGRES_*` values (required): PostgreSQL connection settings
-- `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` (required): Google OAuth credentials
-- `JWT_SECRET` (required): JWT signing secret, at least 32 characters
-- `REDIS_ADDR`: Redis address for OAuth state and caching (default: `localhost:6379`)
+- `CLERK_SECRET_KEY` (required, backend only): Clerk secret key (`sk_test_`/`sk_live_`)
+- `CLERK_PUBLISHABLE_KEY` (required): public Clerk key; the backend derives the accepted token issuer from it
+- `CLERK_AUTHORIZED_PARTIES`: comma-separated frontend origins accepted in the token `azp` claim (default: `FRONTEND_BASE_URL`)
+- `CLERK_JWT_KEY`: optional PEM public key for networkless token verification
+- `REDIS_ADDR`: Redis address, a required runtime dependency (default: `localhost:6379`)
 - `APP_BASE_URL`: Base URL for the application (default: `http://localhost:8080`)
-- `FRONTEND_BASE_URL`: Frontend callback URL for OAuth redirect (default: `APP_BASE_URL`)
+- `FRONTEND_BASE_URL`: Frontend origin (default: `APP_BASE_URL`)
+
+The web build needs `VITE_CLERK_PUBLISHABLE_KEY` (same public key). See [docs/clerk-auth.md](docs/clerk-auth.md) for Clerk setup and the sign-in cutover.
 - `PORT`: Server port (default: `8080`)
 - `UPLOAD_DIR`: Directory for uploaded images (default: `data/uploads`)
 - `MAX_UPLOAD_SIZE`: Maximum upload size in bytes (default: `10485760` = 10MB)
@@ -201,7 +207,7 @@ gemini-hackathon/
 
 ## Database
 
-The application uses PostgreSQL for persistent data and Redis for OAuth state and caching. In the Nix dev shell, start both local services with `dev-services start`, then configure the backend using `DB_CONNECTION_STRING` or the `POSTGRES_*` variables in `backend/.env.example`.
+The application uses PostgreSQL for persistent data and requires Redis as a runtime dependency. In the Nix dev shell, start both local services with `dev-services start`, then configure the backend using `DB_CONNECTION_STRING` or the `POSTGRES_*` variables in `backend/.env.example`.
 
 Migrations are run automatically on startup. See `backend/migrations/001_initial_schema.sql` for the schema.
 
@@ -230,7 +236,7 @@ This product includes:
 - Image upload and storage
 - OCR text extraction
 - Text annotation
-- Google OAuth authentication
+- Clerk authentication (Google and email)
 - Bookmarks and history
 
 Future phases:

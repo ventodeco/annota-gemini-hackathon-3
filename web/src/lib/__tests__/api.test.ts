@@ -1,11 +1,81 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { createScan, deleteAccount, getScan, analyzeText, getScanImageBlob, getScanImageUrl, getAnnotations, synthesizeSpeech, trackEvent } from '../api'
+import { getToken } from '@clerk/react'
+import { ApiError, createScan, deleteAccount, getScan, getUserProfile, analyzeText, getScanImageBlob, getScanImageUrl, getAnnotations, synthesizeSpeech, trackEvent } from '../api'
+import { setUnauthorizedHandler } from '../authSession'
+
+vi.mock('@clerk/react', () => ({
+  getToken: vi.fn(),
+}))
 
 describe('API Client', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     global.fetch = vi.fn() as Mock
-    window.localStorage.getItem = vi.fn().mockReturnValue(null)
+    vi.mocked(getToken).mockResolvedValue(null)
+    setUnauthorizedHandler(null)
+  })
+
+  describe('session token', () => {
+    it('sends the current Clerk session token as a Bearer header only', async () => {
+      vi.mocked(getToken).mockResolvedValue('clerk-session-jwt')
+      vi.mocked(global.fetch).mockResolvedValueOnce(Response.json({ preferredLanguage: 'EN' }))
+
+      await getUserProfile()
+
+      const [, init] = vi.mocked(global.fetch).mock.calls[0]
+      expect(init?.headers).toEqual(
+        expect.objectContaining({ Authorization: 'Bearer clerk-session-jwt' }),
+      )
+      expect(init?.headers).not.toHaveProperty('x-token')
+      expect(window.localStorage.getItem).not.toHaveBeenCalled()
+    })
+
+    it('omits Authorization when signed out', async () => {
+      vi.mocked(global.fetch).mockResolvedValueOnce(Response.json({ preferredLanguage: 'EN' }))
+
+      await getUserProfile()
+
+      const [, init] = vi.mocked(global.fetch).mock.calls[0]
+      expect(init?.headers).not.toHaveProperty('Authorization')
+    })
+
+    it('reports 401 responses with the server message and the token that was sent', async () => {
+      vi.mocked(getToken).mockResolvedValue('token-of-session-a')
+      const handler = vi.fn()
+      setUnauthorizedHandler(handler)
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        Response.json({ error: 'Unauthorized', message: 'Unauthorized: account deleted' }, { status: 401 }),
+      )
+
+      await expect(getUserProfile()).rejects.toBeInstanceOf(ApiError)
+      expect(handler).toHaveBeenCalledWith({ message: 'Unauthorized: account deleted', token: 'token-of-session-a' })
+    })
+
+    it('finishes a pending deletion with the given session token, not the current one', async () => {
+      vi.mocked(getToken).mockResolvedValue('token-of-session-b')
+      vi.mocked(global.fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+      await deleteAccount({ token: 'token-of-session-a' })
+
+      expect(getToken).not.toHaveBeenCalled()
+      const [, init] = vi.mocked(global.fetch).mock.calls[0]
+      expect(init?.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer token-of-session-a' }))
+    })
+
+    it('exposes status and parsed message on API errors without signing out', async () => {
+      const handler = vi.fn()
+      setUnauthorizedHandler(handler)
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        Response.json({ error: 'Conflict', message: 'legacy_google_link_required' }, { status: 409 }),
+      )
+
+      const error = await getUserProfile().catch((err: unknown) => err)
+      expect(error).toBeInstanceOf(ApiError)
+      if (!(error instanceof ApiError)) return
+      expect(error.status).toBe(409)
+      expect(error.serverMessage).toBe('legacy_google_link_required')
+      expect(handler).not.toHaveBeenCalled()
+    })
   })
 
   describe('createScan', () => {
@@ -83,7 +153,7 @@ describe('API Client', () => {
 
   describe('deleteAccount', () => {
     it('sends authenticated account deletion request', async () => {
-      window.localStorage.getItem = vi.fn().mockReturnValue('test-token')
+      vi.mocked(getToken).mockResolvedValue('test-token')
       ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: true,
         status: 204,
@@ -95,7 +165,7 @@ describe('API Client', () => {
         expect.stringContaining('/v1/users/me'),
         expect.objectContaining({
           method: 'DELETE',
-          headers: expect.objectContaining({ 'x-token': 'test-token' }),
+          headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
         }),
       )
     })
@@ -103,7 +173,7 @@ describe('API Client', () => {
 
   describe('trackEvent', () => {
     it('sends authenticated analytics events', async () => {
-      window.localStorage.getItem = vi.fn().mockReturnValue('test-token')
+      vi.mocked(getToken).mockResolvedValue('test-token')
       ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: true,
         status: 202,
@@ -115,7 +185,7 @@ describe('API Client', () => {
         expect.stringContaining('/v1/events'),
         expect.objectContaining({
           method: 'POST',
-          headers: expect.objectContaining({ 'x-token': 'test-token' }),
+          headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
           body: JSON.stringify({ name: 'first_annotation', properties: { source: 'pdf' } }),
         }),
       )
@@ -219,7 +289,7 @@ describe('API Client', () => {
 
   describe('getScanImageBlob', () => {
     it('fetches private scan images with auth headers', async () => {
-      window.localStorage.getItem = vi.fn().mockReturnValue('test-token')
+      vi.mocked(getToken).mockResolvedValue('test-token')
       const image = new Blob(['private image'], { type: 'image/jpeg' })
       ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: true,
@@ -232,7 +302,7 @@ describe('API Client', () => {
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/v1/scans/1/image'),
         expect.objectContaining({
-          headers: expect.objectContaining({ 'x-token': 'test-token' }),
+          headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
         }),
       )
     })

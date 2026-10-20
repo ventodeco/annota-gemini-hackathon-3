@@ -38,74 +38,6 @@
       ]
     },
     {
-      "name": "Auth",
-      "item": [
-        {
-          "name": "Get Google OAuth URL",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/v1/auth/google/state",
-              "host": ["{{baseUrl}}"],
-              "path": ["v1", "auth", "google", "state"]
-            },
-            "description": "Get Google OAuth URL for login redirect"
-          },
-          "response": []
-        },
-        {
-          "name": "Google OAuth Callback (Redirect)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/v1/auth/google/callback?state={{state}}&code={{code}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["v1", "auth", "google", "callback"],
-              "query": [
-                {
-                  "key": "state",
-                  "value": "{{state}}",
-                  "description": "State from Google"
-                },
-                {
-                  "key": "code",
-                  "value": "{{code}}",
-                  "description": "Authorization code from Google"
-                }
-              ]
-            },
-            "description": "Google OAuth callback redirect"
-          },
-          "response": []
-        },
-        {
-          "name": "Exchange Code for JWT Token",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"code\": \"4/ABCD...\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/v1/auth/google/callback",
-              "host": ["{{baseUrl}}"],
-              "path": ["v1", "auth", "google", "callback"]
-            },
-            "description": "Exchange Google OAuth code for JWT token"
-          },
-          "response": []
-        }
-      ]
-    },
-    {
       "name": "User",
       "item": [
         {
@@ -114,9 +46,9 @@
             "method": "GET",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               }
             ],
             "url": {
@@ -134,9 +66,9 @@
             "method": "GET",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               }
             ],
             "url": {
@@ -154,9 +86,9 @@
             "method": "PATCH",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               },
               {
                 "key": "Content-Type",
@@ -187,9 +119,9 @@
             "method": "POST",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               }
             ],
             "body": {
@@ -217,9 +149,9 @@
             "method": "GET",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               }
             ],
             "url": {
@@ -249,9 +181,9 @@
             "method": "GET",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               }
             ],
             "url": {
@@ -274,9 +206,9 @@
             "method": "POST",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               },
               {
                 "key": "Content-Type",
@@ -307,9 +239,9 @@
             "method": "POST",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               },
               {
                 "key": "Content-Type",
@@ -335,9 +267,9 @@
             "method": "GET",
             "header": [
               {
-                "key": "x-token",
-                "value": "{{token}}",
-                "description": "JWT token"
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "description": "Clerk session token"
               }
             ],
             "url": {

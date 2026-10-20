@@ -15,6 +15,7 @@ import (
 	"github.com/gemini-hackathon/app/internal/handlers"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
+	"github.com/gemini-hackathon/app/internal/storage"
 	"github.com/gemini-hackathon/app/internal/testutil"
 )
 
@@ -32,124 +33,25 @@ func (m *failingDeleteFileStorage) DeletePDF(path string) error {
 	return errDeleteFile
 }
 
-func TestTokenService(t *testing.T) {
-	tokenService := auth.NewTokenService("test-secret-key", 30)
-
-	t.Run("GenerateToken", func(t *testing.T) {
-		token, expiresAt, err := tokenService.GenerateToken(1)
-		if err != nil {
-			t.Fatalf("Failed to generate token: %v", err)
-		}
-		if token == "" {
-			t.Error("Token should not be empty")
-		}
-		if expiresAt.IsZero() {
-			t.Error("ExpiresAt should not be zero")
-		}
-		expectedExpiry := time.Now().Add(30 * time.Minute)
-		if expiresAt.Before(expectedExpiry.Add(-time.Second)) || expiresAt.After(expectedExpiry.Add(time.Second)) {
-			t.Errorf("ExpiresAt should be around 30 minutes from now, got %v", expiresAt)
-		}
-	})
-
-	t.Run("ValidateToken", func(t *testing.T) {
-		token, _, _ := tokenService.GenerateToken(42)
-		userID, err := tokenService.ValidateToken(token)
-		if err != nil {
-			t.Fatalf("Failed to validate token: %v", err)
-		}
-		if userID != 42 {
-			t.Errorf("Expected user ID 42, got %d", userID)
-		}
-	})
-
-	t.Run("ValidateInvalidToken", func(t *testing.T) {
-		_, err := tokenService.ValidateToken("invalid-token")
-		if err == nil {
-			t.Error("Expected error for invalid token")
-		}
-	})
-
-	t.Run("ValidateTokenWithWrongSecret", func(t *testing.T) {
-		token, _, _ := tokenService.GenerateToken(1)
-		otherService := auth.NewTokenService("different-secret", 30)
-		_, err := otherService.ValidateToken(token)
-		if err == nil {
-			t.Error("Expected error when validating token with different secret")
-		}
-	})
+type fakeIdentityDirectory struct {
+	deleteErrs []error
+	deleted    []string
 }
 
-func TestGetUserIDMiddleware(t *testing.T) {
-	tokenService := auth.NewTokenService("test-secret", 30)
-	authMiddleware := middleware.NewAuthMiddleware(tokenService)
+func (f *fakeIdentityDirectory) GetIdentity(ctx context.Context, clerkUserID string) (*auth.ClerkIdentity, error) {
+	return nil, auth.ErrIdentityNotFound
+}
 
-	t.Run("WithValidToken", func(t *testing.T) {
-		token, _, _ := tokenService.GenerateToken(123)
-
-		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("x-token", token)
-
-		var gotUserID int64
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gotUserID = middleware.GetUserID(r.Context())
-		})
-
-		authMiddleware.Handle(handler).ServeHTTP(httptest.NewRecorder(), req)
-
-		if gotUserID != 123 {
-			t.Errorf("Expected user ID 123, got %d", gotUserID)
+func (f *fakeIdentityDirectory) DeleteUser(ctx context.Context, clerkUserID string) error {
+	if len(f.deleteErrs) > 0 {
+		err := f.deleteErrs[0]
+		f.deleteErrs = f.deleteErrs[1:]
+		if err != nil {
+			return err
 		}
-	})
-
-	t.Run("WithoutToken", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/test", nil)
-
-		handler := authMiddleware.Handle(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			t.Error("Handler should not be called without token")
-		}))
-
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("Expected status 401, got %d", rec.Code)
-		}
-	})
-
-	t.Run("WithInvalidToken", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("x-token", "invalid-token")
-
-		handler := authMiddleware.Handle(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			t.Error("Handler should not be called with invalid token")
-		}))
-
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("Expected status 401, got %d", rec.Code)
-		}
-	})
-
-	t.Run("WithBearerToken", func(t *testing.T) {
-		token, _, _ := tokenService.GenerateToken(456)
-
-		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		var gotUserID int64
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gotUserID = middleware.GetUserID(r.Context())
-		})
-
-		authMiddleware.Handle(handler).ServeHTTP(httptest.NewRecorder(), req)
-
-		if gotUserID != 456 {
-			t.Errorf("Expected user ID 456, got %d", gotUserID)
-		}
-	})
+	}
+	f.deleted = append(f.deleted, clerkUserID)
+	return nil
 }
 
 func TestUserHandlers(t *testing.T) {
@@ -249,7 +151,7 @@ func TestUserHandlers(t *testing.T) {
 func TestDeleteAccountRemovesOwnedRowsAndFiles(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{UploadDir: "data/uploads"}
-	userHandlers := handlers.NewUserHandlersWithStorage(mockDB, &mockFileStorage{}, cfg)
+	userHandlers := handlers.NewUserHandlersWithStorage(mockDB, &mockFileStorage{}, cfg, &fakeIdentityDirectory{})
 
 	user := &models.User{
 		Email:             "delete@example.com",
@@ -284,7 +186,7 @@ func TestDeleteAccountRemovesOwnedRowsAndFiles(t *testing.T) {
 func TestDeleteAccountFailsWhenOwnedFileDeletionFails(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{UploadDir: "data/uploads"}
-	userHandlers := handlers.NewUserHandlersWithStorage(mockDB, &failingDeleteFileStorage{}, cfg)
+	userHandlers := handlers.NewUserHandlersWithStorage(mockDB, &failingDeleteFileStorage{}, cfg, &fakeIdentityDirectory{})
 
 	user := &models.User{
 		Email:             "delete-fail@example.com",
@@ -320,30 +222,6 @@ func TestDeleteAccountFailsWhenOwnedFileDeletionFails(t *testing.T) {
 	if existing == nil {
 		t.Fatalf("expected user to remain when file purge fails")
 	}
-}
-
-func TestAuthMiddlewareWithXToken(t *testing.T) {
-	tokenService := auth.NewTokenService("test-secret", 30)
-	authMiddleware := middleware.NewAuthMiddleware(tokenService)
-
-	t.Run("XTokenPriorityOverBearer", func(t *testing.T) {
-		xToken, _, _ := tokenService.GenerateToken(999)
-
-		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("x-token", xToken)
-		req.Header.Set("Authorization", "Bearer different-token")
-
-		var gotUserID int64
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gotUserID = middleware.GetUserID(r.Context())
-		})
-
-		authMiddleware.Handle(handler).ServeHTTP(httptest.NewRecorder(), req)
-
-		if gotUserID != 999 {
-			t.Errorf("Expected user ID 999 from x-token, got %d", gotUserID)
-		}
-	})
 }
 
 func TestScanHandlers(t *testing.T) {
@@ -583,4 +461,53 @@ func TestAnnotationHandlers(t *testing.T) {
 			t.Error("Response should contain 'status': 'saved'")
 		}
 	})
+}
+
+func TestDeleteAccountTombstonesAndRetriesClerkDeletion(t *testing.T) {
+	ctx := context.Background()
+	mockDB := testutil.NewMockDB()
+	directory := &fakeIdentityDirectory{deleteErrs: []error{auth.ErrIdentityUnavailable}}
+	userHandlers := handlers.NewUserHandlersWithStorage(mockDB, &mockFileStorage{}, &config.Config{UploadDir: "data/uploads"}, directory)
+	resolver := auth.NewIdentityResolver(mockDB, directory)
+
+	user, err := mockDB.ProvisionClerkUser(ctx, storage.ClerkProvisionParams{ClerkUserID: "user_del", Email: "del@example.com"})
+	if err != nil {
+		t.Fatalf("ProvisionClerkUser: %v", err)
+	}
+
+	deleteRequest := func(userID int64) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "/v1/users/me", nil)
+		reqCtx := middleware.WithClerkUserID(req.Context(), "user_del")
+		if userID != 0 {
+			reqCtx = middleware.WithUserID(reqCtx, userID)
+		}
+		rec := httptest.NewRecorder()
+		userHandlers.UsersMeAPI(rec, req.WithContext(reqCtx))
+		return rec
+	}
+
+	// The Clerk call fails after local data and the tombstone are committed.
+	if rec := deleteRequest(user.ID); rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 when Clerk deletion fails, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if remaining, _ := mockDB.GetUserByID(ctx, user.ID); remaining != nil {
+		t.Fatalf("expected local profile to be deleted before the Clerk call")
+	}
+
+	// An old, still-valid token for the subject cannot recreate the profile.
+	resolution, err := resolver.Resolve(ctx, "user_del")
+	if err != nil || !resolution.Deleted || resolution.UserID != 0 {
+		t.Fatalf("expected tombstoned resolution, got %+v err=%v", resolution, err)
+	}
+
+	// The retry carries only the Clerk subject and finishes Clerk cleanup.
+	if rec := deleteRequest(resolution.UserID); rec.Code != http.StatusNoContent {
+		t.Fatalf("expected retry to return 204, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(directory.deleted) != 1 || directory.deleted[0] != "user_del" {
+		t.Fatalf("expected Clerk user deletion on retry, got %v", directory.deleted)
+	}
+	if deleted, _ := mockDB.IsClerkUserDeleted(ctx, "user_del"); !deleted {
+		t.Fatalf("tombstone must persist after Clerk deletion")
+	}
 }

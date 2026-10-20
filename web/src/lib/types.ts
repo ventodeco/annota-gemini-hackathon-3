@@ -1,20 +1,5 @@
 // User Types
-export interface User {
-  id: number
-  email: string
-  provider: 'google' | 'apple' | 'github'
-  avatar_url?: string
-  preferred_language: 'ID' | 'JP' | 'EN'
-  created_at: string
-  updated_at: string
-}
-
-// Auth Types
-export interface TokenResponse {
-  token: string
-  expirySeconds: number
-  expiresAt: string
-}
+export type PreferredLanguage = 'ID' | 'JP' | 'EN'
 
 // Scan Types (matches API response)
 export interface Scan {
@@ -163,10 +148,13 @@ export interface GetLanguagesResponse {
 
 // User Preference Types
 export interface UpdateUserPreferencesRequest {
-  preferredLanguage: 'ID' | 'JP' | 'EN'
+  preferredLanguage: PreferredLanguage
 }
 
-export type GetUserProfileResponse = User
+// GET /v1/users/me returns ANNOTA preferences only; identity fields come from Clerk.
+export interface GetUserProfileResponse {
+  preferredLanguage: PreferredLanguage
+}
 
 // Pagination
 export interface PaginationMeta {

@@ -33,6 +33,7 @@ func setupTestDB(t *testing.T) DB {
 			preferred_language VARCHAR(10) DEFAULT 'EN',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			clerk_user_id TEXT UNIQUE,
 			UNIQUE (provider, provider_id)
 		);
 

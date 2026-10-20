@@ -77,9 +77,7 @@ func TestLoadRejectsBuiltInDBPasswordDefaultInProduction(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "minimax-key")
 	t.Setenv("DB_CONNECTION_STRING", "")
 	t.Setenv("POSTGRES_PASSWORD", "")
-	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")
+	setClerkTestEnv(t)
 
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "known default") {

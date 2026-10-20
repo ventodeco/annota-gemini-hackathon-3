@@ -17,8 +17,6 @@ servers:
 tags:
   - name: Health
     description: Service health checks
-  - name: Auth
-    description: Google OAuth 2.0 authentication
   - name: Users
     description: User profile and preferences
   - name: Scans
@@ -76,112 +74,6 @@ paths:
                 type: string
                 example: not ready
 
-  /v1/auth/google/state:
-    get:
-      tags: [Auth]
-      summary: Get Google OAuth URL
-      description: |
-        Generates an OAuth 2.0 state token, stores it in Redis, and returns
-        the full Google SSO redirect URL for the client to navigate to.
-      operationId: getGoogleAuthState
-      responses:
-        "200":
-          description: OAuth redirect URL generated successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GoogleStateResponse"
-              example:
-                ssoRedirection: "https://accounts.google.com/o/oauth2/v2/auth?client_id=...&state=abc123"
-        "500":
-          description: Failed to store state in Redis
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: Internal server error
-
-  /v1/auth/google/callback:
-    get:
-      tags: [Auth]
-      summary: Server-side OAuth redirect
-      description: |
-        Handles the redirect from Google after the user authorizes the
-        application. Redirects the browser to the frontend callback URL
-        with the authorization code and state as query parameters.
-      operationId: googleCallbackRedirect
-      parameters:
-        - name: state
-          in: query
-          required: true
-          description: OAuth state token for CSRF protection
-          schema:
-            type: string
-        - name: code
-          in: query
-          required: true
-          description: Authorization code from Google
-          schema:
-            type: string
-      responses:
-        "302":
-          description: Redirects to the frontend callback URL
-          headers:
-            Location:
-              description: Frontend callback URL with state and code parameters
-              schema:
-                type: string
-        "400":
-          description: Missing state or code parameter
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: Missing state or code
-    post:
-      tags: [Auth]
-      summary: Client-side OAuth token exchange
-      description: |
-        Exchanges the Google authorization code for a JWT access token.
-        Validates the OAuth state against Redis, exchanges the code with
-        Google, retrieves user info, creates or retrieves the user record,
-        and returns a signed JWT.
-      operationId: googleCallbackExchange
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GoogleCallbackRequest"
-            example:
-              code: "4/0AX4XfWh..."
-              state: "abc123def456"
-      responses:
-        "200":
-          description: Token exchange successful
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GoogleCallbackResponse"
-              example:
-                token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                expirySeconds: 86400
-                expiresAt: "2026-03-13T12:00:00Z"
-        "400":
-          description: Invalid request body, missing code/state, or invalid state
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: Code is required
-        "500":
-          description: Failed to exchange code or generate token
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: Failed to exchange code
-
   /v1/users/me:
     get:
       tags: [Users]
@@ -189,7 +81,6 @@ paths:
       description: Returns the authenticated user's profile information.
       operationId: getUserProfile
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       responses:
         "200":
@@ -223,7 +114,6 @@ paths:
         Valid languages are: ID (Indonesian), JP (Japanese), EN (English).
       operationId: updateUserPreferences
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       requestBody:
         required: true
@@ -264,7 +154,6 @@ paths:
       description: Returns the list of supported languages for annotation explanations.
       operationId: getLanguages
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       responses:
         "200":
@@ -292,7 +181,6 @@ paths:
         background via Gemini Flash. Supported formats: JPEG, PNG, WebP.
       operationId: createScan
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       requestBody:
         required: true
@@ -353,7 +241,6 @@ paths:
         user, ordered by creation date (newest first).
       operationId: listScans
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - name: page
@@ -409,7 +296,6 @@ paths:
         processing is complete) and detected language.
       operationId: getScan
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/ScanId"
@@ -464,7 +350,6 @@ paths:
         to the authenticated user.
       operationId: deleteScan
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/ScanId"
@@ -507,7 +392,6 @@ paths:
         language.
       operationId: analyzeText
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       requestBody:
         required: true
@@ -562,7 +446,6 @@ paths:
         Returns raw audio binary data (typically WAV format).
       operationId: synthesizeSpeech
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       requestBody:
         required: true
@@ -617,7 +500,6 @@ paths:
         nuance data (analysis results). Optionally linked to a scan.
       operationId: createAnnotation
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       requestBody:
         required: true
@@ -674,7 +556,6 @@ paths:
         authenticated user. Optionally filter by scan ID.
       operationId: listAnnotations
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - name: page
@@ -747,7 +628,6 @@ paths:
         nuance data. The annotation must belong to the authenticated user.
       operationId: getAnnotation
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/AnnotationId"
@@ -807,7 +687,6 @@ paths:
         authenticated user.
       operationId: deleteAnnotation
       security:
-        - ApiKeyAuth: []
         - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/AnnotationId"
@@ -835,16 +714,17 @@ paths:
 
 components:
   securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: x-token
-      description: JWT token passed via the x-token header
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT token passed via the Authorization header
+      description: |
+        Clerk session token from the web app (`getToken()`), sent as
+        `Authorization: Bearer <token>`. The API verifies it against the
+        configured Clerk instance and maps it to the local numeric user;
+        see docs/clerk-auth.md. Errors: 401 invalid/expired/deleted session,
+        403 verified email required, 409 legacy_google_link_required,
+        503 identity service unavailable.
 
   parameters:
     ScanId:
@@ -867,48 +747,6 @@ components:
         example: 7
 
   schemas:
-    # --- Auth schemas ---
-    GoogleStateResponse:
-      type: object
-      required:
-        - ssoRedirection
-      properties:
-        ssoRedirection:
-          type: string
-          description: Full Google OAuth 2.0 authorization URL
-
-    GoogleCallbackRequest:
-      type: object
-      required:
-        - code
-        - state
-      properties:
-        code:
-          type: string
-          description: Authorization code received from Google
-        state:
-          type: string
-          description: OAuth state token for CSRF protection
-
-    GoogleCallbackResponse:
-      type: object
-      required:
-        - token
-        - expirySeconds
-        - expiresAt
-      properties:
-        token:
-          type: string
-          description: Signed JWT access token
-        expirySeconds:
-          type: integer
-          description: Token lifetime in seconds
-          example: 86400
-        expiresAt:
-          type: string
-          format: date-time
-          description: Token expiration timestamp in RFC 3339 format
-
     # --- User schemas ---
     GetUserProfileResponse:
       type: object

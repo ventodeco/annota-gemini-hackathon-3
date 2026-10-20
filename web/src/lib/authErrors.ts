@@ -33,8 +33,3 @@ export function getAuthErrorMessage(error: unknown): string {
 
   return 'An unexpected error occurred. Please try again.'
 }
-
-export function handleAuthRedirect(): void {
-  localStorage.removeItem('auth_token')
-  window.location.href = '/login'
-}

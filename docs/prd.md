@@ -242,8 +242,7 @@ The current backend uses `/v1/...` routes. Product requirements should align to 
 
 | Capability | Route Shape |
 | --- | --- |
-| Google auth state | `GET /v1/auth/google/state` |
-| Google auth callback | `POST /v1/auth/google/callback` |
+| Sign-in (Google, email) | Clerk-hosted components in the web app; API requests send `Authorization: Bearer <Clerk session token>` |
 | Current user profile | `GET /v1/users/me` |
 | User preferences | `PATCH /v1/users/me` |
 | Scan upload | `POST /v1/scans` |

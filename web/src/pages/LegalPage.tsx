@@ -26,6 +26,10 @@ export default function LegalPage({ kind }: LegalPageProps) {
               annotations, pronunciation requests, and reading progress so you can continue learning.
             </p>
             <p>
+              Sign-in is provided by Clerk, which processes your email address and, if you choose
+              Google sign-in, your Google account identifier and profile image to authenticate you.
+            </p>
+            <p>
               OCR, annotation, and speech features send selected content and surrounding learning
               context to Google Gemini for AI processing. Do not upload confidential material unless
               you are allowed to process it with this service.

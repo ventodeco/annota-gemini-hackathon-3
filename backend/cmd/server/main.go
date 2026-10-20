@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clerk/clerk-sdk-go/v2"
+	"github.com/clerk/clerk-sdk-go/v2/jwks"
+	"github.com/clerk/clerk-sdk-go/v2/user"
 	_ "github.com/lib/pq"
 
 	"github.com/gemini-hackathon/app/internal/ai"
@@ -54,10 +57,13 @@ func main() {
 		log.Fatalf("Failed to create file storage: %v", err)
 	}
 
+	// Redis remains a deployment dependency (readiness, future caching) even
+	// though Clerk sessions no longer store OAuth state in it.
 	redisClient, err := storage.NewRedisClient(cfg.RedisAddr)
 	if err != nil {
-		log.Fatalf("Failed to connect to Redis at %s: %v. OAuth state storage is required for login to work.", cfg.RedisAddr, err)
+		log.Fatalf("Failed to connect to Redis at %s: %v", cfg.RedisAddr, err)
 	}
+	defer redisClient.Close()
 
 	// Load knowledge service for vocabulary lookup
 	var knowledgeSvc knowledge.Service
@@ -74,12 +80,12 @@ func main() {
 		knowledgeSvc = knowledge.NewEmptyService()
 	}
 
-	tokenService := auth.NewTokenService(cfg.JWTSecret, cfg.TokenExpiryMinutes)
+	sessionVerifier, identityDirectory, err := buildClerkAuth(cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize Clerk authentication: %v", err)
+	}
 
-	googleOAuth := auth.NewGoogleOAuthService(cfg, redisClient)
-
-	authHandlers := handlers.NewAuthHandlers(googleOAuth, tokenService, storageDB, cfg)
-	userHandlers := handlers.NewUserHandlersWithStorage(storageDB, fileStorage, cfg)
+	userHandlers := handlers.NewUserHandlersWithStorage(storageDB, fileStorage, cfg, identityDirectory)
 	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, aiClient, cfg)
 	aiHandlers := handlers.NewAIHandlers(storageDB, aiClient, knowledgeSvc)
 	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg)
@@ -88,7 +94,7 @@ func main() {
 	pdfExtractor := pdf.NewExtractor()
 	documentHandlers := handlers.NewDocumentHandlers(storageDB, fileStorage, pdfExtractor, cfg)
 
-	authMiddleware := middleware.NewAuthMiddleware(tokenService)
+	authMiddleware := middleware.NewAuthMiddleware(sessionVerifier, auth.NewIdentityResolver(storageDB, identityDirectory))
 	aiRateLimiter := middleware.NewRateLimiter(
 		cfg.AIRateLimit,
 		time.Duration(cfg.AIRateLimitWindowSeconds)*time.Second,
@@ -104,9 +110,6 @@ func main() {
 		handlers.ReadinessCheck{Name: "postgres", Check: db.PingContext},
 		handlers.ReadinessCheck{Name: "redis", Check: redisClient.Ping},
 	))
-
-	mux.HandleFunc("/v1/auth/google/state", authHandlers.GoogleStateAPI)
-	mux.HandleFunc("/v1/auth/google/callback", authHandlers.GoogleCallback)
 
 	authMux := http.NewServeMux()
 	authMux.HandleFunc("/v1/users/me/languages", userHandlers.GetLanguagesAPI)
@@ -133,6 +136,30 @@ func main() {
 	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func buildClerkAuth(cfg *config.Config) (*auth.SessionVerifier, auth.IdentityDirectory, error) {
+	secretKey := cfg.ClerkSecretKey
+	clientConfig := &clerk.ClientConfig{BackendConfig: clerk.BackendConfig{Key: &secretKey}}
+
+	keys := auth.NewJWKSKeySource(jwks.NewClient(clientConfig))
+	if cfg.ClerkJWTKey != "" {
+		staticKeys, err := auth.NewStaticKeySource(cfg.ClerkJWTKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		keys = staticKeys
+	}
+	verifier, err := auth.NewSessionVerifier(auth.SessionVerifierConfig{
+		Issuer:            cfg.ClerkIssuer,
+		AuthorizedParties: cfg.ClerkAuthorizedParties,
+		Keys:              keys,
+		Leeway:            5 * time.Second,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return verifier, auth.NewClerkDirectory(user.NewClient(clientConfig)), nil
 }
 
 func buildAIClient(cfg *config.Config) (ai.Client, error) {

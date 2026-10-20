@@ -3,10 +3,12 @@ package testutil
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gemini-hackathon/app/internal/models"
+	"github.com/gemini-hackathon/app/internal/storage"
 )
 
 type MockDB struct {
@@ -21,6 +23,7 @@ type MockDB struct {
 	nextScanID     int64
 	nextAnnID      int64
 	nextDocID      int64
+	deletedClerk   map[string]bool
 }
 
 func NewMockDB() *MockDB {
@@ -35,6 +38,7 @@ func NewMockDB() *MockDB {
 		nextScanID:     1,
 		nextAnnID:      1,
 		nextDocID:      1,
+		deletedClerk:   make(map[string]bool),
 	}
 }
 
@@ -44,6 +48,75 @@ func (m *MockDB) CreateUser(ctx context.Context, user *models.User) error {
 	m.users[user.ID] = user
 	m.userByEmail[user.Email] = user
 	m.userByProvider[user.Provider+":"+user.ProviderID] = user
+	return nil
+}
+
+func (m *MockDB) GetUserByClerkID(ctx context.Context, clerkUserID string) (*models.User, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, user := range m.users {
+		if user.ClerkUserID != nil && *user.ClerkUserID == clerkUserID {
+			return user, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *MockDB) IsClerkUserDeleted(ctx context.Context, clerkUserID string) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.deletedClerk[clerkUserID], nil
+}
+
+// ProvisionClerkUser mirrors the PostgreSQL policy without its locking; the
+// PostgreSQL implementation is covered by storage tests.
+func (m *MockDB) ProvisionClerkUser(ctx context.Context, p storage.ClerkProvisionParams) (*models.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, user := range m.users {
+		if user.ClerkUserID != nil && *user.ClerkUserID == p.ClerkUserID {
+			return user, nil
+		}
+	}
+	if m.deletedClerk[p.ClerkUserID] {
+		return nil, storage.ErrClerkUserDeleted
+	}
+	clerkID := p.ClerkUserID
+	if p.GoogleSubject != "" {
+		if user := m.userByProvider["google:"+p.GoogleSubject]; user != nil && user.ClerkUserID == nil {
+			user.ClerkUserID = &clerkID
+			return user, nil
+		}
+	}
+	for _, user := range m.users {
+		if user.Provider == "google" && user.ClerkUserID == nil && strings.EqualFold(user.Email, p.Email) {
+			return nil, storage.ErrLegacyLinkRequired
+		}
+	}
+	user := &models.User{
+		ID:                m.nextUserID,
+		Email:             p.Email,
+		Provider:          "clerk",
+		ProviderID:        p.ClerkUserID,
+		PreferredLanguage: "EN",
+		ClerkUserID:       &clerkID,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}
+	m.nextUserID++
+	m.users[user.ID] = user
+	return user, nil
+}
+
+func (m *MockDB) DeleteUserAndTombstoneClerk(ctx context.Context, userID int64, clerkUserID string) error {
+	if err := m.DeleteUser(ctx, userID); err != nil {
+		return err
+	}
+	if clerkUserID != "" {
+		m.mu.Lock()
+		m.deletedClerk[clerkUserID] = true
+		m.mu.Unlock()
+	}
 	return nil
 }
 

@@ -8,46 +8,11 @@ get /healthz {
   health check endpoint
 }
 
-get /v1/auth/google/state {
-  Get Google OAuth URL for login redirect
-  
-  Returns:
-  {
-    "ssoRedirection": "https://accounts.google.com/o/oauth2/v2/auth?..."
-  }
-}
-
-get /v1/auth/google/callback {
-  Google OAuth callback redirect
-  
-  Query params:
-  - state: State from Google
-  - code: Authorization code from Google
-  
-  Response: 302 redirect to frontend with state and code
-}
-
-post /v1/auth/google/callback {
-  Exchange Google OAuth code for JWT token
-  
-  Body:
-  {
-    "code": "4/ABCD..."
-  }
-  
-  Returns:
-  {
-    "token": "eyJ...",
-    "expirySeconds": 1800,
-    "expiresAt": "2026-01-22T10:30:00Z"
-  }
-}
-
 get /v1/users/me {
   Get current user profile
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   
   Returns:
   {
@@ -59,7 +24,7 @@ get /v1/users/me/languages {
   Get available languages
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   
   Returns:
   {
@@ -75,7 +40,7 @@ patch /v1/users/me {
   Update user preferences
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   - Content-Type: application/json
   
   Body:
@@ -93,7 +58,7 @@ post /v1/scans {
   Upload image and create new scan
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   - Content-Type: multipart/form-data
   
   Body:
@@ -111,7 +76,7 @@ get /v1/scans {
   Get scan history with pagination
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   
   Query params:
   - page: 1 (default)
@@ -140,7 +105,7 @@ get /v1/scans/{id} {
   Get scan details
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   
   Returns:
   {
@@ -156,7 +121,7 @@ post /v1/ai/analyze {
   Analyze text with AI
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   - Content-Type: application/json
   
   Body:
@@ -179,7 +144,7 @@ post /v1/annotations {
   Create new annotation/bookmark
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   - Content-Type: application/json
   
   Body:
@@ -207,7 +172,7 @@ get /v1/annotations {
   Get all annotations with pagination
   
   Headers:
-  - x-token: {{token}}
+  - Authorization: Bearer {{token}}
   
   Query params:
   - page: 1 (default)
