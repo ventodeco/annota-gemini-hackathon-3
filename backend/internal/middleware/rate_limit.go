@@ -41,7 +41,8 @@ func (l *RateLimiter) Handle(next http.Handler) http.Handler {
 		allowed, retryAfter := l.allow(rateLimitKey(r))
 		if !allowed {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
-			httputil.WriteJSONError(w, http.StatusTooManyRequests, "Usage limit reached. Please try again later.")
+			// Burst throttling, distinct from daily usage quotas (usage_quota_exceeded).
+			httputil.WriteJSONErrorCode(w, http.StatusTooManyRequests, "rate_limited", "Too many requests. Please wait a moment and try again.")
 			return
 		}
 		next.ServeHTTP(w, r)

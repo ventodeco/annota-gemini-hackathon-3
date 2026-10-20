@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/httputil"
@@ -14,19 +15,22 @@ import (
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/storage"
+	"github.com/gemini-hackathon/app/internal/usage"
 )
 
 type AIHandlers struct {
 	db        storage.DB
 	aiClient  ai.Client
 	knowledge knowledge.Service
+	meter     *usage.Meter
 }
 
-func NewAIHandlers(db storage.DB, aiClient ai.Client, knowledgeSvc knowledge.Service) *AIHandlers {
+func NewAIHandlers(db storage.DB, aiClient ai.Client, knowledgeSvc knowledge.Service, meter *usage.Meter) *AIHandlers {
 	return &AIHandlers{
 		db:        db,
 		aiClient:  aiClient,
 		knowledge: knowledgeSvc,
+		meter:     meter,
 	}
 }
 
@@ -103,8 +107,16 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
+	usageCtx, reservation, err := h.meter.Reserve(r.Context(), userID, usage.FeatureExplanation, 1)
+	if err != nil {
+		writeUsageError(w, err, log)
+		return
+	}
+
 	// Call AI provider with knowledge context
-	resp, err := h.aiClient.AnnotateWithKnowledge(r.Context(), contextText, req.TextToAnalyze, entries)
+	resp, err := h.aiClient.AnnotateWithKnowledge(usageCtx, contextText, req.TextToAnalyze, entries)
+	h.meter.Finish(usageCtx, reservation, err)
 	if err != nil {
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to generate annotation")
 		writeAIProviderError(w, err, "Failed to analyze text")
@@ -209,7 +221,17 @@ func (h *AIHandlers) SpeakAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.aiClient.SynthesizeSpeech(r.Context(), req.HighlightedText, req.ContextText)
+	// Speech is charged per character of the spoken selection; context is not spoken.
+	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
+	units := int64(utf8.RuneCountInString(req.HighlightedText))
+	usageCtx, reservation, err := h.meter.Reserve(r.Context(), userID, usage.FeatureSpeech, units)
+	if err != nil {
+		writeUsageError(w, err, log)
+		return
+	}
+
+	resp, err := h.aiClient.SynthesizeSpeech(usageCtx, req.HighlightedText, req.ContextText)
+	h.meter.Finish(usageCtx, reservation, err)
 	if err != nil {
 		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to synthesize speech")
 		writeAIProviderError(w, err, "Failed to synthesize speech")
@@ -234,7 +256,8 @@ func writeAIProviderError(w http.ResponseWriter, err error, fallbackMessage stri
 
 	switch providerErr.Kind {
 	case ai.ErrorKindQuota, ai.ErrorKindRateLimit:
-		httputil.WriteJSONError(w, http.StatusTooManyRequests, "AI provider quota or rate limit reached")
+		// Upstream limit, distinct from the app's own usage_quota_exceeded.
+		httputil.WriteJSONErrorCode(w, http.StatusTooManyRequests, "ai_provider_limited", "AI provider quota or rate limit reached")
 	case ai.ErrorKindAuth, ai.ErrorKindConfig:
 		httputil.WriteJSONError(w, http.StatusBadGateway, "AI provider configuration error")
 	default:

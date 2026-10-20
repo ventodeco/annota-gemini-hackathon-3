@@ -16,7 +16,7 @@ func TestEntitlementsAPIReturnsCurrentPlanAndLimits(t *testing.T) {
 		AIRateLimit:              60,
 		AIRateLimitWindowSeconds: 3600,
 		MaxUploadSize:            10485760,
-	})
+	}, newTestMeter(t))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/entitlements/me", nil)
 	req = req.WithContext(middleware.WithUserID(req.Context(), 3))

@@ -227,7 +227,7 @@ func TestDeleteAccountFailsWhenOwnedFileDeletionFails(t *testing.T) {
 func TestScanHandlers(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{DefaultPageSize: 20, MaxUploadSize: 10 * 1024 * 1024}
-	scanHandlers := handlers.NewScanHandlers(mockDB, nil, nil, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, nil, nil, cfg, newTestMeter(t))
 
 	t.Run("GetScansAPI_Unauthorized", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/v1/scans", nil)
