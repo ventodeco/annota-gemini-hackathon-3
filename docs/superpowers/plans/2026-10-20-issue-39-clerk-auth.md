@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS deleted_clerk_users (
 - **Deletion:** a tombstone in `deleted_clerk_users`. Retry is idempotent through `DELETE /v1/users/me`. #41 owns the end-to-end deletion and service-worker cache scoping.
 - **Redis:** unused by code after this change, but kept as a startup dependency for #43 `/readyz`.
 
-## Verification log (2026-10-20, rebased on `dev` 58deb43)
+## Verification log (2026-10-20, rebased on `dev` 4b730e7)
 
 Toolchain: Go 1.27.3 (official darwin-arm64 archive, SHA-256 verified), Bun 1.4.x, and a disposable Homebrew
 PostgreSQL 17 cluster in `/tmp` (`POSTGRES_TEST_DSN=postgres://postgres@127.0.0.1:55439/annota_test`).
@@ -252,3 +252,43 @@ PostgreSQL 17 cluster in `/tmp` (`POSTGRES_TEST_DSN=postgres://postgres@127.0.0.
   - the Clerk plan, email limits and cost review;
   - the owner's choice of email method.
 - Not run locally: Docker image builds and `scripts/ops/smoke-images.sh` (no Docker here). CI runs both.
+
+### Review rounds and rebase (PR #59)
+
+- Sol round 1 (`c92dd70`, REQUEST_CHANGES):
+  - Cross-account 401 cleanup → 401 events now carry the originating token, and deletion cleanup uses that token.
+  - Unthrottled failed JWKS refresh under the mutex → single-flight refresh outside the lock, throttling for
+    failed attempts too.
+  - Fixed in `565539e`. Sol confirmed the deletion/tombstone invariant held.
+- Sol round 2 (`565539e`, REQUEST_CHANGES):
+  - A late cleanup could sign out the next account → the sign-out and cache clear are bound to the originating
+    `sub` and `sid`, ownership is re-checked after each await, and `signOut({ sessionId })` is used.
+  - The initiating JWKS caller could not cancel → the refresh runs in its own goroutine and every caller waits
+    on it with its own context, with stale-while-revalidate for trusted keys.
+  - The new late-cleanup regression test was shown to fail on the round-2 handler before the fix.
+- Rebased on `4b730e7` (#12 PR #60):
+  - Kept `validateProductionDBPassword` in `Config.Validate`, plus its helper and tests. Its `Load()` test now
+    uses the Clerk fixtures instead of the removed Google/JWT variables.
+  - Kept the loopback compose bindings.
+  - Merged the #12 rotation text in `docs/commercial-ops.md` with the Clerk rotation guidance.
+- Post-rebase checks:
+  - `go vet`, `go build` and `go test -race -count=1 ./...` pass with `POSTGRES_TEST_DSN` set.
+  - All 7 `*_Postgres` tests pass with no skips.
+  - Web lint and build pass; tests: 182 passed, 2 skipped.
+
+### Test-debugging budget (30 min, task-wide)
+
+Only one episode has measured timestamps. The rest are estimates from the order of runs in the session, since
+Go test output records no wall-clock start times.
+
+| Episode | Evidence | Time |
+| --- | --- | --- |
+| `api.test.ts` timeouts after switching to Clerk `getToken` (needed a mock) | Vitest failing run started 11:32:34, passing run started 11:33:59 | **~1.5 min, measured** |
+| Real-PostgreSQL provisioning failure (`$2` inconsistent types) | 1 failing run → fix → 1 passing run | ~2 min, estimated |
+| SQLite `db_test` schema missing `clerk_user_id` and the CORS header expectation, after the first full `go test` | 1 failing run → fix → rerun | ~2 min, estimated |
+| ESLint `set-state-in-effect` in `AuthProvider` | lint fail → refactor → rerun | ~2 min, estimated |
+| Review-round regressions | Fix tests passed on their first run; one deliberate check that the new test fails on the old handler | ~1 min, estimated |
+| Post-rebase `config` adaptation for the #12 test | First run passed | ~0 |
+
+**Total ≈ 8.5 min** (1.5 measured, about 7 estimated, uncertainty roughly ±3 min). **Remaining ≈ 21 min**
+(conservatively 18).
