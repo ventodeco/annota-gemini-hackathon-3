@@ -90,7 +90,7 @@ nix develop
 ```bash
 go version    # Should show go1.25.x
 bun --version # Should show bun 1.x.x
-node --version # Should show node 22.x.x
+node --version # Should show node 24.x.x
 ```
 
 ### 2.4 Run the Application
@@ -164,7 +164,7 @@ repository-root/
     devShells.aarch64-darwin.default = pkgs.mkShell {
       packages = with pkgs; [
         go_1_25        # Go 1.25.x
-        nodejs_22       # Node.js 22.x
+        nodejs_24       # Node.js 24.x LTS
         bun             # Bun package manager
         postgresql_16  # PostgreSQL server/client
         redis           # Redis server/client
@@ -179,10 +179,12 @@ repository-root/
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `go_1_25` | 1.25.9 | Backend runtime |
-| `nodejs_22` | 22.x | Frontend tooling (Vite) |
+| `nodejs_24` | 24.x LTS | Frontend tooling (Vite) |
 | `bun` | 1.3.x | Frontend package manager |
 | `postgresql_16` | 16.x | Local PostgreSQL server/client |
 | `redis` | 8.x | Local Redis server/client |
+
+The repository pins Node 24.22.0 (`.node-version`) and Bun 1.4.3 (`packageManager` in the root `package.json`); CI and the images use those exact versions. The nixpkgs revision in `flake.lock` provides older patch releases (Node 24.14.1, Bun 1.3.11 as of 2026-10-20), so the Nix shell matches the Node major but not the exact pins. Check `bun --version` before relying on it.
 
 ### Direnv Flow
 
@@ -239,7 +241,7 @@ go, bun, node available
 ```nix
 packages = with pkgs; [
   go_1_25
-  nodejs_22
+  nodejs_24
   bun
   postgresql_16
   redis

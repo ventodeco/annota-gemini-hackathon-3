@@ -221,7 +221,7 @@
             go_1_25
 
             # Node.js - Frontend tooling (Vite, TypeScript)
-            nodejs_22
+            nodejs_24
 
             # Bun - Frontend package manager
             bun
