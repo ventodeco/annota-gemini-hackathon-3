@@ -2,7 +2,7 @@
 
 This backlog captures codebase improvement opportunities found while refreshing the agent guidance. At the time of that guidance refresh, no application code had been changed.
 
-Implementation status: completed under GitHub issue #30. The findings below are retained as the original audit checklist for traceability. See [Reconciliation at `4b730e7`](#reconciliation-at-4b730e7) for per-item evidence against the current `dev` source.
+Implementation status: completed under GitHub issue #30. The findings below are retained as the original audit checklist for traceability. See [Reconciliation at `b3a4b29`](#reconciliation-at-b3a4b29) for per-item evidence against the current `dev` source.
 
 ## Frontend
 
@@ -87,15 +87,15 @@ Implementation status: completed under GitHub issue #30. The findings below are 
 - `CLAUDE.md`, `web/CLAUDE.md`, and `backend/CLAUDE.md` contain older guidance and can miss newer AGENTS rules.
 - Prefer reducing duplication by pointing Claude-specific docs to the canonical AGENTS files.
 
-## Reconciliation at `4b730e7`
+## Reconciliation at `b3a4b29`
 
-Checked on 2026-10-20 against `origin/dev` at `4b730e7`. Most items were resolved by `441c340` ("refactor: address agent audit backlog (#30)"), and later PRs closed others. The issue #30 reconciliation PR resolved the gaps that were still open; those rows are marked "this PR". The plan is in `docs/superpowers/plans/2026-10-20-issue-30-agent-audit-reconciliation.md`.
+Checked on 2026-10-20 against `origin/dev` at `4b730e7`, then re-checked at `b3a4b29` after the Clerk migration (#39/#59) landed. Most items were resolved by `441c340` ("refactor: address agent audit backlog (#30)"), and later PRs closed others. The issue #30 reconciliation PR resolved the gaps that were still open; those rows are marked "this PR". The plan is in `docs/superpowers/plans/2026-10-20-issue-30-agent-audit-reconciliation.md`.
 
 ### Frontend
 
 | Item | Status | Evidence |
 | --- | --- | --- |
-| Production `as` assertions | Resolved | `bunx eslint src --rule '{"@typescript-eslint/consistent-type-assertions":["error",{"assertionStyle":"never"}]}'` reports 0 production hits; the remaining 31 are in test-only files. The guards are `ScanPage.tsx:54` `getPreloadedScan`, `AuthContext.tsx:18` `loadUserProfile`, `ProfilePage.tsx:45` `isLanguage`, `api.ts:87` `handleEmptyResponse`, `storage.ts:20` `isAnnotation`, `logger.ts:9` `resolveLogLevel` and `sonner.tsx:17` `isSonnerTheme`. |
+| Production `as` assertions | Resolved | `bunx eslint src --rule '{"@typescript-eslint/consistent-type-assertions":["error",{"assertionStyle":"never"}]}'` reports 0 production hits; the remaining 28 are in test-only files. The guards are `ScanPage.tsx:54` `getPreloadedScan`, `ProfilePage.tsx:44` `isLanguage`, `api.ts:124` `handleEmptyResponse`, `storage.ts:20` `isAnnotation`, `logger.ts:9` `resolveLogLevel` and `sonner.tsx:17` `isSonnerTheme`. The `userData as unknown as User` cast in `AuthContext.tsx` is gone; since #39, the profile comes from Clerk's `useUser` and a React Query profile query, with no cast. |
 | Nested ternaries | Resolved (this PR) | `AnnotationDrawer.tsx:24` and `AnnotationDetailPage.tsx:35` use named helpers from `441c340`. This PR replaces the later nested ternaries in `BottomActionBar.tsx` (`SpeechIcon`) and `HistoryPage.tsx` (`getHistoryTitle`, `getAnnotationDetailPath`). `bunx eslint src --rule '{"no-nested-ternary":"error"}'` reports 0 hits. |
 | Annotation formatting duplication | Resolved | `web/src/lib/annotationFormatting.ts` is shared by `AnnotationContent.tsx`, `AnnotationCard.tsx` and `AnnotationDetailPage.tsx`. |
 | LoadingPage effect/ref mirroring | Resolved (this PR) | `LoadingPage.tsx` no longer mirrors `scan` into a ref. The 30s fallback relies on the `hasNavigatedRef` guard in `navigateToScan`, and id validation uses the derived `scanId`. `LoadingPage.test.tsx` covers ready-then-timeout (navigates once) and invalid ids. |
@@ -108,8 +108,8 @@ Checked on 2026-10-20 against `origin/dev` at `4b730e7`. Most items were resolve
 
 | Item | Status | Evidence |
 | --- | --- | --- |
-| Env and database docs vs runtime | Resolved | `backend/.env.example` is the source of truth for backend env names. `DB_PATH` no longer appears in `flake.nix`. Auth env names are changing under #39 (Clerk); see that issue rather than this audit. |
-| JSON API error shape | Resolved | `middleware/auth.go:30` and `middleware/rate_limit.go:44` use `httputil.WriteJSONError`. The `http.Error` in `handlers/frontend.go:30` is intentional: it's the plain-text static-frontend fallback, not a JSON API route. |
+| Env and database docs vs runtime | Resolved | `backend/.env.example` is the source of truth for backend env names. `DB_PATH` no longer appears in `flake.nix`. Auth env names changed under #39 (Clerk); see that issue rather than this audit. |
+| JSON API error shape | Resolved | `middleware/auth.go:49` (Clerk auth, #39) and `middleware/rate_limit.go:44` use `httputil.WriteJSONError`. The `http.Error` in `handlers/frontend.go:30` is intentional: it's the plain-text static-frontend fallback, not a JSON API route. |
 | Request-started OCR work | Resolved | `handlers/scan.go:172` detaches OCR from request cancellation with `context.WithoutCancel` and bounds it with `ocrProcessingTimeout` (5 minutes). |
 | `ParsePagination` contract | Resolved (decision: coerce) | `httputil/request.go:10` documents that invalid or non-positive values are coerced to defaults and that `size` is capped at 100. |
 | JSON encode errors | Resolved (decision: ignore explicitly) | `httputil/response.go:18` uses explicit `_ =` assignments. |

@@ -1,7 +1,7 @@
 # Issue #30: Agent improvement audit backlog reconciliation
 
 Issue: https://github.com/ventodeco/annota-gemini-hackathon-3/issues/30
-Base: `origin/dev` at `4b730e7`
+Base: `origin/dev` at `4b730e7`, rebased onto `b3a4b29` (Clerk #39/#59) before merge
 Source checklist: `docs/agent-improvement-audit.md`
 
 ## Outcome
@@ -12,7 +12,7 @@ Close #30 with evidence that every audit item has been resolved or decided again
 
 Commit `441c340` ("refactor: address agent audit backlog (#30)") already implemented most of the audit. Later PRs closed further items: Postgres migration coverage in CI came with #55/#43. Each item was re-checked against `4b730e7`:
 
-- **Production `as` assertions:** none remain. `eslint` with `consistent-type-assertions: never` finds 0 hits in production code and 31 in test-only files.
+- **Production `as` assertions:** none remain. `eslint` with `consistent-type-assertions: never` finds 0 hits in production code and 31 in test-only files (28 after the rebase onto `b3a4b29`).
 - **Nested ternaries:** 4 production hits remain, all added after `441c340`:
   - `web/src/components/layout/BottomActionBar.tsx:30` (speech button icon)
   - `web/src/pages/HistoryPage.tsx:47,49` (`headerTitle`)
@@ -34,7 +34,7 @@ Commit `441c340` ("refactor: address agent audit backlog (#30)") already impleme
 4. Tests: `BottomActionBar.test.tsx` covers the speech icon and label states, and `HistoryPage.test.tsx` covers the title and detail path for each filter. In `web/src/pages/__tests__/LoadingPage.test.tsx`, add regression tests for two cases:
    - OCR becomes ready, then the 30s timeout elapses: exactly one navigation, carrying `preloadedScan`.
    - An invalid id redirects to `/welcome`.
-5. `docs/agent-improvement-audit.md`: add a reconciliation table at `4b730e7` with item → status → evidence. Record the deliberate decisions and the out-of-scope observations.
+5. `docs/agent-improvement-audit.md`: add a reconciliation table at `4b730e7`, re-checked at `b3a4b29`, with item → status → evidence. Record the deliberate decisions and the out-of-scope observations.
 
 ## Out of scope
 
@@ -65,7 +65,7 @@ As a maintainer, I can trust that the audit checklist matches the code. Future a
 - 0 production nested ternaries, checked with `bunx eslint src --rule '{"no-nested-ternary":"error"}'`.
 - 0 production `as` assertions, checked with the `consistent-type-assertions` rule set to `never`.
 - `LoadingPage` no longer has a ref mirrored from state, and its behavior is unchanged per the existing and new tests.
-- The audit doc records per-item evidence at `4b730e7`.
+- The audit doc records per-item evidence at `b3a4b29`.
 - `bun run test`, `bun run lint`, `bun run build`, `go vet ./...` and `go test ./...` pass. Postgres migration tests skip locally without `POSTGRES_TEST_DSN` and run in CI.
 
 ## Verification
