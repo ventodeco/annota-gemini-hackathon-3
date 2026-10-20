@@ -2,18 +2,18 @@
 
 ANNOTA meters its paid AI work against persisted daily allowances: one per user per feature, plus one global beta budget per feature. The backend enforces them (`backend/internal/usage`, `backend/internal/storage/usage.go`, migration `006_usage_quotas.sql`). The app shows the remaining allowance on the profile page, and the image-scan allowance on the home screen.
 
-The limits are **operation caps** (pages, requests, characters), not a currency budget. Their values are **provisional and pending owner approval**. This is a beta cost control, not billing. There are no paid plans or prices, and the app makes no financial promises.
+The limits are **operation caps** (pages, requests, characters), not a currency budget. Their values were **approved by the owner** on 2026-10-20. This is a beta cost control, not billing. There are no paid plans or prices, and the app makes no financial promises.
 
 ## What is metered
 
 | Feature | Endpoint | Unit charged | Per user per day | Global per day |
 |---|---|---|---|---|
-| `ocr` | `POST /v1/scans` (image OCR) | 1 page per image | `USAGE_QUOTA_OCR_PAGES_PER_DAY` = 20 | `USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY` = 500 |
-| `explanation` | `POST /v1/ai/analyze` | 1 request | `USAGE_QUOTA_EXPLANATIONS_PER_DAY` = 100 | `USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY` = 2500 |
-| `speech` | `POST /v1/ai/speech` | characters (Unicode code points) of the selected text | `USAGE_QUOTA_SPEECH_CHARS_PER_DAY` = 3000 | `USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY` = 75000 |
+| `ocr` | `POST /v1/scans` (image OCR) | 1 page per image | `USAGE_QUOTA_OCR_PAGES_PER_DAY` = 10 | `USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY` = 250 |
+| `explanation` | `POST /v1/ai/analyze` | 1 request | `USAGE_QUOTA_EXPLANATIONS_PER_DAY` = 50 | `USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY` = 1250 |
+| `speech` | `POST /v1/ai/speech` | characters (Unicode code points) of the selected text | `USAGE_QUOTA_SPEECH_CHARS_PER_DAY` = 1500 | `USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY` = 37500 |
 
-- The defaults are provisional, bounded beta values proposed in issue #42 and still pending owner approval; the global budget is roughly 25 users at full allowance. The owner can change any of them through environment variables. `0` disables a feature, negative values fail startup validation, and there is no unlimited setting.
-- A speech selection longer than `USAGE_SPEECH_MAX_CHARS_PER_REQUEST` (default 500), or longer than the per-user daily limit, is rejected as too large. A request larger than the global budget is reported as an exhausted budget, so the 413 never reveals the global value.
+- The defaults are the owner-approved beta caps from issue #42: half of each value originally proposed. The global budget is roughly 25 users at full allowance. The operator can still override any of them through environment variables. `0` disables a feature, negative values fail startup validation, and there is no unlimited setting.
+- A speech selection longer than `USAGE_SPEECH_MAX_CHARS_PER_REQUEST` (default 250), or longer than the per-user daily limit, is rejected as too large. A request larger than the global budget is reported as an exhausted budget, so the 413 never reveals the global value.
 - These are not metered, because they make no AI call:
   - PDF pages, whose text is extracted locally;
   - re-opening stored scans or OCR text;

@@ -139,10 +139,10 @@ func TestLoadReadsUsageQuotaConfig(t *testing.T) {
 	if cfg.UsageGlobalSpeechCharsPerDay != 1234 {
 		t.Fatalf("UsageGlobalSpeechCharsPerDay = %d, want 1234", cfg.UsageGlobalSpeechCharsPerDay)
 	}
-	// Documented beta defaults.
-	if cfg.UsageExplanationsPerDay != 100 || cfg.UsageSpeechCharsPerDay != 3000 ||
-		cfg.UsageGlobalOCRPagesPerDay != 500 || cfg.UsageGlobalExplanationsPerDay != 2500 ||
-		cfg.UsageSpeechMaxCharsPerRequest != 500 {
+	// Owner-approved beta defaults (issue #42).
+	if cfg.UsageExplanationsPerDay != 50 || cfg.UsageSpeechCharsPerDay != 1500 ||
+		cfg.UsageGlobalOCRPagesPerDay != 250 || cfg.UsageGlobalExplanationsPerDay != 1250 ||
+		cfg.UsageSpeechMaxCharsPerRequest != 250 {
 		t.Fatalf("unexpected usage defaults: %+v", cfg)
 	}
 }
@@ -342,13 +342,13 @@ func validConfig() *Config {
 		AIRateLimit:              60,
 		AIRateLimitWindowSeconds: 3600,
 
-		UsageOCRPagesPerDay:           20,
-		UsageExplanationsPerDay:       100,
-		UsageSpeechCharsPerDay:        3000,
-		UsageGlobalOCRPagesPerDay:     500,
-		UsageGlobalExplanationsPerDay: 2500,
-		UsageGlobalSpeechCharsPerDay:  75000,
-		UsageSpeechMaxCharsPerRequest: 500,
+		UsageOCRPagesPerDay:           10,
+		UsageExplanationsPerDay:       50,
+		UsageSpeechCharsPerDay:        1500,
+		UsageGlobalOCRPagesPerDay:     250,
+		UsageGlobalExplanationsPerDay: 1250,
+		UsageGlobalSpeechCharsPerDay:  37500,
+		UsageSpeechMaxCharsPerRequest: 250,
 	}
 }
 

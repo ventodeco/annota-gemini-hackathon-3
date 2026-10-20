@@ -10,8 +10,8 @@ function entitlements(features: FeatureAllowance[]): Entitlements {
   return { plan: 'free', usage: { period: 'daily', timezone: 'UTC', resetAt, features } }
 }
 
-const ocr: FeatureAllowance = { feature: 'ocr', unit: 'page', limit: 20, used: 3, remaining: 17, globalAvailable: true }
-const explanation: FeatureAllowance = { feature: 'explanation', unit: 'request', limit: 100, used: 100, remaining: 0, globalAvailable: true }
+const ocr: FeatureAllowance = { feature: 'ocr', unit: 'page', limit: 10, used: 3, remaining: 7, globalAvailable: true }
+const explanation: FeatureAllowance = { feature: 'explanation', unit: 'request', limit: 50, used: 50, remaining: 0, globalAvailable: true }
 const speech: FeatureAllowance = { feature: 'speech', unit: 'character', limit: 0, used: 0, remaining: 0, globalAvailable: true }
 
 describe('AllowanceView', () => {
@@ -21,7 +21,7 @@ describe('AllowanceView', () => {
     const items = within(screen.getByRole('list')).getAllByRole('listitem')
     expect(items).toHaveLength(3)
     expect(items[0]).toHaveTextContent('Image scans')
-    expect(items[0]).toHaveTextContent('17 pages left of 20')
+    expect(items[0]).toHaveTextContent('7 pages left of 10')
     expect(items[1]).toHaveTextContent('Explanations')
     expect(items[1]).toHaveTextContent(/Daily limit reached\. Resets at/)
     expect(items[2]).toHaveTextContent('Not available during the beta.')
@@ -57,11 +57,11 @@ describe('AllowanceView', () => {
 describe('ScanAllowanceLine', () => {
   it('summarises remaining scans', () => {
     render(<ScanAllowanceLine allowance={ocr} resetAt={resetAt} />)
-    expect(screen.getByText('17 of 20 image scans left today')).toBeInTheDocument()
+    expect(screen.getByText('7 of 10 image scans left today')).toBeInTheDocument()
   })
 
   it('announces an exhausted allowance and the PDF alternative', () => {
-    render(<ScanAllowanceLine allowance={{ ...ocr, used: 20, remaining: 0 }} resetAt={resetAt} />)
+    render(<ScanAllowanceLine allowance={{ ...ocr, used: 10, remaining: 0 }} resetAt={resetAt} />)
     expect(screen.getByRole('status')).toHaveTextContent(/Daily limit reached\. Resets at .+ PDF reading is still available\./)
   })
 })

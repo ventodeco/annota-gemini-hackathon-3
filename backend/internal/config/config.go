@@ -59,6 +59,7 @@ type Config struct {
 
 	// Daily beta allowances (UTC days). Per-user quotas sit under a global
 	// budget per feature; 0 disables a feature and there is no unlimited value.
+	// Defaults are the owner-approved operation caps from issue #42.
 	UsageOCRPagesPerDay           int
 	UsageExplanationsPerDay       int
 	UsageSpeechCharsPerDay        int
@@ -128,13 +129,13 @@ func Load() (*Config, error) {
 		AIRateLimit:              getEnvAsIntOrDefault("AI_RATE_LIMIT", 60),
 		AIRateLimitWindowSeconds: getEnvAsIntOrDefault("AI_RATE_LIMIT_WINDOW_SECONDS", 3600),
 
-		UsageOCRPagesPerDay:           getEnvAsIntOrDefault("USAGE_QUOTA_OCR_PAGES_PER_DAY", 20),
-		UsageExplanationsPerDay:       getEnvAsIntOrDefault("USAGE_QUOTA_EXPLANATIONS_PER_DAY", 100),
-		UsageSpeechCharsPerDay:        getEnvAsIntOrDefault("USAGE_QUOTA_SPEECH_CHARS_PER_DAY", 3000),
-		UsageGlobalOCRPagesPerDay:     getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY", 500),
-		UsageGlobalExplanationsPerDay: getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY", 2500),
-		UsageGlobalSpeechCharsPerDay:  getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY", 75000),
-		UsageSpeechMaxCharsPerRequest: getEnvAsIntOrDefault("USAGE_SPEECH_MAX_CHARS_PER_REQUEST", 500),
+		UsageOCRPagesPerDay:           getEnvAsIntOrDefault("USAGE_QUOTA_OCR_PAGES_PER_DAY", 10),
+		UsageExplanationsPerDay:       getEnvAsIntOrDefault("USAGE_QUOTA_EXPLANATIONS_PER_DAY", 50),
+		UsageSpeechCharsPerDay:        getEnvAsIntOrDefault("USAGE_QUOTA_SPEECH_CHARS_PER_DAY", 1500),
+		UsageGlobalOCRPagesPerDay:     getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY", 250),
+		UsageGlobalExplanationsPerDay: getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY", 1250),
+		UsageGlobalSpeechCharsPerDay:  getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY", 37500),
+		UsageSpeechMaxCharsPerRequest: getEnvAsIntOrDefault("USAGE_SPEECH_MAX_CHARS_PER_REQUEST", 250),
 	}
 
 	if cfg.normalizedAIProvider() == AIProviderRouted {

@@ -22,15 +22,15 @@ Paid AI work (image OCR, explanations and speech) is admitted against persisted 
 - Clerk (#39) maps users to a stable numeric `users.id`. Account deletion runs `DELETE FROM users`. Migrations end at `005`; `006` is reserved for #42.
 - #41 is changing `scan.go`, `document.go`, `user.go` and `main.go`. Admission therefore sits **before** the scan row insert, and the reservation does not depend on the scan row, because #41's discard paths delete it.
 
-## Policy (provisional operation caps pending owner approval; all configurable)
+## Policy (owner-approved operation caps; all configurable)
 
 | Feature | Unit | Per-user/day | Global/day | Env |
 |---|---|---|---|---|
-| OCR | image page | 20 | 500 | `USAGE_QUOTA_OCR_PAGES_PER_DAY`, `USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY` |
-| Explanation | request | 100 | 2500 | `USAGE_QUOTA_EXPLANATIONS_PER_DAY`, `USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY` |
-| Speech | character of selected text (Unicode code points) | 3000 | 75000 | `USAGE_QUOTA_SPEECH_CHARS_PER_DAY`, `USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY` |
+| OCR | image page | 10 | 250 | `USAGE_QUOTA_OCR_PAGES_PER_DAY`, `USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY` |
+| Explanation | request | 50 | 1250 | `USAGE_QUOTA_EXPLANATIONS_PER_DAY`, `USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY` |
+| Speech | character of selected text (Unicode code points) | 1500 | 37500 | `USAGE_QUOTA_SPEECH_CHARS_PER_DAY`, `USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY` |
 
-- These are routine bounded beta defaults, chosen so the global budget is roughly 25 users at full allowance. The owner can change them by environment variable without a deploy-time code change. There is no unlimited tier. `0` disables a feature, and negative values fail config validation.
+- **Owner-approved caps (2026-10-20):** the owner approved half of each originally proposed value (originally 20/100/3000 per user, 500/2500/75000 global, 500 characters per speech request). Speech is also capped at 250 characters per request (`USAGE_SPEECH_MAX_CHARS_PER_REQUEST`). These are operation and character caps, not a currency spending cap. The global budget is still roughly 25 users at full allowance. The owner can change them by environment variable without a deploy-time code change. There is no unlimited tier. `0` disables a feature, and negative values fail config validation.
 - **Reset:** daily at 00:00 UTC. `usage_day` is the UTC date at admission. `resetAt` is the next UTC midnight.
 - **Charge timing:** units are reserved atomically before the provider call, and both the user and global counters include in-flight reservations.
 - **Settlement:**
@@ -110,7 +110,7 @@ Paid AI work (image OCR, explanations and speech) is admitted against persisted 
 - **Missing cost metadata:** `missing`, never estimated.
 - **Zero allowance:** rejected with the quota error; the UI reads "Not available during beta".
 - **Global exhausted first:** `usage_budget_exhausted` with the global `resetAt`; the UI shows a beta-capacity notice.
-- **Large speech input:** a selection longer than `USAGE_SPEECH_MAX_CHARS_PER_REQUEST` (default 500), or than the per-user daily limit, returns a non-retryable `413 speech_text_too_long`, not a quota 429. Otherwise the requested characters must fit within the remaining allowance.
+- **Large speech input:** a selection longer than `USAGE_SPEECH_MAX_CHARS_PER_REQUEST` (default 250), or than the per-user daily limit, returns a non-retryable `413 speech_text_too_long`, not a quota 429. Otherwise the requested characters must fit within the remaining allowance.
 - **Budget rejection:** no logout (it is not a 401).
 
 ## Acceptance criteria
@@ -130,7 +130,7 @@ Paid AI work (image OCR, explanations and speech) is admitted against persisted 
 - Handler tests (a testutil in-memory meter; a nil meter is never "unmetered"): quota 429 body, provider 429 code, pre-dispatch failure `released`, provider failure `failed`, speech too long 413.
 - Web: `bun run test`, `bun run lint`, `bun run build`.
 - Playwright screenshots (1280×800, 390×844) from a temporary uncommitted Vite harness that renders the real `AllowancePanel` and the quota message states with fixture data. States: allowance, empty (zero/disabled), exhausted (user and global), entitlements-fetch error, and recovery after reset. Live Clerk login is not claimed.
-- The defaults are recorded on #42 as owner-adjustable. Owner confirmation of the exact numbers stays pending and is not recorded as agreed.
+- The owner approved the caps above on 2026-10-20 (half of each original proposal). They are recorded on #42.
 - Shared 30-minute test-debug budget for #42.
 
 ## Out of scope
@@ -161,3 +161,26 @@ Billing or paid plans, model selection (#35), a service layer (#14), auth change
 ## Review round 2 (Sol, REQUEST_CHANGES on ca07cae, one minor finding), resolved
 
 - **A page refunded by failed background OCR could stay hidden until focus or midnight.** An entitlements snapshot taken while OCR still held the page stayed in use after the refund. `useEntitlements` now refreshes at least every 60 s while visible (5 s floor, and still just after the reset). A regression test covers reservation in flight → OCR fails → allowance restored, and fails without the fix.
+
+## Follow-up: owner-approved caps (branch `backlog/issue-42-approved-caps`)
+
+- **Scope:** apply the owner-approved caps as code defaults and update every doc, example and test fixture to match.
+  - Per user per day: 10 OCR pages, 50 explanations, 1500 speech characters.
+  - Global per day: 250 OCR pages, 1250 explanations, 37500 speech characters.
+  - Speech per request: 250 characters.
+  - Reset stays at 00:00 UTC.
+  - Environment overrides and zero-disables semantics are unchanged.
+  - No production configuration change and no deploy.
+- **Files:**
+  - `backend/internal/config/config.go` (+ test defaults)
+  - `backend/.env.example`, `backend/AGENTS.md`
+  - `docs/usage-quotas.md`, `backend/docs/openapi.yaml` (example)
+  - web test fixtures and examples (`usage.test.ts`, `AllowancePanel.test.tsx`, `useEntitlements.test.ts`)
+  - regenerated `docs/screenshots/issue-42/*`
+  - this plan
+- **Out of scope:** the source of truth is registry `scopeDecisions.quotaLimits`. Handler tests that set explicit custom limits keep them, because they test semantics, not defaults.
+- **Verification:**
+  - Backend: config tests, `go test ./...` and `go vet`.
+  - Web: `bun run test`, `lint` and `build`.
+  - Screenshots at desktop and mobile sizes with the approved values (temporary uncommitted harness).
+  - Final-head CI.

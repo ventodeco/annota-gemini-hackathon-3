@@ -13,7 +13,7 @@ function entitlements(remaining: number, resetAt: string): Entitlements {
       period: 'daily',
       timezone: 'UTC',
       resetAt,
-      features: [{ feature: 'ocr', unit: 'page', limit: 20, used: 20 - remaining, remaining, globalAvailable: true }],
+      features: [{ feature: 'ocr', unit: 'page', limit: 10, used: 10 - remaining, remaining, globalAvailable: true }],
     },
   }
 }
@@ -31,7 +31,7 @@ describe('useEntitlements', () => {
     const fetchEntitlements = vi
       .spyOn(api, 'getEntitlements')
       .mockResolvedValueOnce(entitlements(0, '2026-10-21T00:00:00Z'))
-      .mockResolvedValueOnce(entitlements(20, '2026-10-22T00:00:00Z'))
+      .mockResolvedValueOnce(entitlements(10, '2026-10-22T00:00:00Z'))
     // Mirror App.tsx, which disables focus refetching globally.
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } })
     const wrapper = ({ children }: { children: React.ReactNode }) =>
@@ -44,7 +44,7 @@ describe('useEntitlements', () => {
     vi.setSystemTime(new Date('2026-10-21T08:00:00Z'))
     act(() => focusManager.setFocused(true))
 
-    await waitFor(() => expect(result.current.data?.usage.features[0].remaining).toBe(20))
+    await waitFor(() => expect(result.current.data?.usage.features[0].remaining).toBe(10))
     expect(fetchEntitlements).toHaveBeenCalledTimes(2)
   })
   it('shows a page refunded by failed background OCR within a minute', async () => {
