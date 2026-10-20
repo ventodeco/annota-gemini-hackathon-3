@@ -55,7 +55,7 @@
           "text_input": true,
           "text_output": true,
           "json_mode": "prompt",
-          "max_output_tokens": 4096
+          "max_output_tokens": 16384
         },
         "speech-2.8-hd": {
           "text_input": true,

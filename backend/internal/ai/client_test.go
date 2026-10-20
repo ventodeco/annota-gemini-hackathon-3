@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gemini-hackathon/app/internal/knowledge"
+	"google.golang.org/genai"
 )
 
 func TestClientOCRUsesOpenRouterVisionRequest(t *testing.T) {
@@ -267,5 +269,71 @@ func TestGeminiSpeechAudio(t *testing.T) {
 				t.Fatalf("sample rate = %d, want %d", rate, tt.wantRate)
 			}
 		})
+	}
+}
+
+func TestGeminiSynthesizeSpeechSendsVerbatimTranscriptAndKeepsWAV(t *testing.T) {
+	wav := wrapPCMAsWAV([]byte{1, 2, 3, 4}, 24000, 1, 16)
+	var path string
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []any{map[string]any{
+				"content": map[string]any{"role": "model", "parts": []any{map[string]any{
+					"inlineData": map[string]any{"mimeType": "audio/wav", "data": base64.StdEncoding.EncodeToString(wav)},
+				}}},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	genaiClient, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+		APIKey:      "test-key",
+		Backend:     genai.BackendGeminiAPI,
+		HTTPOptions: genai.HTTPOptions{BaseURL: server.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &geminiClient{apiKey: "test-key", genaiClient: genaiClient}
+
+	resp, err := client.SynthesizeSpeech(context.Background(), "図書館", "駅前の小さな図書館は、朝九時に開きます。")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(path, "/models/gemini-3.8-flash-tts:generateContent") {
+		t.Fatalf("path = %s, want gemini-3.8-flash-tts generateContent", path)
+	}
+	body, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "駅前") || strings.Contains(string(body), "Selected text") {
+		t.Fatalf("request must not contain context or prompt directions: %s", body)
+	}
+	contents, ok := captured["contents"].([]any)
+	if !ok || len(contents) != 1 {
+		t.Fatalf("contents = %v", captured["contents"])
+	}
+	content, _ := contents[0].(map[string]any)
+	parts, _ := content["parts"].([]any)
+	if len(parts) != 1 {
+		t.Fatalf("parts = %v", content["parts"])
+	}
+	part, _ := parts[0].(map[string]any)
+	if part["text"] != "図書館" {
+		t.Fatalf("text = %v, want only the selection", part["text"])
+	}
+	metadata, _ := part["speechMetadata"].(map[string]any)
+	if style, _ := metadata["style"].(string); style == "" {
+		t.Fatalf("speechMetadata.style missing from request: %s", body)
+	}
+	if resp.MIMEType != "audio/wav" || string(resp.Audio) != string(wav) {
+		t.Fatalf("response = %q (%d bytes), want unchanged WAV", resp.MIMEType, len(resp.Audio))
 	}
 }

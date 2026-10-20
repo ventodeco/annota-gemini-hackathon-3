@@ -31,7 +31,7 @@ Full matrix and source links: `docs/evidence/issue-35/model-matrix-2026-10-20.md
   The current Gemini prompt embeds instructions plus up to 400 characters of context. A plain ID swap would read them aloud, including user document context.
 - **Gemini 2.5 Flash.** The Google API lists no shutdown for direct Gemini-mode `gemini-2.5-flash`. OpenRouter's catalog shows `expiration_date: 2026-10-20` for `google/gemini-2.5-flash`. That applies only to the OpenRouter route and does not affect Gemini mode.
 - **DeepSeek-OCR.** The global AstraFlow doc names `deepseek-ai/DeepSeek-OCR` on `api-us-ca.umodelverse.ai` (free, `max_tokens` ≤ 8192). It is absent from the unauthenticated `/v1/models` lists of Singapore, US-CA, Frankfurt and China. A key-scoped listing may differ.
-- **Model metadata.** Scans and annotations persist no model/prompt metadata (no columns in `migrations/`, no fields in `internal/models`). Adding it is a storage-contract change that overlaps #43 storage/migrations. It is flagged to the coordinator as a follow-up and is not done here.
+- **Model metadata.** Scans and annotations persist no model/prompt metadata (no columns in `migrations/`, no fields in `internal/models`). Adding it is a storage-contract change that overlaps #43 storage/migrations. It is recorded as a follow-up in the issue and the final coordinator report, and is not done here.
 
 ## Scope (this PR)
 
@@ -59,7 +59,7 @@ Full matrix and source links: `docs/evidence/issue-35/model-matrix-2026-10-20.md
 
 ## Out of scope / follow-ups
 
-- `backend/cmd/qualify-routes` belongs to #34 (PR #63). It is not edited here. Gap: the report deliberately omits output text, so transcription errors and pronunciation cannot be scored from it. Proposed follow-up after #63 merges, owned or agreed with #34: an opt-in local-only output directory (OCR text, annotation JSON, audio), never written into the report. Raised with #34.
+- `backend/cmd/qualify-routes` belongs to #34 (PR #63). It is not edited here. Gap: the report deliberately omits output text, so transcription errors and pronunciation cannot be scored from it. Proposed follow-up after #63 merges, owned or agreed with #34: an opt-in local-only output directory (OCR text, annotation JSON, audio), never written into the report. Sent to the #34 thread for an ownership decision.
 - Persisting model and prompt-version metadata per scan/annotation (storage; overlaps #43).
 - Changing the legacy OCR, annotation, or voice defaults. Change them only after live qualification picks a replacement.
 - `docs/ai-routing.md` gets only a one-line link to the matrix. PR #63 merged as `1a51fa8` before this edit, so there is no conflict.

@@ -82,6 +82,8 @@ The selection rule: listed and served, a documented request shape that matches t
 - **Long speech:** sp-5 (~290 chars) is well under the documented limits (MiniMax < 10,000 chars; OpenRouter transcript ≤ 10,000; Gemini ≤ 8,192 input tokens).
 - **Voice/pronunciation changes:** Gemini 3.8 no longer receives context, so heteronyms such as 今日 rely on the model alone. sp-4 records this.
 - **Provider request IDs:** `qualify-routes` redacts and fails IDs that echo content. Record the ID format observed per route for #34.
+- **Reasoning budget:** `MiniMax-M2.7` always thinks. The candidate file gives it `max_output_tokens: 16384` so that reasoning cannot truncate the JSON. Record billed output tokens, and treat truncation as a configuration question before disqualifying the route.
+- **Gemini 3.8 request contract:** confirm on the first keyed Gemini-mode call that `generateContent` accepts `languageCode: ja-JP` together with `speechMetadata`, and that the returned MIME is `audio/wav`.
 
 ## Results
 
