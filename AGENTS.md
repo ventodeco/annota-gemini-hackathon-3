@@ -14,6 +14,15 @@ A mobile-first PWA built with Go backend (JSON API) + React frontend that uses G
 - **Nix development**: If the user is using this repository's Nix flake, enter the dev shell with `nix develop` from the repository root before running development commands. Inside the shell, continue using the documented `bun`, `go`, and `docker-compose` commands.
 - **Respect local ownership**: Do not revert unrelated working-tree changes. If existing user changes affect the task, work with them and ask only when they block the work.
 
+### Outcome-first delivery and bounded verification
+
+- **Focus on the requested result**: Define the observable outcome, make the smallest clear change that delivers it, and use verification to assess that result. Do not turn a maintenance task into a coverage project, broad refactor, or test-framework rewrite.
+- **Verify in proportion to risk**: Run focused checks for the changed behavior, then the required build, lint, or integration checks. Once relevant checks pass, stop repeating or broadening them unless a new change or concrete concern justifies it. Documentation-only changes need a diff/content review, not the application test suite.
+- **Timebox test failures to 30 minutes total per task**: A task is the GitHub issue being delivered. Start a wall-clock timer when investigating the first failing test or test-tooling error. Spend at most 30 minutes total debugging test failures for that task, including reruns and waits. The budget is shared across failures, commands, sessions, pull requests, CI runs, and delegated agents; restarting a command, encountering another failure, opening another pull request, or changing agents does not reset it. Stop earlier when blocked on credentials, services, or tools that are unavailable.
+- **At the time limit, report and move forward**: Stop test debugging for that task. Record the exact command, first useful failure, suspected cause, work attempted, and next action in the relevant GitHub issue. Continue independent authorized work and ask for direction only when the failures block the requested outcome. Extending the test-debugging budget needs explicit user authorization.
+- **Keep verification honest**: Do not disable tests, weaken assertions, hide errors, or claim a pass to meet the time limit. Distinguish implementation completed, checks passed, checks blocked, and live-provider verification pending. Record pre-existing failures unrelated to the change in the issue as baseline failures, with evidence, instead of fixing them out of scope or reporting them as passing. A release-blocking failure remains a release blocker.
+- **Keep live AI checks bounded**: Use small representative OCR, annotation, and speech samples after API keys are provided. Record the provider, model, latency, and usage; avoid repeated paid requests that do not resolve a specific question.
+
 ## Specialized Agent Files
 
 This project uses specialized agent files for each part of the codebase:
