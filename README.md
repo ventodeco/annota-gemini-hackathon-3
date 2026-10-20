@@ -198,13 +198,12 @@ gemini-hackathon/
 
 ## API Endpoints
 
-- `GET /healthz` - Process liveness check
-- `GET /readyz` - Dependency readiness check (PostgreSQL and Redis)
-- `POST /api/scans` - Upload image and create scan
-- `GET /api/scans/{id}` - Get scan data with OCR result
-- `POST /api/scans/{id}/annotate` - Generate annotation for selected text
-- `GET /api/scans/{id}/image` - Get scan image file
+- `GET /healthz` - Process liveness check (no auth)
+- `GET /readyz` - Dependency readiness check (PostgreSQL and Redis, no auth)
+- `/v1/*` - JSON API for preferences, scans, PDF documents, AI explanation and speech, annotations and usage allowance. Requires a Clerk session token (`Authorization: Bearer`).
 - `GET /` - Serves React frontend (SPA)
+
+Reference: [`backend/docs/openapi.yaml`](backend/docs/openapi.yaml) (OpenAPI 3). Guide with curl examples: [`backend/docs/api.md`](backend/docs/api.md).
 
 ## Database
 
