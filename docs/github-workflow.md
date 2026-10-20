@@ -204,6 +204,26 @@ Types:
 | `priority-high` | Urgent |
 | `priority-low` | Nice to have |
 
+## Dependency Updates (Dependabot)
+
+[`.github/dependabot.yml`](../.github/dependabot.yml) checks `bun`, `gomod`, `docker` (`backend/` and `web/` Dockerfiles) and `github-actions` weekly and opens PRs against `dev`. Minor and patch updates are grouped into one PR per ecosystem; majors come as separate PRs. Majors that are blocked upstream are ignored, and the reasons are in comments in the config file.
+
+### Admin prerequisites
+
+- **Default branch must be `dev`.** Dependabot reads its config only from the default branch, and security-update PRs target it. While the default is `master`, no update PRs open.
+- **Alerts and security updates** are repository settings (Settings → Code security), separate from `dependabot.yml`. Docker gets no security-update PRs.
+- After the first run, check Insights → Dependency graph → Dependabot to confirm every ecosystem parsed, including the `web/` workspace under `bun`.
+
+### Reviewing Dependabot PRs
+
+CI runs on every PR to `dev`. Before merging, also check the items Dependabot does not handle:
+
+- **Runtime pins:** an `oven/bun` or `node` image bump does not update `packageManager` and `engines` in `package.json`, `.node-version`, `BUN_VERSION` in `.github/workflows/ci-cd.yml`, or `flake.nix`. Update them in the same PR.
+- **Go toolchain:** `backend/Dockerfile` sets `GOTOOLCHAIN` because the matching `golang` Alpine image was not yet published. Once it is, remove the override; until then, `golang` image bumps do not change the toolchain.
+- **Alpine tag suffix:** image tags carry an `-alpineX.Y` suffix, and Dependabot keeps it. When upstream stops publishing that suffix, updates stop. Revisit the suffixes when a newer Alpine release is adopted.
+- **nginx:** only the even stable line is used. When a new stable line is adopted, add the next odd mainline to the `ignore` list.
+- **PostgreSQL/Redis:** intentionally not tracked. Major upgrades need a data migration (#43).
+
 ## Tips
 
 ```bash
