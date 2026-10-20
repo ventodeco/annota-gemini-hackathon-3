@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/useAuth'
+import { safeRedirectPath } from '@/lib/authSession'
 import { SAMPLE_PDF_URL } from '@/lib/sample'
 
 const linkClass =
@@ -16,7 +17,7 @@ const WORKFLOW_STEPS = [
   'Select a word or sentence. On a phone, long-press and drag the handles.',
   'Choose “Explain this” for an English explanation of its meaning, usage and nuance in context.',
   'Play the selected text to hear it read aloud.',
-  'Save the annotation, then come back to it from Documents.',
+  'Save the annotation. Reopen PDFs from Documents and photo scans from OCR History.',
 ]
 
 const LIMITATIONS = [
@@ -41,15 +42,19 @@ function IntroSection({ id, title, children }: { id: string; title: string; chil
 
 export default function IntroPage() {
   const { isSignedIn } = useAuth()
+  const [searchParams] = useSearchParams()
+  // A visitor who reached the intro from a sign-in redirect keeps their destination.
+  const redirectPath = safeRedirectPath(searchParams.get('redirect_url'))
+  const redirectQuery = redirectPath ? `?redirect_url=${encodeURIComponent(redirectPath)}` : ''
 
   // Static content renders while Clerk loads so slow or offline visitors still see it.
-  if (isSignedIn) return <Navigate to="/welcome" replace />
+  if (isSignedIn) return <Navigate to={redirectPath ?? '/welcome'} replace />
 
   return (
     <div className="min-h-screen bg-white text-gray-700">
       <header className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-6 pt-6">
         <img src="/logo-anota.png" alt="ANNOTA" className="h-10 w-auto" />
-        <Link to="/login" className={navLinkClass}>
+        <Link to={`/login${redirectQuery}`} className={navLinkClass}>
           Sign in
         </Link>
       </header>
@@ -68,10 +73,10 @@ export default function IntroPage() {
             listen to it and save it for later.
           </p>
           <div className="flex flex-wrap gap-3">
-            <Link to="/sign-up" className={primaryLinkClass}>
+            <Link to={`/sign-up${redirectQuery}`} className={primaryLinkClass}>
               Create an account
             </Link>
-            <Link to="/login" className={secondaryLinkClass}>
+            <Link to={`/login${redirectQuery}`} className={secondaryLinkClass}>
               Sign in
             </Link>
           </div>

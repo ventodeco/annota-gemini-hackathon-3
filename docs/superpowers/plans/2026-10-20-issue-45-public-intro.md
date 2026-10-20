@@ -22,7 +22,7 @@ As a new Japanese learner, I want to understand the product and try a sample so 
 - `web/src/pages/LegalPage.tsx`: "Back to ANNOTA" goes to `/` (signed-in users are forwarded to `/welcome`).
 - `web/src/pages/WelcomePage.tsx`:
   - "Try the sample" fetches `/samples/annota-sample.pdf` and uploads it through the existing `pdfUploadMutation`. Each user gets their own document; reset means deleting that document and adding the sample again.
-  - The guidance block is `FirstUseGuide`, a non-modal section with an ordered list: upload/sample, select (long-press on phones), Explain, Listen, Save, return through Documents/History. "Hide guide" dismisses it and the choice is persisted in versioned localStorage. A "Show guide" button brings it back.
+  - The guidance block is `FirstUseGuide`, a non-modal section with an ordered list: upload/sample, select (long-press on phones), Explain, Listen, Save, reopen PDFs from Documents and photo scans from OCR History. "Hide guide" dismisses it and the choice is persisted in versioned localStorage. A "Show guide" button brings it back.
   - #44 owns the upload mutation handlers and the upload error block. This issue does not edit them.
 - `web/public/samples/annota-sample.pdf` (new): 2 pages of original Japanese text written for ANNOTA, dedicated CC0 1.0. Page 1 is horizontal and page 2 is vertical (tategaki). It is typeset in Sawarabi Mincho (SIL OFL 1.1, embedded subset), about 66 KB. Both pages extract cleanly with the backend `ledongthuc/pdf` extractor. Fonts that Chrome emits as Type3 (variable/CFF Noto) did not extract.
 - `web/public/samples/README.md`: rights and font notice for the sample.
@@ -40,7 +40,7 @@ As a new Japanese learner, I want to understand the product and try a sample so 
 ## Edge cases
 
 - Signed-out visitor sees the intro. A returning signed-in visitor is redirected to `/welcome`.
-- A direct reader link goes to `/login?redirect_url=…` (existing behaviour). The login page links to the intro.
+- A direct reader link goes to `/login?redirect_url=…` (existing behaviour). The login page's "About ANNOTA" link and the intro's sign-in/sign-up links carry the validated `redirect_url` (`safeRedirectPath`), so the detour keeps the destination.
 - No personal file: the sample is available. Sample reset or deletion goes through the existing document delete.
 - Slow or offline connection: the intro is static. If the sample fetch fails, the existing inline upload error is shown.
 - Unsupported PDF: the intro and the existing PDF note explain the photo workaround.

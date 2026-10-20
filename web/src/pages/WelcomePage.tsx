@@ -172,7 +172,7 @@ export default function WelcomePage() {
             aria-describedby="sample-note"
             variant="secondary"
             disabled={isAnyPending}
-            className="w-[200px] min-h-[40px] h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
+            className="w-[200px] min-h-11 h-auto rounded-full pt-[9.5px] pb-[9.5px] px-6 gap-2 text-[14px] font-medium font-roboto leading-none"
           >
             <BookOpenText className="w-5 h-5" />
             {isSampleLoading ? 'Loading sample...' : 'Try the sample'}

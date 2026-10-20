@@ -10,7 +10,7 @@ const GUIDE_STEPS = [
   'Select Japanese text. On a phone, long-press a word and drag the handles.',
   'Choose “Explain this” for an English explanation in context.',
   'Press the speaker button to hear the selection read aloud.',
-  'Choose “Save Annotation” to keep it. Reopen documents and their annotations from Documents.',
+  'Choose “Save Annotation” to keep it. Reopen PDFs and their annotations from Documents, and photo scans from OCR History.',
 ]
 
 function readHidden(): boolean {
