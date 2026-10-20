@@ -222,6 +222,21 @@ task IDs are recorded below as they complete.
   behind a stalled proxy (Ping bounded; the test fails after 5 s with the
   option disabled). lib/pq may still hold its probe goroutine until the driver
   returns; the handler response stays bounded and probes do not pile up.
+- Round 2, GPT-6.1 Sol, task `issue43-pr55-review-r2` on head `c4e50a4`:
+  REQUEST_CHANGES. One blocking finding: a request joining a shared probe
+  after the probe's own deadline could receive a late success as `200`
+  (reproduced with a context-ignoring check and real lib/pq behind a delaying
+  proxy). Fixed by converting a success returned after the probe's own
+  deadline into a deadline error inside the probe, keeping the run registered
+  until the check returns. Regression test
+  `TestReadinessHandler_LateJoinerRejectsExpiredSharedProbe` fails on
+  `c4e50a4` (`got 200`) and passes after the fix.
+- CI run https://github.com/ventodeco/annota-gemini-hackathon-3/actions/runs/39369141749
+  on `4fb7b3e` passed: every `Postgres$` storage test passed with no skip;
+  final backend image `sha256:7dcb3400d38c58590516d5532f39d91207ced40d4859d68d043b11fe03d5f61f`
+  showed `/readyz` 503 then 200 for Redis and PostgreSQL with `/healthz` 200;
+  frontend image `sha256:89e0fcce282d3a61cdc5acc4a69cfb2b51fc92c7b2e199acb177e001c5abc21b`
+  passed its asset checks.
 - Test-debugging: one unexpected failure at 04:25 UTC (the first fake Redis
   server ignored the client's `HELLO` handshake); replaced with a stallable
   proxy in front of miniredis by 04:26 UTC. About 1 minute used; about 12.5

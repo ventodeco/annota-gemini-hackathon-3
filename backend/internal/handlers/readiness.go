@@ -45,7 +45,13 @@ func (p *readinessProbe) start() *readinessRun {
 		// Detached from any one request because the run may be shared.
 		ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
 		defer cancel()
-		run.err = p.check.Check(ctx)
+		err := p.check.Check(ctx)
+		if err == nil && ctx.Err() != nil {
+			// A result after the probe's own deadline is not readiness, even
+			// for a request that joined late and is still within its own.
+			err = errReadinessDeadline
+		}
+		run.err = err
 		p.mu.Lock()
 		p.running = nil
 		p.mu.Unlock()

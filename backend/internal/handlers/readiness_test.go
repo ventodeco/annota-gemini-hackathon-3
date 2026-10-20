@@ -95,3 +95,24 @@ func TestReadinessHandler_RejectsSuccessAfterDeadline(t *testing.T) {
 		t.Fatalf("got %d, want 503 for a check that succeeds only after the deadline", rec.Code)
 	}
 }
+
+func TestReadinessHandler_LateJoinerRejectsExpiredSharedProbe(t *testing.T) {
+	release := make(chan struct{})
+	handler := NewReadinessHandler(50*time.Millisecond, ReadinessCheck{Name: "postgres", Check: func(context.Context) error {
+		<-release
+		return nil
+	}})
+
+	if rec := readinessRequest(t, handler); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("first request: got %d, want 503", rec.Code)
+	}
+	// The second request joins the still-running, already expired probe; the
+	// probe then succeeds while the second request is within its own deadline.
+	result := make(chan int, 1)
+	go func() { result <- readinessRequest(t, handler).Code }()
+	time.Sleep(10 * time.Millisecond)
+	close(release)
+	if code := <-result; code != http.StatusServiceUnavailable {
+		t.Fatalf("late joiner: got %d, want 503 for a probe that exceeded its deadline", code)
+	}
+}
