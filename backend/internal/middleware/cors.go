@@ -17,16 +17,17 @@ func NewCORSMiddleware(cfg *config.Config) *CORSMiddleware {
 func (m *CORSMiddleware) Handle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if m.cfg.IsOriginAllowed(origin) {
-			if m.cfg.AllowedOrigins == "*" {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
-			} else {
+		if m.cfg.AllowedOrigins == "*" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			setCORSPolicyHeaders(w)
+		} else {
+			w.Header().Add("Vary", "Origin")
+			// Credentials are only granted to a concrete origin that exactly matches the allow-list.
+			if origin != "" && origin != "*" && m.cfg.IsOriginAllowed(origin) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				setCORSPolicyHeaders(w)
 			}
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, x-token, Authorization")
-			w.Header().Set("Access-Control-Max-Age", "3600")
 		}
 
 		if r.Method == "OPTIONS" {
@@ -36,4 +37,10 @@ func (m *CORSMiddleware) Handle(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func setCORSPolicyHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, x-token, Authorization")
+	w.Header().Set("Access-Control-Max-Age", "3600")
 }

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27.3, `net/http`, `httptest`.
 
-**Status:** Plan written, awaiting independent review.
+**Status:** Implemented. The plan was written first; an optional GPT-6.1 Sol plan review (task `issue13-plan-review-r1`, plan commit `4239f30`) approved it with two non-blocking notes, both incorporated. The owner later removed the plan-review gate, so independent review now covers the PR only.
 
 ## Global Constraints
 
@@ -27,7 +27,7 @@ The current middleware (`cors.go`) reflects the request origin with credentials 
 1. **Literal `*` entry in an explicit list.** With `ALLOWED_ORIGINS="https://app.example,*"` and request header `Origin: *`, the middleware returns `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true`, the exact combination the issue forbids. Browsers never send `Origin: *`, so this is not a browser exploit, but the server should not emit it.
 2. **Empty entry from a trailing or doubled comma.** With `ALLOWED_ORIGINS="https://app.example,"`, a request without an `Origin` header matches the `""` entry and gets an empty `Access-Control-Allow-Origin` plus `Access-Control-Allow-Credentials: true`.
 
-A third gap concerns caching. The credentialed reflected response varies by `Origin`, but the middleware does not send `Vary: Origin`. A shared cache could reuse a response carrying one origin's `Access-Control-Allow-Origin` and credentials grant for a request from another origin, or reuse a no-CORS response for an allowed origin.
+A third gap concerns cache correctness. In explicit mode the CORS headers depend on the request `Origin`, but the middleware does not send `Vary: Origin`. A shared cache could reuse one origin's response for another origin, or a no-CORS response for an allowed origin. A mismatched allow-origin normally makes the browser fail the CORS check rather than disclose data, so this is a cache-correctness companion, not a demonstrated credential leak.
 
 **Baseline (2026-10-20, before changes):** from `backend/`, `rtk proxy go test -count=1 ./internal/middleware ./internal/config` passed (`ok` for both packages) and `rtk proxy go vet ./...` passed.
 
@@ -71,16 +71,18 @@ if m.cfg.AllowedOrigins == "*" {
 
 `setCORSPolicyHeaders` is a small unexported helper for the three shared headers, removing duplication between the two branches. Use `Header().Add` for `Vary` so values set by other handlers are preserved. The wildcard branch's current output stays exactly the same.
 
-**Scope decision for the reviewer:** `Vary: Origin` is a credential-safety companion rather than a literal issue requirement. If the reviewer judges it out of scope, drop it and its test assertions; the rest of the plan stands.
+**Scope decision:** `Vary: Origin` is kept. In explicit mode the CORS headers depend on the request `Origin`, so this is a two-line cache-correctness companion inside the same middleware branch, not a separate feature.
 
 **Focused tests (table-driven where natural):**
 
-- [ ] Wildcard `OPTIONS` preflight returns `204`, `Access-Control-Allow-Origin: *`, and no `Access-Control-Allow-Credentials`. Only `GET` is covered today.
-- [ ] Explicit list containing `*` with `Origin: *` sets neither `Access-Control-Allow-Origin` nor `Access-Control-Allow-Credentials` (both `GET` and `OPTIONS`).
-- [ ] Trailing-comma list with no `Origin` header sets neither header.
-- [ ] Explicit mode adds `Vary: Origin` on reflected and on disallowed responses; wildcard mode does not.
-- [ ] A `Vary` value already set before the middleware runs is preserved alongside `Origin`.
-- [ ] Existing four CORS tests stay green unchanged.
+- [x] Wildcard `OPTIONS` preflight returns `204`, `Access-Control-Allow-Origin: *`, and no `Access-Control-Allow-Credentials`. Only `GET` is covered today.
+- [x] Explicit list containing `*` with `Origin: *` sets neither `Access-Control-Allow-Origin` nor `Access-Control-Allow-Credentials` (both `GET` and `OPTIONS`).
+- [x] In the same mixed list, the concrete listed origin still receives the reflected origin and credentials.
+- [x] Trailing-comma list with no `Origin` header sets neither header.
+- [x] Explicit mode adds `Vary: Origin` on reflected and on disallowed responses; wildcard mode does not.
+- [x] A `Vary` value already set before the middleware runs is preserved alongside `Origin`.
+- [x] Existing four CORS tests stay green unchanged.
+- [x] Denied cases assert header absence with `Header().Values` (not `Get`, which cannot distinguish absent from empty); `Vary` assertions inspect all values and comma-separated tokens.
 
 **Verification (from `backend/`):**
 
@@ -111,3 +113,12 @@ The full `./...` run includes the PostgreSQL migration test, which skips locally
 
 - #33 (beta umbrella) tracks overall readiness; this PR does not duplicate any child implementation.
 - #39 (Clerk migration) will later revisit CORS headers for Clerk origins, and #41 covers HTTPS/origin configuration for beta privacy. Both build on this guard; neither is implemented here. No open PR touches `cors.go`.
+
+## Verification evidence (2026-10-20)
+
+Toolchain: Go 1.27.3 at `/tmp/annota-runtime-upgrade/go/bin`, from `backend/`.
+
+- **Red:** with the new tests and the pre-change `cors.go` restored, `TestCORSMiddleware_CredentialsRequireConcreteOrigin` failed. `Origin: *` against `https://app.example,*` received `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true`, and a missing Origin against `https://app.example,` received an empty `Access-Control-Allow-Origin` with `Access-Control-Allow-Credentials: true`. The concrete-origin and unlisted-origin cases failed only on the missing `Vary: Origin`.
+- **Green:** `rtk proxy go test -count=1 -v ./internal/middleware -run 'TestCORS'` passed all seven CORS tests (four existing, three new).
+- `rtk proxy go test -count=1 ./...` passed. The PostgreSQL migration test skips locally without `POSTGRES_TEST_DSN`; CI runs it against a real database.
+- `rtk proxy go vet ./...` passed; `rtk proxy gofmt -l internal/middleware` printed nothing.
