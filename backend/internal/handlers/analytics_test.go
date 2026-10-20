@@ -13,7 +13,7 @@ import (
 func TestAnalyticsEventAPIRequiresAuthAndAcceptsEvent(t *testing.T) {
 	handler := handlers.NewAnalyticsHandlers()
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/events", strings.NewReader(`{"name":"first_annotation","properties":{"source":"pdf"}}`))
+	req := httptest.NewRequest(http.MethodPost, "/v1/events", strings.NewReader(`{"name":"reader_activation","properties":{"source":"pdf"}}`))
 	req = req.WithContext(middleware.WithUserID(req.Context(), 7))
 	rec := httptest.NewRecorder()
 

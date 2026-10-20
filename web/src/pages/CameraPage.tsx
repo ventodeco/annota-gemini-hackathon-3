@@ -6,6 +6,8 @@ import CameraControls from '@/components/camera/CameraControls'
 import CameraError from '@/components/camera/CameraError'
 import { useCreateScan } from '@/hooks/useScans'
 import { getUsageErrorMessage } from '@/lib/usage'
+import { trackEvent } from '@/lib/api'
+import { getErrorReference } from '@/lib/errorReference'
 
 export default function CameraPage() {
   const navigate = useNavigate()
@@ -67,10 +69,13 @@ export default function CameraPage() {
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl)
       }
+      void trackEvent('reader_activation', { source: 'camera' }).catch(() => undefined)
       navigate(`/loading/${result.scanId}`)
     } catch (err) {
       console.error('Failed to upload scan:', err)
-      alert(getUsageErrorMessage(err) ?? 'Failed to upload image. Please try again.')
+      const message = getUsageErrorMessage(err) ?? 'Failed to upload image. Please try again.'
+      const reference = getErrorReference(err)
+      alert(reference ? `${message}\n\nReference: ${reference}` : message)
     }
   }
 

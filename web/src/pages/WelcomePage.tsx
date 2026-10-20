@@ -5,6 +5,7 @@ import { BookOpenText, Camera, FileText, Image as ImageIcon } from 'lucide-react
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/useAuth'
 import { ApiError, createScan, trackEvent, uploadDocument } from '@/lib/api'
+import { getErrorReference } from '@/lib/errorReference'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { AvatarMenu } from '@/components/layout/AvatarMenu'
 import { ScanAllowanceNotice } from '@/components/usage/AllowancePanel'
@@ -12,6 +13,12 @@ import { FirstUseGuide } from '@/components/homepage/FirstUseGuide'
 import { useInvalidateEntitlements } from '@/hooks/useEntitlements'
 import { getUsageErrorMessage } from '@/lib/usage'
 import { fetchSamplePdf } from '@/lib/sample'
+import ErrorReference from '@/components/layout/ErrorReference'
+
+interface UploadError {
+  message: string
+  reference: string | null
+}
 
 // The server's own message when it sent one; ApiError.message is the raw body.
 function getUploadErrorMessage(error: Error, fallback: string): string {
@@ -21,23 +28,27 @@ function getUploadErrorMessage(error: Error, fallback: string): string {
   return fallback
 }
 
+function toUploadError(error: Error, fallback: string): UploadError {
+  return { message: getUploadErrorMessage(error, fallback), reference: getErrorReference(error) }
+}
+
 export default function WelcomePage() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const { user } = useAuth()
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadError, setUploadError] = useState<UploadError | null>(null)
   const [isSampleLoading, setIsSampleLoading] = useState(false)
   const invalidateEntitlements = useInvalidateEntitlements()
 
   const uploadMutation = useMutation({
     mutationFn: createScan,
     onSuccess: (data) => {
-      void trackEvent('reader_activation', { source: 'image' }).catch(() => undefined)
+      void trackEvent('reader_activation', { source: 'gallery' }).catch(() => undefined)
       navigate(`/loading/${data.scanId}`)
     },
     onError: (error: Error) => {
-      setUploadError(getUploadErrorMessage(error, 'Failed to upload image. Please try again.'))
+      setUploadError(toUploadError(error, 'Failed to upload image. Please try again.'))
     },
     onSettled: invalidateEntitlements,
   })
@@ -49,7 +60,7 @@ export default function WelcomePage() {
       navigate(`/documents/${data.documentId}`)
     },
     onError: (error: Error) => {
-      setUploadError(getUploadErrorMessage(error, 'Failed to upload PDF. Please try again.'))
+      setUploadError(toUploadError(error, 'Failed to upload PDF. Please try again.'))
     },
   })
 
@@ -70,7 +81,7 @@ export default function WelcomePage() {
     if (!file) return
 
     if (!file.type.startsWith('image/')) {
-      setUploadError('Please select an image file')
+      setUploadError({ message: 'Please select an image file', reference: null })
       return
     }
 
@@ -88,7 +99,7 @@ export default function WelcomePage() {
     if (!file) return
 
     if (file.type !== 'application/pdf') {
-      setUploadError('Please select a PDF file')
+      setUploadError({ message: 'Please select a PDF file', reference: null })
       return
     }
 
@@ -104,7 +115,7 @@ export default function WelcomePage() {
       const sample = await fetchSamplePdf()
       pdfUploadMutation.mutate(sample)
     } catch {
-      setUploadError('Could not load the sample. Check your connection and try again.')
+      setUploadError({ message: 'Could not load the sample. Check your connection and try again.', reference: null })
     } finally {
       setIsSampleLoading(false)
     }
@@ -131,7 +142,8 @@ export default function WelcomePage() {
 
         {uploadError && (
           <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg" role="alert">
-            {uploadError}
+            {uploadError.message}
+            {uploadError.reference && <ErrorReference reference={uploadError.reference} className="mt-1" />}
           </div>
         )}
 

@@ -39,6 +39,7 @@ type LogEntry struct {
 	Path       string         `json:"path,omitempty"`
 	StatusCode int            `json:"status_code,omitempty"`
 	Duration   string         `json:"duration,omitempty"`
+	DurationMS *int64         `json:"duration_ms,omitempty"`
 	Fields     map[string]any `json:"fields,omitempty"`
 	Error      string         `json:"error,omitempty"`
 	StackTrace string         `json:"stack_trace,omitempty"`
@@ -184,6 +185,7 @@ func (l *Logger) Fatalf(format string, args ...any) {
 }
 
 func (l *Logger) RequestLog(method, path string, statusCode int, duration time.Duration) {
+	durationMS := duration.Milliseconds()
 	entry := LogEntry{
 		Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
 		Level:      "INFO",
@@ -194,6 +196,7 @@ func (l *Logger) RequestLog(method, path string, statusCode int, duration time.D
 		Path:       path,
 		StatusCode: statusCode,
 		Duration:   duration.String(),
+		DurationMS: &durationMS,
 		Fields:     l.fields,
 		Caller:     getCaller(),
 	}

@@ -158,6 +158,7 @@ If a secret is ever committed, rotate it first. Rewriting git history does not u
 - User lookup key: `users.clerk_user_id` (Clerk user ID) or the Clerk-verified email address.
 - For deletion requests, ask the user to use the in-app Delete account action first. Manual deletion and Clerk reconciliation steps are in [`clerk-auth.md`](clerk-auth.md#deletion-and-reconciliation).
 - For abuse investigations, collect request IDs, user ID, target route, timestamp, and AI rate-limit status from structured logs.
+- For failed operations, ask for the **Reference** shown in the app and follow [`beta-triage.md`](beta-triage.md). It also covers OCR, AI latency/cost and proposed alert thresholds.
 
 ## Privacy And Data Lifecycle
 

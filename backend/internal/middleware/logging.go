@@ -13,6 +13,10 @@ import (
 type requestIDKey string
 
 const RequestIDKey requestIDKey = "request_id"
+
+// RequestIDHeader carries the server-generated request ID on every response so
+// users can quote it to support. Client-supplied values are never trusted.
+const RequestIDHeader = "X-Request-ID"
 const maxLoggedResponseBodyBytes = 4096
 
 type responseWriter struct {
@@ -43,6 +47,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		requestID := generateRequestID()
 
+		w.Header().Set(RequestIDHeader, requestID)
 		ctx := context.WithValue(r.Context(), RequestIDKey, requestID)
 		r = r.WithContext(ctx)
 

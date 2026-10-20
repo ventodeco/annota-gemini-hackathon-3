@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { toast } from 'sonner'
 import Header from '@/components/layout/Header'
 import BottomActionBar from '@/components/layout/BottomActionBar'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -10,9 +9,10 @@ import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { formatDate } from '@/lib/api'
+import { showErrorToast } from '@/lib/errorToast'
 import LoadingSpinner from '@/components/scanpage/LoadingSpinner'
 import ScanFailureState from '@/components/scanpage/ScanFailureState'
-import { getScanFailureCopy, NO_TEXT_SCAN_COPY } from '@/lib/scanStatus'
+import { getScanFailureCopy, getScanReference, NO_TEXT_SCAN_COPY } from '@/lib/scanStatus'
 import ScanImage from '@/components/scanpage/ScanImage'
 import type { Scan } from '@/lib/types'
 import { SelectionSpeechButton } from '@/components/scanpage/SelectionSpeechButton'
@@ -111,7 +111,7 @@ export default function ScanPage(): ReactElement {
     synthesizeSpeech,
     speech,
     clearSelection,
-    reportError: toast.error,
+    reportError: showErrorToast,
     resolveScanIdForExplain,
     onAfterSave: () => {
       setSelectionRect(null)
@@ -224,6 +224,7 @@ export default function ScanPage(): ReactElement {
           description={copy.description}
           actionLabel="Upload another page"
           onAction={() => navigate('/welcome')}
+          reference={getScanReference(scan.id)}
         />
       </div>
     )

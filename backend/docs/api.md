@@ -40,6 +40,8 @@ Branch on `code` when it is present, not on `message`:
 | 413 | `usage_request_too_large` | Selection is too long to speak (`max` characters) |
 | 503 | `usage_unavailable` | Allowance could not be checked; retry shortly |
 
+Every response, successful or not, has an `X-Request-ID` header that matches `request_id` in the server logs. Show it to the user as a support reference; operators look it up as described in [`docs/beta-triage.md`](../../docs/beta-triage.md).
+
 Check the remaining allowance with `GET /v1/entitlements/me`. The default daily limits are 10 OCR pages, 50 explanations and 1500 speech characters, with at most 250 characters per speech request. See [`docs/usage-quotas.md`](../../docs/usage-quotas.md).
 
 ## Examples

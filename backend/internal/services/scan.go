@@ -11,6 +11,7 @@ import (
 
 	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/logger"
+	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/storage"
 	"github.com/gemini-hackathon/app/internal/usage"
@@ -161,7 +162,8 @@ func (s *ScanService) CreateImageScan(ctx context.Context, userID int64, imageDa
 // ProcessOCR runs OCR for a stored scan, persists the result or a terminal
 // failure reason, and settles reservation exactly once. It never retries.
 func (s *ScanService) ProcessOCR(ctx context.Context, reservation *usage.Reservation, scanID int64, imageData []byte, mimeType string) {
-	log := logger.GetDefaultLogger().WithField("scan_id", scanID)
+	// ctx keeps the upload request's values, so OCR lines share its request ID.
+	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(ctx)).WithField("scan_id", scanID)
 
 	// Settle exactly once, even on an early return or panic.
 	outcome := errOCRIncomplete
@@ -174,6 +176,7 @@ func (s *ScanService) ProcessOCR(ctx context.Context, reservation *usage.Reserva
 		return context.WithTimeout(context.WithoutCancel(ctx), ocrStatusWriteTimeout)
 	}
 	markFailed := func(reason string) {
+		log.WithField("reason", reason).Warn("OCR scan failed")
 		writeCtx, cancel := writeContext()
 		defer cancel()
 		if err := s.db.UpdateScanStatus(writeCtx, scanID, "failed", &reason); err != nil {
