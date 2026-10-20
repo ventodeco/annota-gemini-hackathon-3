@@ -88,7 +88,7 @@ Each funnel step is an occurrence. "First" is the earliest occurrence for each `
 | Reader activation | `analytics_event` with `fields.event == "reader_activation"` and `fields.properties.source` set to `camera`, `gallery` or `pdf` (older clients sent `image` for gallery uploads) |
 | First explanation | `HTTP Request` with `POST /v1/ai/analyze` and status 200 |
 | Save | `HTTP Request` with `POST /v1/annotations` and status 201 |
-| Reopen | `HTTP Request` with `GET /v1/documents/{id}` or `GET /v1/scans/{id}` at least a day after that user's activation |
+| Reopen | `HTTP Request` with `POST /v1/documents/{id}/open` (status 200) for PDFs, or `GET /v1/scans/{id}` for image scans, at least a day after that user's activation |
 
 To list first activation per user:
 
