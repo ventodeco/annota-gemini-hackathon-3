@@ -10,6 +10,12 @@ interface BottomActionBarProps {
   isSpeechLoading?: boolean
 }
 
+function SpeechIcon({ isLoading, isPlaying }: { isLoading: boolean; isPlaying: boolean }) {
+  if (isLoading) return <Loader2 className="w-5 h-5 animate-spin" />
+  if (isPlaying) return <Square className="w-5 h-5 fill-current" />
+  return <Volume2 className="w-5 h-5" />
+}
+
 export default function BottomActionBar({
   disabled = false,
   isLoading = false,
@@ -26,14 +32,9 @@ export default function BottomActionBar({
         variant="outline"
         size="icon"
         className="h-12 w-12 rounded-xl"
+        aria-label={isPlaying ? 'Stop playback' : 'Play selected text'}
       >
-        {isSpeechLoading ? (
-          <Loader2 className="w-5 h-5 animate-spin" />
-        ) : isPlaying ? (
-          <Square className="w-5 h-5 fill-current" />
-        ) : (
-          <Volume2 className="w-5 h-5" />
-        )}
+        <SpeechIcon isLoading={isSpeechLoading} isPlaying={isPlaying} />
       </Button>
       <Button
         onClick={onExplain}

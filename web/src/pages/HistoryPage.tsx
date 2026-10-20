@@ -27,6 +27,28 @@ interface AnnotationItem {
   createdAt: string
 }
 
+interface HistoryFilter {
+  scanId?: number
+  documentId?: number
+  pageNumber?: number
+}
+
+function getHistoryTitle({ scanId, documentId, pageNumber }: HistoryFilter): string {
+  if (scanId) return `Annotations for OCR #${scanId}`
+  if (documentId && pageNumber) return `Annotations for document #${documentId}, page ${pageNumber}`
+  if (documentId) return `Annotations for document #${documentId}`
+  return 'History'
+}
+
+function getAnnotationDetailPath(annotationId: number, { scanId, documentId, pageNumber }: HistoryFilter): string {
+  if (scanId) return `/annotations/${annotationId}?scanId=${scanId}`
+  if (documentId) {
+    const pageQuery = pageNumber ? `&pageNumber=${pageNumber}` : ''
+    return `/annotations/${annotationId}?documentId=${documentId}${pageQuery}`
+  }
+  return `/annotations/${annotationId}`
+}
+
 export default function HistoryPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -44,21 +66,11 @@ export default function HistoryPage() {
   const deleteAnnotation = useDeleteAnnotation()
   const [annotationToDelete, setAnnotationToDelete] = useState<AnnotationItem | null>(null)
 
-  const headerTitle = scanId
-    ? `Annotations for OCR #${scanId}`
-    : documentId && pageNumber
-      ? `Annotations for document #${documentId}, page ${pageNumber}`
-      : documentId
-        ? `Annotations for document #${documentId}`
-        : 'History'
+  const historyFilter: HistoryFilter = { scanId, documentId, pageNumber }
+  const headerTitle = getHistoryTitle(historyFilter)
 
   const handleAnnotationClick = (item: AnnotationItem) => {
-    const detailPath = scanId
-      ? `/annotations/${item.id}?scanId=${scanId}`
-      : documentId
-        ? `/annotations/${item.id}?documentId=${documentId}${pageNumber ? `&pageNumber=${pageNumber}` : ''}`
-        : `/annotations/${item.id}`
-    navigate(detailPath, { state: item })
+    navigate(getAnnotationDetailPath(item.id, historyFilter), { state: item })
   }
 
   const handleDeleteClick = (e: React.MouseEvent, item: AnnotationItem) => {

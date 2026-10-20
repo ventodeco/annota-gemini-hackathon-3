@@ -11,7 +11,6 @@ export default function LoadingPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const hasNavigatedRef = useRef(false)
-  const latestScanRef = useRef<Scan | undefined>(undefined)
   const scanIdParsed = id ? Number.parseInt(id, 10) : NaN
   const scanId = Number.isInteger(scanIdParsed) && scanIdParsed > 0 ? scanIdParsed : undefined
   const scanHistoryPath = scanId ? `/history?scanId=${scanId}` : '/history'
@@ -31,26 +30,17 @@ export default function LoadingPage() {
   })
 
   useEffect(() => {
-    if (!id || !Number.isInteger(scanIdParsed) || scanIdParsed <= 0) {
+    if (!scanId) {
       navigate('/welcome', { replace: true })
     }
-  }, [id, navigate, scanIdParsed])
+  }, [navigate, scanId])
 
   useEffect(() => {
-    if (!id || !Number.isInteger(scanIdParsed) || scanIdParsed <= 0) {
-      return
-    }
-    const timeoutId = setTimeout(() => {
-      const currentScan = latestScanRef.current
-      if (currentScan && isScanOcrReady(currentScan)) return
-      navigateToScan()
-    }, 30000)
+    if (!scanId) return
+    // navigateToScan ignores this fallback when the ready effect has already navigated.
+    const timeoutId = setTimeout(() => navigateToScan(), 30000)
     return () => clearTimeout(timeoutId)
-  }, [id, scanIdParsed, navigateToScan])
-
-  useEffect(() => {
-    latestScanRef.current = scan
-  }, [scan])
+  }, [navigateToScan, scanId])
 
   useEffect(() => {
     if (scan && isScanOcrReady(scan)) {

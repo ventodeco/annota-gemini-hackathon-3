@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import HistoryPage from '../HistoryPage'
 
 const useAnnotationsMock = vi.fn()
@@ -17,6 +17,18 @@ vi.mock('@/components/layout/Header', () => ({
 vi.mock('@/components/layout/BottomNavigation', () => ({
   default: () => <div>Bottom Nav</div>,
 }))
+
+function LocationProbe() {
+  const location = useLocation()
+  return <div>{`${location.pathname}${location.search}`}</div>
+}
+
+const savedAnnotation = {
+  id: 7,
+  highlightedText: '勉強',
+  nuanceSummary: 'study',
+  createdAt: '2026-02-08T20:30:41+07:00',
+}
 
 describe('HistoryPage', () => {
   beforeEach(() => {
@@ -65,5 +77,31 @@ describe('HistoryPage', () => {
 
     expect(useAnnotationsMock).toHaveBeenCalledWith(1, 20, undefined, 9, 3)
     expect(screen.getByText('Annotations for document #9, page 3')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/history?scanId=5', 'Annotations for OCR #5', '/annotations/7?scanId=5'],
+    ['/history?documentId=9&pageNumber=3', 'Annotations for document #9, page 3', '/annotations/7?documentId=9&pageNumber=3'],
+    ['/history?documentId=9', 'Annotations for document #9', '/annotations/7?documentId=9'],
+    ['/history', 'History', '/annotations/7'],
+  ])('opens annotation detail from %s', (entry, title, detailPath) => {
+    useAnnotationsMock.mockReturnValue({
+      data: { data: [savedAnnotation], meta: { currentPage: 1, pageSize: 20 } },
+      isLoading: false,
+      error: null,
+    })
+
+    render(
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/annotations/:id" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText(title)).toBeInTheDocument()
+    fireEvent.click(screen.getByText('勉強'))
+    expect(screen.getByText(detailPath)).toBeInTheDocument()
   })
 })
