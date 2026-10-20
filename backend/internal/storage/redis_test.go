@@ -75,6 +75,38 @@ func TestRedisClientUsesExpectedKeyPrefix(t *testing.T) {
 	}
 }
 
+func TestRedisClientStateExpiresAfterTTL(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	defer mr.Close()
+
+	client, err := NewRedisClient(mr.Addr())
+	if err != nil {
+		t.Fatalf("NewRedisClient() error = %v", err)
+	}
+	defer client.Close()
+
+	ctx := context.Background()
+	if err := client.SetState(ctx, "short", "session-1", 30*time.Second); err != nil {
+		t.Fatalf("SetState() error = %v", err)
+	}
+	if ttl := mr.TTL("oauth:state:short"); ttl != 30*time.Second {
+		t.Fatalf("stored TTL = %v, want 30s", ttl)
+	}
+
+	mr.FastForward(29 * time.Second)
+	if got, err := client.GetState(ctx, "short"); err != nil || got != "session-1" {
+		t.Fatalf("GetState() before expiry = %q, %v; want session-1", got, err)
+	}
+
+	mr.FastForward(2 * time.Second)
+	if _, err := client.GetState(ctx, "short"); !errors.Is(err, redis.Nil) {
+		t.Fatalf("GetState() after expiry error = %v, want redis.Nil", err)
+	}
+}
+
 func TestRedisClientPingReportsAvailability(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {
