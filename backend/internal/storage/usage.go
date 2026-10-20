@@ -79,6 +79,11 @@ type UsageStore interface {
 	SettleUsage(ctx context.Context, reservationID int64, status string, cost UsageCost, settledAt time.Time) (bool, error)
 	// GetUsageCounts returns per-feature counts for the user's day.
 	GetUsageCounts(ctx context.Context, userID int64, day time.Time) (map[string]UsageCount, error)
+	// ExpireStaleUsage settles the user's reservations of a feature that are
+	// still reserved and were created before cutoff as failed: the user is
+	// refunded on each reservation's own day and the global charge is kept.
+	// It returns how many reservations it settled.
+	ExpireStaleUsage(ctx context.Context, userID int64, feature string, cutoff, settledAt time.Time) (int64, error)
 }
 
 type postgresUsageStore struct {
@@ -261,4 +266,39 @@ func (s *postgresUsageStore) GetUsageCounts(ctx context.Context, userID int64, d
 		counts[feature] = count
 	}
 	return counts, rows.Err()
+}
+
+// ExpireStaleUsage is one statement, so it is atomic. Stale rows are locked in
+// id order and re-checked after any wait, so a concurrent Finish or expiry
+// settles each reservation once. Like SettleUsage it locks the reservation
+// before the counter, and UPDATE never recreates rows of a deleted user.
+func (s *postgresUsageStore) ExpireStaleUsage(ctx context.Context, userID int64, feature string, cutoff, settledAt time.Time) (int64, error) {
+	var expired int64
+	err := s.db.QueryRowContext(ctx, `
+		WITH stale AS (
+			SELECT id FROM usage_reservations
+			WHERE user_id = $1 AND feature = $2 AND status = 'reserved' AND created_at < $3
+			ORDER BY id
+			FOR UPDATE
+		), expired AS (
+			UPDATE usage_reservations r
+			SET status = 'failed', settled_at = $4, cost_status = 'missing'
+			FROM stale
+			WHERE r.id = stale.id
+			RETURNING r.usage_day, r.units
+		), refunds AS (
+			SELECT usage_day, SUM(units) AS units FROM expired GROUP BY usage_day
+		), refunded AS (
+			-- Data-modifying CTEs always run to completion, referenced or not.
+			UPDATE usage_counters c
+			SET used_units = GREATEST(c.used_units - refunds.units, 0)
+			FROM refunds
+			WHERE c.user_id = $1 AND c.feature = $2 AND c.usage_day = refunds.usage_day
+		)
+		SELECT COUNT(*) FROM expired`,
+		userID, feature, cutoff, settledAt).Scan(&expired)
+	if err != nil {
+		return 0, fmt.Errorf("expire stale usage reservations: %w", err)
+	}
+	return expired, nil
 }

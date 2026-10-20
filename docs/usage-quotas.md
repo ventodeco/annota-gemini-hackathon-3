@@ -46,7 +46,14 @@ The limits are **operation caps** (pages, requests, characters), not a currency 
    - The legacy `minimax`/`gemini` clients retry internally and report no attempts, so an earlier attempt may have been billed even when the final error is a clean rejection. For them, only a configuration error raised before any HTTP status counts as `released`; every other failure is `failed`.
    - Refunds apply to the reservation's own day, so a refund after midnight never credits the new day.
    - A second settlement is a no-op.
-3. **Stale reservations stay charged.** If the process dies mid-call, its reservation stays `reserved` and charged. This is deliberately conservative; operators can find these rows via `idx_usage_reservations_status_created`.
+3. **Abandoned OCR reservations are refunded to the user.**
+   - If the process dies mid-OCR (for example, a restart), its in-process settlement never runs.
+   - An OCR reservation still `reserved` 15 minutes after admission (`handlers.OCRReservationStaleAfter`: the 5-minute OCR timeout plus a 10-minute margin) is settled as `failed`. The user's counter is refunded once, on the reservation's own day. The global charge is kept, because the provider may have billed. The cost is recorded as `missing`.
+   - The cutoff cannot refund running work. OCR may only start within 9 minutes of admission (`ocrDispatchWindow` = 15 − 5 − a 1-minute settle margin). Its context then ends within 5 minutes, and the result write and settle fit in the remaining minute. If the upload steps (the account-lock wait, `CreateScan`, `SaveImage`) take longer than the dispatch window, OCR is not started: the scan is marked failed (`ocr_failed`) and the page is released.
+   - Expiry runs lazily for the requesting user before an OCR admission and before the allowance is read. It needs no sweeper, and OCR is never re-dispatched.
+   - **Relation to #40's `ocr_interrupted`.** #40 marks a processing image scan `ocr_interrupted` after 6 minutes (the 5-minute OCR timeout plus a 1-minute write margin). That threshold is intentionally separate from the 15-minute reservation cutoff. An interrupted scan does **not** refund immediately: its page can stay charged for up to about 9 more minutes, until the reservation passes 15 minutes. The page is then refunded once, never twice.
+   - A late settlement from the abandoned job is a no-op, and a deleted user's rows are never recreated.
+   - Explanation and speech reservations stranded by a crash mid-request still stay charged until the reset. Operators can find them via `idx_usage_reservations_status_created`.
 
 ## Recorded usage and cost
 

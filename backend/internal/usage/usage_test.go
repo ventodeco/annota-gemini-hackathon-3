@@ -191,3 +191,40 @@ func TestSnapshotReportsAllowanceAndGlobalAvailability(t *testing.T) {
 		t.Fatalf("ResetAt = %v, want %v", next.ResetAt, want)
 	}
 }
+
+func TestStaleReservationIsRefundedToUserOnly(t *testing.T) {
+	meter, store, now := newTestMeter(Limits{FeatureOCR: {User: 1, Global: 10}})
+	meter.WithStaleReservationTimeout(FeatureOCR, 15*time.Minute)
+	ctx := context.Background()
+
+	_, abandoned, err := meter.Reserve(ctx, 1, FeatureOCR, 1)
+	if err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	// Still within the cutoff, the page stays charged: a live OCR may be running.
+	*now = testNow.Add(14 * time.Minute)
+	if _, _, err := meter.Reserve(ctx, 1, FeatureOCR, 1); err == nil {
+		t.Fatal("in-flight reservation was refunded before the cutoff")
+	}
+
+	*now = testNow.Add(16 * time.Minute)
+	snapshot, err := meter.Snapshot(ctx, 1)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if ocr := snapshot.Features[0]; ocr.Remaining != 1 {
+		t.Fatalf("snapshot after cutoff = %+v, want the page refunded", ocr)
+	}
+	if store.Reservations()[0].Status != storage.UsageStatusFailed {
+		t.Fatalf("abandoned reservation status = %s", store.Reservations()[0].Status)
+	}
+
+	// A late Finish from the abandoned job is a no-op and cannot double refund.
+	meter.Finish(ctx, abandoned, &ai.ProviderError{Kind: ai.ErrorKindConfig})
+	if _, _, err := meter.Reserve(ctx, 1, FeatureOCR, 1); err != nil {
+		t.Fatalf("reserve after refund: %v", err)
+	}
+	if _, _, err := meter.Reserve(ctx, 1, FeatureOCR, 1); err == nil {
+		t.Fatal("late Finish refunded the page twice")
+	}
+}

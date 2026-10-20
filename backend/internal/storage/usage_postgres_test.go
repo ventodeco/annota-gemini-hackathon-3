@@ -260,3 +260,71 @@ func TestUsagePersistenceAndAccountDeletion_Postgres(t *testing.T) {
 		t.Fatalf("after deletion: user rows=%d reservations=%d global=%d, want 0/0/12", userRows, reservationRows, globalUsed)
 	}
 }
+
+func TestUsageExpireStaleReservations_Postgres(t *testing.T) {
+	db, pool := newMigratedPostgresStore(t)
+	store := NewPostgresUsageStore(pool)
+	ctx := context.Background()
+	user := createPGUser(t, db, "usage-stale")
+	gone := createPGUser(t, db, "usage-stale-gone")
+
+	reserveAt := func(userID int64, createdAt time.Time) int64 {
+		t.Helper()
+		p := reserveParams(userID, "ocr", 1, 10, 100)
+		p.CreatedAt = createdAt
+		id, err := store.ReserveUsage(ctx, p)
+		if err != nil {
+			t.Fatalf("reserve: %v", err)
+		}
+		return id
+	}
+	// usageDay1 is 23:59 UTC; the expiry runs after midnight, on the next day.
+	staleID := reserveAt(user.ID, usageDay1.Add(-30*time.Minute))
+	reserveAt(user.ID, usageDay1) // still within the cutoff: in flight
+	reserveAt(gone.ID, usageDay1.Add(-30*time.Minute))
+	if err := db.DeleteUser(ctx, gone.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	expireAt := usageDay1.Add(10 * time.Minute)
+	cutoff := usageDay1.Add(-15 * time.Minute)
+
+	expired, err := store.ExpireStaleUsage(ctx, user.ID, "ocr", cutoff, expireAt)
+	if err != nil || expired != 1 {
+		t.Fatalf("ExpireStaleUsage = %d, %v; want 1", expired, err)
+	}
+	// User refunded once on the reservation's day; global charge kept (3 reserved, the deleted user's included).
+	if got := usageCounts(t, store, user.ID, usageDay1)["ocr"]; got != (UsageCount{User: 1, Global: 3}) {
+		t.Fatalf("counts after expiry = %+v, want user=1 global=3", got)
+	}
+	if got := usageCounts(t, store, user.ID, expireAt); len(got) != 0 {
+		t.Fatalf("refund credited the expiry day: %+v", got)
+	}
+
+	// A second expiry and a late Finish are both no-ops: no double refund.
+	if again, err := store.ExpireStaleUsage(ctx, user.ID, "ocr", cutoff, expireAt); err != nil || again != 0 {
+		t.Fatalf("second expiry = %d, %v; want 0", again, err)
+	}
+	if applied, err := store.SettleUsage(ctx, staleID, UsageStatusReleased, UsageCost{CostStatus: "none"}, expireAt); err != nil || applied {
+		t.Fatalf("late settle after expiry = %v, %v; want no-op", applied, err)
+	}
+	if got := usageCounts(t, store, user.ID, usageDay1)["ocr"]; got != (UsageCount{User: 1, Global: 3}) {
+		t.Fatalf("counts after late settle = %+v", got)
+	}
+
+	var status, costStatus string
+	if err := pool.QueryRowContext(ctx, `SELECT status, cost_status FROM usage_reservations WHERE id = $1`, staleID).Scan(&status, &costStatus); err != nil {
+		t.Fatalf("read expired reservation: %v", err)
+	}
+	if status != UsageStatusFailed || costStatus != "missing" {
+		t.Fatalf("expired reservation = %s/%s, want failed/missing", status, costStatus)
+	}
+
+	// Expiring a deleted user recreates nothing.
+	if n, err := store.ExpireStaleUsage(ctx, gone.ID, "ocr", cutoff, expireAt); err != nil || n != 0 {
+		t.Fatalf("expiry for deleted user = %d, %v", n, err)
+	}
+	var rows int64
+	if err := pool.QueryRowContext(ctx, `SELECT COUNT(*) FROM usage_counters WHERE user_id = $1`, gone.ID).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("deleted user counter rows = %d, %v", rows, err)
+	}
+}

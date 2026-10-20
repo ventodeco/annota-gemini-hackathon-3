@@ -31,6 +31,21 @@ type ScanHandlers struct {
 
 const ocrProcessingTimeout = 5 * time.Minute
 
+// OCRReservationStaleAfter is when an OCR reservation still unsettled counts
+// as abandoned (its process died mid-OCR) and is refunded to the user.
+const OCRReservationStaleAfter = ocrProcessingTimeout + 10*time.Minute
+
+// ocrSettleMargin bounds the OCR result write and the detached settle that
+// follow the OCR context's deadline.
+const ocrSettleMargin = time.Minute
+
+// ocrDispatchWindow is the latest age, measured from admission, at which OCR
+// may still start. A job dispatched within it reaches its OCR deadline and
+// settles before OCRReservationStaleAfter, so expiry never refunds live work.
+// Slow pre-dispatch steps (account lock, CreateScan, SaveImage) past it get
+// no OCR and an immediate release instead.
+const ocrDispatchWindow = OCRReservationStaleAfter - ocrProcessingTimeout - ocrSettleMargin
+
 // errOCRIncomplete settles an OCR reservation whose job ended without a result.
 var errOCRIncomplete = errors.New("ocr job ended without a result")
 
@@ -185,6 +200,21 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	imageURL := privateScanImageURL(scanID)
+
+	if age := h.meter.Age(reservation); age > ocrDispatchWindow {
+		// Too late to start OCR and still settle before the reservation
+		// expires; fail the scan and refund instead of dispatching.
+		log.Warnf("Skipping OCR dispatch %s after admission (window %s)", age, ocrDispatchWindow)
+		reason := "ocr_failed"
+		if err := h.db.UpdateScanStatus(r.Context(), scanID, "failed", &reason); err != nil {
+			log.ErrorWithErr(err, "Failed to persist skipped OCR dispatch")
+		}
+		h.meter.Release(r.Context(), reservation)
+		httputil.WriteJSON(w, http.StatusCreated, CreateScanResponse{
+			ScanID: scanID, ImageURL: imageURL, SourceType: "image", Status: "failed", FailureReason: &reason,
+		})
+		return
+	}
 
 	log.WithFields(map[string]any{
 		"scan_id":   scanID,

@@ -112,6 +112,9 @@ type Meter struct {
 	store  storage.UsageStore
 	limits Limits
 	now    func() time.Time
+	// staleAfter marks reservations of a feature as abandoned once they are
+	// older than any live process could take to settle them.
+	staleAfter map[Feature]time.Duration
 }
 
 func NewMeter(store storage.UsageStore, limits Limits) *Meter {
@@ -120,6 +123,38 @@ func NewMeter(store storage.UsageStore, limits Limits) *Meter {
 
 func NewMeterWithClock(store storage.UsageStore, limits Limits, now func() time.Time) *Meter {
 	return &Meter{store: store, limits: limits, now: now}
+}
+
+// WithStaleReservationTimeout makes the meter settle the caller's
+// reservations of feature that are still reserved after timeout as failed:
+// the user is refunded and the global charge is kept, because the provider
+// may have billed. It covers work whose process died before settling (e.g.
+// OCR across a restart). timeout must exceed the longest time a live process
+// can take to settle. Configure it before the meter is used.
+func (m *Meter) WithStaleReservationTimeout(feature Feature, timeout time.Duration) *Meter {
+	if m.staleAfter == nil {
+		m.staleAfter = make(map[Feature]time.Duration)
+	}
+	m.staleAfter[feature] = timeout
+	return m
+}
+
+// expireStale settles the user's abandoned reservations before their usage is
+// read or charged. Failure only delays a refund, so it never blocks the caller.
+func (m *Meter) expireStale(ctx context.Context, userID int64, features ...Feature) {
+	now := m.now()
+	for _, feature := range features {
+		timeout, ok := m.staleAfter[feature]
+		if !ok {
+			continue
+		}
+		if _, err := m.store.ExpireStaleUsage(ctx, userID, string(feature), now.Add(-timeout), now); err != nil {
+			logger.GetDefaultLogger().WithFields(map[string]any{
+				"user_id": userID,
+				"feature": feature,
+			}).ErrorWithErr(err, "Failed to expire stale usage reservations")
+		}
+	}
 }
 
 func (m *Meter) Limit(feature Feature) Limit {
@@ -144,6 +179,7 @@ func (m *Meter) Reserve(ctx context.Context, userID int64, feature Feature, unit
 		return ctx, nil, &TooLargeError{Feature: feature, Max: largest}
 	}
 
+	m.expireStale(ctx, userID, feature)
 	now := m.now()
 	id, err := m.store.ReserveUsage(ctx, storage.UsageReserveParams{
 		UserID: userID, Feature: string(feature), Day: DayStart(now), Units: units,
@@ -180,6 +216,11 @@ func admissibleMax(limit Limit) int64 {
 		largest = min(largest, limit.PerRequest)
 	}
 	return largest
+}
+
+// Age reports how long ago the reservation was admitted, on the meter's clock.
+func (m *Meter) Age(res *Reservation) time.Duration {
+	return m.now().Sub(res.startedAt)
 }
 
 // Release refunds a reservation whose provider call never started.
@@ -364,6 +405,7 @@ type Snapshot struct {
 }
 
 func (m *Meter) Snapshot(ctx context.Context, userID int64) (Snapshot, error) {
+	m.expireStale(ctx, userID, Features...)
 	now := m.now()
 	counts, err := m.store.GetUsageCounts(ctx, userID, DayStart(now))
 	if err != nil {
