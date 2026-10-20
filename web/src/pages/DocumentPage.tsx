@@ -12,6 +12,7 @@ import { useDocument, useDocumentPage, useRecordDocumentOpen, useUpdateDocumentP
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { createScanFromPage, getDocumentFile } from '@/lib/api'
+import { showErrorToast } from '@/lib/errorToast'
 import type { Document } from '@/lib/types'
 
 type DocumentPdfSectionProps = {
@@ -199,7 +200,7 @@ export default function DocumentPage(): ReactElement {
     synthesizeSpeech,
     speech,
     clearSelection,
-    reportError: toast.error,
+    reportError: showErrorToast,
     resolveScanIdForExplain,
   })
 

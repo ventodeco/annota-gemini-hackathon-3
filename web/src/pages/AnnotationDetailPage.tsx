@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
+import { showErrorToast } from '@/lib/errorToast'
 import { formatNuanceData } from '@/lib/annotationFormatting'
 import type { AnnotationDetail } from '@/lib/types'
 
@@ -107,7 +108,7 @@ export default function AnnotationDetailPage() {
       await speech.play(audio)
     } catch (err) {
       speech.stop()
-      toast.error(getUsageErrorMessage(err) ?? 'Failed to play audio')
+      showErrorToast(getUsageErrorMessage(err) ?? 'Failed to play audio', err)
     }
   }
 

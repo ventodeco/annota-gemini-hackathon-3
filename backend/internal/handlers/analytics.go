@@ -67,8 +67,10 @@ func (h *AnalyticsHandlers) EventsAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func allowedAnalyticsProperties(req AnalyticsEventRequest) (map[string]any, error) {
+	// Events record occurrences; "first" is derived per user when querying logs.
+	// Explanation, save and reopen are already in the request log.
 	switch req.Name {
-	case "first_annotation", "reader_activation":
+	case "reader_activation":
 	default:
 		return nil, errors.New("unknown event")
 	}

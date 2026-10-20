@@ -36,6 +36,9 @@ info:
       limits). Usage-limit errors add allowance fields (`UsageErrorResponse`).
     - Unsupported methods on a known route return 405 `Method not allowed`.
     - Every `/v1/*` response has `Cache-Control: no-store`.
+    - Every response has an `X-Request-ID` header (readable cross-origin). It
+      matches `request_id` in the server logs; show it to users as a support
+      reference. Clients cannot set it.
     - Optional response fields are omitted when empty, never sent as `null`.
     - Timestamps are RFC 3339; IDs are positive 64-bit integers.
     - List endpoints take `page` and `size`. Invalid or non-positive values fall
@@ -1244,7 +1247,9 @@ paths:
       description: |
         Records an allow-listed analytics event in the server log with the
         caller's account. The body is limited to 2048 bytes and unknown fields
-        are rejected.
+        are rejected. `reader_activation` is sent once per successful upload,
+        with the upload `source`; first activation is the earliest event per
+        account (see docs/beta-triage.md).
       operationId: recordEvent
       requestBody:
         required: true
@@ -1253,7 +1258,7 @@ paths:
             schema:
               $ref: "#/components/schemas/AnalyticsEventRequest"
             example:
-              name: first_annotation
+              name: reader_activation
               properties:
                 source: pdf
       responses:
@@ -2037,7 +2042,7 @@ components:
       properties:
         name:
           type: string
-          enum: [first_annotation, reader_activation]
+          enum: [reader_activation]
         properties:
           type: object
           additionalProperties: false

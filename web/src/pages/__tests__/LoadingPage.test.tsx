@@ -133,6 +133,8 @@ describe('LoadingPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Reading this page took too long')
     expect(screen.queryByText(/ocr_timeout/)).not.toBeInTheDocument()
+    // The scan ID is the support reference operators look up as scan_id.
+    expect(screen.getByText('scan-5')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Upload another page' }))
     expect(navigateMock).toHaveBeenCalledWith('/welcome')
   })

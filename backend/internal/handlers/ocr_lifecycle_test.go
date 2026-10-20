@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +19,7 @@ import (
 	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/knowledge"
+	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/services"
@@ -75,6 +79,25 @@ func (c *lifecycleOCRClient) SynthesizeSpeech(context.Context, string, string) (
 	return nil, nil
 }
 
+// captureOCRLogs redirects the default logger for the test and returns a
+// reader for everything logged so far.
+func captureOCRLogs(t *testing.T) func() string {
+	t.Helper()
+	logFile, err := os.CreateTemp(t.TempDir(), "log")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	logger.SetOutput(logFile)
+	t.Cleanup(func() { logger.SetOutput(os.Stdout) })
+	return func() string {
+		logged, err := os.ReadFile(logFile.Name())
+		if err != nil {
+			t.Fatalf("read log: %v", err)
+		}
+		return string(logged)
+	}
+}
+
 func TestProcessOCRPersistsTerminalFailure(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -97,7 +120,9 @@ func TestProcessOCRPersistsTerminalFailure(t *testing.T) {
 			}
 			h := NewScanHandlers(db, nil, tt.client, &config.Config{}, provenanceTestMeter())
 
-			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(tt.deadline))
+			readLogs := captureOCRLogs(t)
+			requestCtx := context.WithValue(context.Background(), middleware.RequestIDKey, "req-ocr-terminal")
+			ctx, cancel := context.WithDeadline(requestCtx, time.Now().Add(tt.deadline))
 			defer cancel()
 			h.scans.ProcessOCR(ctx, nil, scanID, []byte("image"), "image/png")
 
@@ -110,6 +135,11 @@ func TestProcessOCRPersistsTerminalFailure(t *testing.T) {
 			}
 			if got := tt.client.calls.Load(); got != tt.wantCalls {
 				t.Fatalf("provider calls = %d, want %d", got, tt.wantCalls)
+			}
+			// Support finds the failure from the upload's request ID.
+			wantLog := fmt.Sprintf(`"message":"OCR scan failed","request_id":"req-ocr-terminal","fields":{"reason":%q,"scan_id":%d}`, tt.wantReason, scanID)
+			if logs := readLogs(); !strings.Contains(logs, wantLog) {
+				t.Fatalf("logs missing %s:\n%s", wantLog, logs)
 			}
 		})
 	}

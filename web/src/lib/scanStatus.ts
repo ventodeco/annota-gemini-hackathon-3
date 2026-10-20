@@ -30,3 +30,8 @@ const SCAN_FAILURE_COPY = new Map<string, ScanFailureCopy>([
 export function getScanFailureCopy(failureReason: string | undefined): ScanFailureCopy {
   return (failureReason && SCAN_FAILURE_COPY.get(failureReason)) || GENERIC_FAILURE_COPY
 }
+
+/** Support reference for a scan; operators look it up as the logged scan_id. */
+export function getScanReference(scanId: number): string {
+  return `scan-${scanId}`
+}

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { getToken } from '@clerk/react'
 import { ApiError, createScan, deleteAccount, getScan, getUserProfile, analyzeText, getScanImageBlob, getScanImageUrl, getAnnotations, synthesizeSpeech, trackEvent } from '../api'
 import { setUnauthorizedHandler } from '../authSession'
+import { getErrorReference } from '../errorReference'
 
 vi.mock('@clerk/react', () => ({
   getToken: vi.fn(),
@@ -132,12 +133,27 @@ describe('API Client', () => {
     it('should handle errors', async () => {
       ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: false,
+        headers: new Headers(),
         status: 400,
         text: async () => 'Invalid image type',
       })
 
       const file = new File(['test'], 'test.jpg', { type: 'image/jpeg' })
       await expect(createScan(file)).rejects.toThrow('Invalid image type')
+    })
+
+    it('keeps the server request ID as the support reference', async () => {
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        new Response('{"error":"Bad Gateway","message":"Failed to process"}', {
+          status: 502,
+          headers: { 'X-Request-ID': 'abc123' },
+        }),
+      )
+
+      const error = await createScan(new File(['test'], 'test.jpg', { type: 'image/jpeg' })).catch((err: unknown) => err)
+      expect(error).toBeInstanceOf(ApiError)
+      expect(getErrorReference(error)).toBe('abc123')
+      expect(getErrorReference(new TypeError('Failed to fetch'))).toBeNull()
     })
   })
 
@@ -168,6 +184,7 @@ describe('API Client', () => {
     it('should handle 404 errors', async () => {
       ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: false,
+        headers: new Headers(),
         status: 404,
         text: async () => 'Scan not found',
       })
@@ -204,14 +221,14 @@ describe('API Client', () => {
         status: 202,
       })
 
-      await trackEvent('first_annotation', { source: 'pdf' })
+      await trackEvent('reader_activation', { source: 'pdf' })
 
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/v1/events'),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
-          body: JSON.stringify({ name: 'first_annotation', properties: { source: 'pdf' } }),
+          body: JSON.stringify({ name: 'reader_activation', properties: { source: 'pdf' } }),
         }),
       )
     })
@@ -248,6 +265,7 @@ describe('API Client', () => {
     it('should handle errors', async () => {
       ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: false,
+        headers: new Headers(),
         status: 400,
         text: async () => 'Invalid selection',
       })
@@ -287,6 +305,7 @@ describe('API Client', () => {
     it('should throw on synthesis error', async () => {
       ;(global.fetch as Mock).mockResolvedValueOnce({
         ok: false,
+        headers: new Headers(),
         status: 500,
         text: async () => 'Failed to synthesize speech',
       })

@@ -26,7 +26,8 @@ type UseAnnotationDrawerFlowOptions = {
   synthesizeSpeech: UseMutationResult<Blob, Error, SynthesizeSpeechRequest>
   speech: SpeechPlaybackControls
   clearSelection: () => void
-  reportError: (message: string) => void
+  /** Receives the caught error too, so callers can show its support reference. */
+  reportError: (message: string, error?: unknown) => void
   resolveScanIdForExplain: () => Promise<number>
   maxVersions?: number
   onAfterSave?: () => void
@@ -113,7 +114,7 @@ export function useAnnotationDrawerFlow(
     } catch (err) {
       if (isStale()) return
       console.error('Failed to analyze text:', err)
-      reportError(getUsageErrorMessage(err) ?? analyzeErrorMessage)
+      reportError(getUsageErrorMessage(err) ?? analyzeErrorMessage, err)
     } finally {
       setIsLoadingAnnotation(false)
     }
@@ -148,7 +149,7 @@ export function useAnnotationDrawerFlow(
       onAfterSave?.()
     } catch (err) {
       console.error('Failed to save annotation:', err)
-      reportError(saveErrorMessage)
+      reportError(saveErrorMessage, err)
     }
   }, [
     currentAnnotation,
@@ -184,7 +185,7 @@ export function useAnnotationDrawerFlow(
     } catch (err) {
       if (generation !== requestGenerationRef.current) return
       console.error('Failed to regenerate annotation:', err)
-      reportError(getUsageErrorMessage(err) ?? regenerateErrorMessage)
+      reportError(getUsageErrorMessage(err) ?? regenerateErrorMessage, err)
     }
   }, [
     currentAnnotation,
@@ -218,7 +219,7 @@ export function useAnnotationDrawerFlow(
     } catch (err) {
       speech.stop()
       console.error('Failed to synthesize speech:', err)
-      reportError(getUsageErrorMessage(err) ?? speechErrorMessage)
+      reportError(getUsageErrorMessage(err) ?? speechErrorMessage, err)
     }
   }, [selectedText, contextText, synthesizeSpeech, speech, reportError, speechErrorMessage])
 

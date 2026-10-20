@@ -4,7 +4,8 @@ import { Hourglass } from 'lucide-react'
 import Header from '@/components/layout/Header'
 import ScanFailureState from '@/components/scanpage/ScanFailureState'
 import { useScan, isScanFailed, isScanOcrReady } from '@/hooks/useScan'
-import { getScanFailureCopy } from '@/lib/scanStatus'
+import { getScanFailureCopy, getScanReference } from '@/lib/scanStatus'
+import { getErrorReference } from '@/lib/errorReference'
 import type { Scan } from '@/lib/types'
 
 const LOADING_POLL_INTERVAL_MS = 3000
@@ -63,6 +64,7 @@ export default function LoadingPage(): ReactElement {
           description={copy.description}
           actionLabel="Upload another page"
           onAction={() => navigate('/welcome')}
+          reference={scanId ? getScanReference(scanId) : null}
         />
       </div>
     )
@@ -79,6 +81,7 @@ export default function LoadingPage(): ReactElement {
           onAction={() => void refetch()}
           secondaryActionLabel="Go back"
           onSecondaryAction={() => navigate('/welcome')}
+          reference={getErrorReference(error)}
         />
       </div>
     )

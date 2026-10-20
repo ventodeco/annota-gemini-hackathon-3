@@ -46,11 +46,14 @@ export class ApiError extends Error {
   readonly code: string | null
   /** Parsed JSON error body, when the API returned one. */
   readonly data: Record<string, unknown> | null
+  /** Server request ID (`X-Request-ID`), shown to users as a support reference. */
+  readonly requestId: string | null
 
-  constructor(status: number, body: string) {
+  constructor(status: number, body: string, requestId: string | null = null) {
     super(body)
     this.name = 'ApiError'
     this.status = status
+    this.requestId = requestId || null
     this.data = parseErrorBody(body)
     this.serverMessage = readString(this.data, 'message')
     this.code = readString(this.data, 'code')
@@ -119,7 +122,7 @@ async function throwIfNotOk(
   if (response.ok) return
 
   const body = await response.text().catch(() => errorTextFallback)
-  const error = new ApiError(response.status, body)
+  const error = new ApiError(response.status, body, response.headers.get('X-Request-ID'))
   logger.apiCall(method, url, response.status, Date.now() - startTime, error)
   if (response.status === 401) {
     notifyUnauthorized({ message: error.serverMessage ?? body, token: responseTokens.get(response) ?? null })

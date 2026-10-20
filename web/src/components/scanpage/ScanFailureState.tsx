@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+import ErrorReference from '@/components/layout/ErrorReference'
 
 interface ScanFailureStateProps {
   title: string
@@ -7,6 +8,8 @@ interface ScanFailureStateProps {
   onAction: () => void
   secondaryActionLabel?: string
   onSecondaryAction?: () => void
+  /** Support reference for this failure; omitted when there is none. */
+  reference?: string | null
 }
 
 const PRIMARY_BUTTON_CLASS =
@@ -22,6 +25,7 @@ export default function ScanFailureState({
   onAction,
   secondaryActionLabel,
   onSecondaryAction,
+  reference,
 }: ScanFailureStateProps): ReactElement {
   return (
     <div className="flex flex-1 flex-col items-center justify-center p-6 text-center" role="alert">
@@ -37,6 +41,7 @@ export default function ScanFailureState({
           </button>
         )}
       </div>
+      {reference && <ErrorReference reference={reference} className="mt-4" />}
     </div>
   )
 }
