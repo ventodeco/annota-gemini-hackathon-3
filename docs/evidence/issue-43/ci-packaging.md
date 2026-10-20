@@ -46,6 +46,26 @@ network isolation and registers probes for cleanup before starting them.
 PostgreSQL readiness explicitly probes TCP to avoid accepting the temporary
 Unix-socket-only bootstrap server. Final runtime results remain pending.
 
+## HTTP Probe Scope Correction
+
+Run: https://github.com/ventodeco/annota-gemini-hackathon-3/actions/runs/39361977258
+
+On `8db5217`, the frontend image built and its probe reached nginx. Requests for
+the entry document and bundled JS succeeded. The checker then incorrectly
+classified the existing Google Fonts stylesheet as a local generated asset:
+
+```text
+Expected a local generated asset path: https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap
+```
+
+Reproduced this failure locally by running the same embedded HTTP checker
+against the actual `web/dist` output served on loopback. The correction
+classifies third-party stylesheet links separately and reports their count;
+it still requires generated local CSS and checks its MIME type and body.
+No third-party requests are made. The same local checker then passed HTML,
+JS, CSS, manifest, PDF worker, and direct-route checks. This local HTTP fixture
+isolates checker behavior; final nginx acceptance still requires the CI run.
+
 ## Local Verification
 
 These commands passed before submitting the packaging fixes:

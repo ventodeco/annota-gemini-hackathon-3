@@ -49,7 +49,9 @@ an exact match between migration ledger entries and the source SQL inventory.
 Frontend checks request the entry document, referenced JS/CSS, PWA manifest,
 PDF worker, and `/login`. Asset responses must have appropriate content types
 and must not contain an HTML fallback document. Image IDs are printed for the
-verification record. These checks do not establish live login or AI readiness.
+verification record. Existing third-party stylesheet links are reported
+separately; the check requires local generated CSS and makes no font-provider
+requests. These checks do not establish live login or AI readiness.
 
 ## Release And Rollback
 

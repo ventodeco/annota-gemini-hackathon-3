@@ -154,6 +154,7 @@ if [[ "$mode" == all || "$mode" == frontend ]]; then
 from html.parser import HTMLParser
 import json
 import sys
+from urllib.parse import urlsplit
 import urllib.request
 
 base_url, worker_paths = sys.argv[1:]
@@ -175,6 +176,7 @@ class EntryAssets(HTMLParser):
         super().__init__()
         self.scripts = []
         self.styles = []
+        self.external_styles = []
         self.manifests = []
 
     def handle_starttag(self, tag, attrs):
@@ -184,7 +186,11 @@ class EntryAssets(HTMLParser):
         if tag == "link" and attrs.get("href"):
             rel = attrs.get("rel", "").split()
             if "stylesheet" in rel:
-                self.styles.append(attrs["href"])
+                target = urlsplit(attrs["href"])
+                if target.scheme or target.netloc:
+                    self.external_styles.append(attrs["href"])
+                else:
+                    self.styles.append(attrs["href"])
             if "manifest" in rel:
                 self.manifests.append(attrs["href"])
 
@@ -205,6 +211,8 @@ for path in worker_paths.splitlines():
     fetch(path.removeprefix("/usr/share/nginx/html"), {"application/javascript", "text/javascript"})
 if fetch("/login", {"text/html"}) != index:
     raise SystemExit("Direct client route did not serve the SPA entry document")
+if assets.external_styles:
+    print(f"External stylesheets outside the final-image check: {len(assets.external_styles)}")
 print("Frontend final-image HTML, JS, CSS, manifest, PDF worker, and client route passed")
 PY
 fi
