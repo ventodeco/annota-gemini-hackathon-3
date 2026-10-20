@@ -1,9 +1,11 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -120,7 +122,8 @@ func (c *chatTasks) OCR(ctx context.Context, image []byte, mime string) (*OCRRes
 			RawText  string `json:"raw_text"`
 			Language string `json:"language"`
 		}
-		if json.Unmarshal([]byte(normalizeJSONCandidate(text)), &value) != nil || strings.TrimSpace(value.RawText) == "" {
+		object, parseErr := routedJSONObject(text)
+		if parseErr != nil || json.Unmarshal(object, &value) != nil || strings.TrimSpace(value.RawText) == "" {
 			return c.ocr.failure(ErrorKindUpstream, 0, "invalid OCR JSON", nil)
 		}
 		result = ocrResponseFromStructured(value.RawText, value.Language)
@@ -138,7 +141,11 @@ func (c *chatTasks) Annotate(ctx context.Context, text, selected string) (*Annot
 func (c *chatTasks) AnnotateWithKnowledge(ctx context.Context, text, selected string, entries []knowledge.Entry) (*AnnotationResponse, error) {
 	var result *AnnotationResponse
 	err := c.annotation.chat(ctx, []map[string]any{{"role": "user", "content": buildEnhancedPrompt(text, selected, entries)}}, annotationJSONSchema(), func(raw string) error {
-		annotation, err := decodeAnnotationJSON(raw)
+		object, err := routedJSONObject(raw)
+		if err != nil || !validRoutedAnnotationTypes(object) {
+			return fmt.Errorf("invalid annotation shape")
+		}
+		annotation, err := decodeAnnotationJSON(string(object))
 		if err != nil {
 			return err
 		}
@@ -164,4 +171,64 @@ func annotationJSONSchema() map[string]any {
 	}
 	properties["pronunciation"] = map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"kana": map[string]string{"type": "string"}, "romaji": map[string]string{"type": "string"}}, "required": []string{"kana", "romaji"}}
 	return map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required}
+}
+
+// routedJSONObject permits JSON fences, but never extracts an object from prose or arrays.
+// Legacy normalization remains unchanged for legacy provider modes.
+func routedJSONObject(text string) ([]byte, error) {
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "```") {
+		newline := strings.IndexByte(text, '\n')
+		if newline < 0 || !strings.HasSuffix(text, "```") {
+			return nil, fmt.Errorf("invalid JSON fence")
+		}
+		language := strings.TrimSpace(strings.TrimPrefix(text[:newline], "```"))
+		if language != "" && !strings.EqualFold(language, "json") {
+			return nil, fmt.Errorf("unsupported JSON fence")
+		}
+		text = strings.TrimSpace(strings.TrimSuffix(text[newline+1:], "```"))
+	}
+	data := []byte(text)
+	if len(data) == 0 || data[0] != '{' || !json.Valid(data) {
+		return nil, fmt.Errorf("expected one JSON object")
+	}
+	return data, nil
+}
+
+func validRoutedAnnotationTypes(object []byte) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(object, &fields) != nil {
+		return false
+	}
+	for _, key := range []string{"translation", "contextual_explanation", "usage_example", "when_to_use", "alternative_meanings", "meaning", "alternative_meaning"} {
+		if value, exists := fields[key]; exists {
+			value = bytes.TrimSpace(value)
+			if len(value) == 0 || value[0] != '"' {
+				return false
+			}
+		}
+	}
+	breakdown := bytes.TrimSpace(fields["word_breakdown"])
+	if len(breakdown) == 0 {
+		return false
+	}
+	if breakdown[0] != '"' {
+		var words map[string]json.RawMessage
+		if breakdown[0] != '{' || json.Unmarshal(breakdown, &words) != nil || len(words) == 0 {
+			return false
+		}
+	}
+	var pronunciation map[string]json.RawMessage
+	if json.Unmarshal(fields["pronunciation"], &pronunciation) != nil || len(pronunciation) == 0 {
+		return false
+	}
+	for _, key := range []string{"kana", "romaji"} {
+		if value, exists := pronunciation[key]; exists {
+			value = bytes.TrimSpace(value)
+			if len(value) == 0 || value[0] != '"' {
+				return false
+			}
+		}
+	}
+	return true
 }

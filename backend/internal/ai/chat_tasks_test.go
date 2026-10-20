@@ -220,3 +220,76 @@ func TestChatTasksClassifiesEmbeddedQuotaError(t *testing.T) {
 		t.Fatalf("embedded quota error lost: %v", err)
 	}
 }
+
+func TestChatTasksStrictRoutedJSONShape(t *testing.T) {
+	cases := []struct {
+		name, content string
+		ocr           bool
+	}{
+		{"null breakdown", strings.Replace(annotationFixture, `{"こんにちは":"hello"}`, `null`, 1), false},
+		{"number breakdown", strings.Replace(annotationFixture, `{"こんにちは":"hello"}`, `42`, 1), false},
+		{"boolean breakdown", strings.Replace(annotationFixture, `{"こんにちは":"hello"}`, `true`, 1), false},
+		{"array breakdown", strings.Replace(annotationFixture, `{"こんにちは":"hello"}`, `[]`, 1), false},
+		{"empty object breakdown", strings.Replace(annotationFixture, `{"こんにちは":"hello"}`, `{}`, 1), false},
+		{"array annotation", "[" + annotationFixture + "]", false},
+		{"prose wrapping annotation", "Here is your JSON: " + annotationFixture, false},
+		{"null explicit translation", strings.Replace(annotationFixture, `"translation":"hello"`, `"translation":null`, 1), false},
+		{"array OCR", `[{"raw_text":"日本語","language":"ja"}]`, true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"model": "test-vision", "choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": tt.content}}}})
+			}))
+			defer server.Close()
+			tasks := chatTasks{ocr: testGateway(t, server, "openrouter", "ocr", RoutedClientOptions{}), annotation: testGateway(t, server, "openrouter", "annotation", RoutedClientOptions{})}
+			var err error
+			if tt.ocr {
+				_, err = tasks.OCR(context.Background(), []byte("page"), "image/png")
+			} else {
+				_, err = tasks.Annotate(context.Background(), "page", "こんにちは")
+			}
+			var pe *ProviderError
+			if !errors.As(err, &pe) {
+				t.Fatalf("invalid routed shape accepted: %s", tt.name)
+			}
+		})
+	}
+}
+
+func TestChatTasksAcceptsJSONFenceAndLegacyAliases(t *testing.T) {
+	content := "```json\n" + strings.Replace(annotationFixture, `"contextual_explanation":"A greeting"`, `"meaning":"A greeting"`, 1) + "\n```"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": "test-vision", "choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": content}}}})
+	}))
+	defer server.Close()
+	result, err := (&chatTasks{annotation: testGateway(t, server, "openrouter", "annotation", RoutedClientOptions{})}).Annotate(context.Background(), "page", "こんにちは")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ContextualExplanation != "A greeting" || !strings.Contains(result.WordBreakdown, "hello") {
+		t.Fatalf("valid compatibility output rejected: %+v", result)
+	}
+}
+
+func TestGatewayHTTPLongRetryAfterDoesNotReplay(t *testing.T) {
+	for _, delay := range []string{"2147483648", "999999999999999999999999999999"} {
+		t.Run(delay, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Retry-After", delay)
+				w.WriteHeader(http.StatusTooManyRequests)
+			}))
+			defer server.Close()
+			gateway := testGateway(t, server, "openrouter", "ocr", RoutedClientOptions{})
+			gateway.profile.MaxAttempts = 2
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_, err := (&chatTasks{ocr: gateway}).OCR(ctx, []byte("page"), "image/png")
+			if err == nil || calls.Load() != 1 {
+				t.Fatalf("long Retry-After replayed request: calls=%d err=%v", calls.Load(), err)
+			}
+		})
+	}
+}

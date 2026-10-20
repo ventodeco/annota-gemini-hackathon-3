@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -178,8 +179,13 @@ func (g *taskGateway) call(ctx context.Context, path string, body any, limit int
 }
 
 func retryDelay(raw string, now time.Time) time.Duration {
-	// Overflow/negative/unparseable headers use the documented bounded default.
-	if seconds, err := strconv.ParseInt(raw, 10, 32); err == nil && seconds >= 0 {
+	// Saturate long valid numeric delays so they suppress retries rather than
+	// wrapping or being treated as missing headers. The operation has its own deadline.
+	const maxDelay = time.Duration(1<<63 - 1)
+	if seconds, err := strconv.ParseUint(raw, 10, 64); err == nil || errors.Is(err, strconv.ErrRange) {
+		if seconds > uint64(maxDelay/time.Second) {
+			return maxDelay
+		}
 		return time.Duration(seconds) * time.Second
 	}
 	if when, err := http.ParseTime(raw); err == nil {

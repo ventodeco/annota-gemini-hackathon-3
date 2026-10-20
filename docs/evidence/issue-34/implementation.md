@@ -28,6 +28,16 @@ The initial baseline AI/config tests passed. A cancellation test fixture initial
 
 Kept existing prompt/normalization helpers and legacy transport behavior. Routed clients add safe cause unwrapping to `ProviderError` for cancellation/deadline checks. No dependency upgrades, schema migrations, frontend changes, or new external services were added.
 
+## PR review corrections
+
+PR #51 was reviewed independently for correctness/spec and standards at `47dd0168`. Both reviewers confirmed invalid routed response shapes; the standards review also identified long numeric Retry-After overflow. Tracked as #52 and #53.
+
+Failing regressions reproduced null/scalar/array/empty-object word breakdowns, array/prose wrappers, and explicit null translation acceptance. Routed parsing now accepts exactly one JSON object (optionally JSON-fenced), checks supplied field types before applying compatibility aliases, and only stringifies nonempty object breakdowns. OCR JSON shares the strict object boundary. Legacy normalization helpers remain unchanged.
+
+A separate request-count regression showed that `Retry-After: 2147483648` and a larger-than-uint64 value each triggered a second POST after 500 ms. Numeric delays now saturate safely and suppress retries beyond the total operation deadline. Invalid/missing headers retain their documented default.
+
+Both fixes were verified with focused AI/config/server/handler tests and AI race checks. Review identified a conditional concern that provider-controlled IDs can contain arbitrary text; actual gateway ID echoing is unverified. Real ID format/privacy qualification remains a follow-up under #35, not a claim of complete payload redaction from arbitrary upstream metadata.
+
 ## Pending checks
 
 - No real provider calls were made. Account/model/voice availability, regional access, Japanese accuracy/pronunciation, latency, and actual cost are unqualified. Coordinate bounded calls with #35 after private credentials and explicit routes are supplied; record actual evidence in `gateway-qualification.md`. Synthetic declarations are not production defaults.
