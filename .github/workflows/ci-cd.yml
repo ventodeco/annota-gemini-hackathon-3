@@ -6,13 +6,15 @@ on:
   pull_request:
     branches: [master, dev]
 
+permissions:
+  contents: read
+
 env:
   BACKEND_IMAGE_NAME: ventodeco/good-annotation-pwa-be
   FRONTEND_IMAGE_NAME: ventodeco/good-annotation-pwa-fe
 
 jobs:
   test_build_push_be:
-    environment: ENV_PRODUCTION
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -63,25 +65,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Log in to DockerHub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build backend Docker image
+      - name: Verify backend Docker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./backend
-          push: true
+          push: false
           tags: |
             ${{ env.BACKEND_IMAGE_NAME }}:${{ env.TAG }}
-            ${{ env.BACKEND_IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   test_build_push_fe:
-    environment: ENV_PRODUCTION
     runs-on: ubuntu-latest
 
     env:
@@ -133,49 +127,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Log in to DockerHub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build frontend Docker image
+      - name: Verify frontend Docker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: web/Dockerfile
-          push: true
+          push: false
           no-cache: true
           tags: |
             ${{ env.FRONTEND_IMAGE_NAME }}:${{ env.TAG }}
-            ${{ env.FRONTEND_IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
             VITE_APP_URL=${{ vars.VITE_APP_URL }}
-
-  deploy:
-    needs: [test_build_push_be, test_build_push_fe]
-    environment: ENV_PRODUCTION
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            cd ~/project-vps/project/hackathon-gemini-3-2026/backend/
-            docker-compose pull
-            docker-compose down
-            docker-compose up -d
-            cd ~/project-vps/project/hackathon-gemini-3-2026/frontend/
-            docker-compose pull
-            docker-compose down
-            docker-compose up -d

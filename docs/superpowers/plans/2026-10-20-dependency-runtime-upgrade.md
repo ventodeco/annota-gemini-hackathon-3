@@ -325,3 +325,8 @@ PWA rehearsal used the baseline 1.2.0-plugin build then the upgraded 2.0.0-plugi
 - Nix CLI, flake.nix/flake.lock, Compose CLI, docker-compose.yml and PostgreSQL/Redis server versions remain unchanged as requested/separately scoped. No production data migration/deployment happened.
 - PostgreSQL 18 upgrade/recovery and full final-image release safety remain #43. Live OAuth/provider qualification needs separately configured credentials and remains pending.
 - Existing large-chunk build warning remains; no unrelated bundle-splitting refactor was added.
+
+
+### PR integration safety adjustment
+
+The owner authorized pushing, subagent review, fixes and merging on 2026-10-20. Preflight found that opening/merging the upgrade PR would execute the old registry publication and SSH deployment jobs. The upgrade branch now makes ordinary CI verification-only: read-only repository permissions, no production environment, no registry login, push:false for image builds and no deployment job. This permits remote dependency/image verification without a production release. Broader final-image packaging, recovery and release operations remain #43; no unrelated PR was merged to obtain this guard.
