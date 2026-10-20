@@ -12,6 +12,11 @@ import type {
   NuanceData,
   SynthesizeSpeechRequest,
 } from '@/lib/types'
+import { useInvalidateEntitlements } from './useEntitlements'
+
+// Replays of the same selection reuse audio instead of spending speech
+// allowance again. The query cache is cleared on sign-out and account switch.
+const SPEECH_CACHE_MS = 30 * 60_000
 
 export function useAnnotations(page = 1, size = 20, scanId?: number, documentId?: number, pageNumber?: number) {
   return useQuery({
@@ -43,14 +48,28 @@ export function useDeleteAnnotation() {
 }
 
 export function useAnalyzeText() {
+  const invalidateEntitlements = useInvalidateEntitlements()
+
   return useMutation({
     mutationFn: (data: AnalyzeRequest) => analyzeText(data),
+    onSettled: invalidateEntitlements,
   })
 }
 
 export function useSynthesizeSpeech() {
+  const queryClient = useQueryClient()
+  const invalidateEntitlements = useInvalidateEntitlements()
+
   return useMutation({
-    mutationFn: (data: SynthesizeSpeechRequest) => synthesizeSpeech(data),
+    mutationFn: (data: SynthesizeSpeechRequest) =>
+      queryClient.fetchQuery({
+        queryKey: ['speech', data.highlightedText, data.contextText ?? ''],
+        queryFn: () => synthesizeSpeech(data),
+        staleTime: Infinity,
+        gcTime: SPEECH_CACHE_MS,
+        retry: false,
+      }),
+    onSettled: invalidateEntitlements,
   })
 }
 

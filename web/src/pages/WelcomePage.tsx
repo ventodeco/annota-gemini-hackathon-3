@@ -7,6 +7,9 @@ import { useAuth } from '@/contexts/useAuth'
 import { createScan, trackEvent, uploadDocument } from '@/lib/api'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { AvatarMenu } from '@/components/layout/AvatarMenu'
+import { ScanAllowanceNotice } from '@/components/usage/AllowancePanel'
+import { useInvalidateEntitlements } from '@/hooks/useEntitlements'
+import { getUsageErrorMessage } from '@/lib/usage'
 
 export default function WelcomePage() {
   const navigate = useNavigate()
@@ -14,6 +17,7 @@ export default function WelcomePage() {
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const { user } = useAuth()
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const invalidateEntitlements = useInvalidateEntitlements()
 
   const uploadMutation = useMutation({
     mutationFn: createScan,
@@ -22,8 +26,9 @@ export default function WelcomePage() {
       navigate(`/loading/${data.scanId}`)
     },
     onError: (error: Error) => {
-      setUploadError(error.message || 'Failed to upload image')
+      setUploadError(getUsageErrorMessage(error) ?? (error.message || 'Failed to upload image'))
     },
+    onSettled: invalidateEntitlements,
   })
 
   const pdfUploadMutation = useMutation({
@@ -130,6 +135,7 @@ export default function WelcomePage() {
             <FileText className="w-5 h-5" />
             {pdfUploadMutation.isPending ? 'Uploading...' : 'Upload PDF'}
           </Button>
+          <ScanAllowanceNotice />
         </div>
       </div>
       <input

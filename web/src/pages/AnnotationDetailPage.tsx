@@ -7,6 +7,7 @@ import { formatDate } from '@/lib/api'
 import { useAnnotationById } from '@/hooks/useAnnotationById'
 import { useDeleteAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
+import { getUsageErrorMessage } from '@/lib/usage'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -104,9 +105,9 @@ export default function AnnotationDetailPage() {
         contextText: annotation.contextText,
       })
       await speech.play(audio)
-    } catch {
+    } catch (err) {
       speech.stop()
-      toast.error('Failed to play audio')
+      toast.error(getUsageErrorMessage(err) ?? 'Failed to play audio')
     }
   }
 

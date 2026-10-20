@@ -24,6 +24,7 @@ import type {
   DocumentPageResponse,
   CreateScanFromPageResponse,
 } from './types'
+import { parseEntitlements, type Entitlements } from './entitlements'
 import { logger } from './logger'
 import { notifyUnauthorized } from './authSession'
 
@@ -41,25 +42,38 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080
 export class ApiError extends Error {
   readonly status: number
   readonly serverMessage: string | null
+  /** Stable machine-readable reason, e.g. `usage_quota_exceeded`. */
+  readonly code: string | null
+  /** Parsed JSON error body, when the API returned one. */
+  readonly data: Record<string, unknown> | null
 
   constructor(status: number, body: string) {
     super(body)
     this.name = 'ApiError'
     this.status = status
-    this.serverMessage = parseServerMessage(body)
+    this.data = parseErrorBody(body)
+    this.serverMessage = readString(this.data, 'message')
+    this.code = readString(this.data, 'code')
   }
 }
 
-function parseServerMessage(body: string): string | null {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseErrorBody(body: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(body)
-    if (typeof parsed === 'object' && parsed !== null && 'message' in parsed && typeof parsed.message === 'string') {
-      return parsed.message
-    }
+    return isRecord(parsed) ? parsed : null
   } catch {
-    // Not JSON; there is no structured message.
+    // Not JSON; there is no structured error.
+    return null
   }
-  return null
+}
+
+function readString(data: Record<string, unknown> | null, key: string): string | null {
+  const value = data?.[key]
+  return typeof value === 'string' ? value : null
 }
 
 // Session token each response was requested with, so a late 401 can be tied
@@ -184,6 +198,17 @@ export async function trackEvent(name: string, properties: Record<string, unknow
   const startTime = Date.now()
   await throwIfNotOk(response, 'POST', url, startTime)
   logger.apiCall('POST', url, response.status, Date.now() - startTime)
+}
+
+export async function getEntitlements(): Promise<Entitlements> {
+  const url = `${API_BASE_URL}/v1/entitlements/me`
+  const response = await fetchWithAuth(url)
+  const data: unknown = await handleResponse(response, 'GET', url)
+  const entitlements = parseEntitlements(data)
+  if (!entitlements) {
+    throw new Error('Unexpected entitlements response')
+  }
+  return entitlements
 }
 
 export async function getLanguages(): Promise<GetLanguagesResponse> {

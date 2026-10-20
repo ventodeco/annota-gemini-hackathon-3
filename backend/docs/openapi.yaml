@@ -206,6 +206,10 @@ paths:
                 scanId: 42
                 fullText: ""
                 imageUrl: "/uploads/42.jpg"
+        "429":
+          $ref: "#/components/responses/UsageLimited"
+        "503":
+          $ref: "#/components/responses/UsageUnavailable"
         "400":
           description: Invalid form data or image type
           content:
@@ -415,6 +419,10 @@ paths:
                 usageTiming: "Used when greeting colleagues after work or at the end of a meeting."
                 wordBreakdown: "お (honorific prefix) + 疲れ (tiredness) + 様 (formal suffix) + です (polite copula)"
                 alternativeMeaning: "Can also be used as a casual greeting among coworkers."
+        "429":
+          $ref: "#/components/responses/UsageLimited"
+        "503":
+          $ref: "#/components/responses/UsageUnavailable"
         "400":
           description: Invalid request body or missing required field
           content:
@@ -469,6 +477,12 @@ paths:
               schema:
                 type: string
                 format: binary
+        "413":
+          $ref: "#/components/responses/UsageRequestTooLarge"
+        "429":
+          $ref: "#/components/responses/UsageLimited"
+        "503":
+          $ref: "#/components/responses/UsageUnavailable"
         "400":
           description: Invalid request body or missing required field
           content:
@@ -490,6 +504,30 @@ paths:
               schema:
                 type: string
                 example: "Failed to synthesize speech"
+
+  /v1/entitlements/me:
+    get:
+      tags: [Users]
+      summary: Daily beta allowance
+      description: |
+        Returns the caller's daily allowance per metered feature. Counters are
+        persisted and include in-flight reservations; days are UTC. Global beta
+        budget totals are not exposed, only whether capacity remains. See
+        docs/usage-quotas.md.
+      operationId: getEntitlements
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current plan, configured limits and today's usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntitlementResponse"
+        "401":
+          description: Unauthorized
+        "503":
+          $ref: "#/components/responses/UsageUnavailable"
 
   /v1/annotations:
     post:
@@ -745,6 +783,45 @@ components:
         type: integer
         format: int64
         example: 7
+
+  responses:
+    UsageLimited:
+      description: |
+        Daily allowance reached. `usage_quota_exceeded` is the caller's own
+        allowance and includes limit/used/remaining. `usage_budget_exhausted`
+        is the global beta budget and includes only feature and resetAt.
+        Distinct from `rate_limited` (burst throttling) and
+        `ai_provider_limited` (upstream provider limit). Never 401, so the
+        session is kept. `Retry-After` gives seconds until the reset.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UsageErrorResponse"
+          example:
+            error: Too Many Requests
+            message: "You have used today's explanation allowance. It resets daily at 00:00 UTC."
+            code: usage_quota_exceeded
+            feature: explanation
+            limit: 100
+            used: 100
+            remaining: 0
+            resetAt: "2026-10-21T00:00:00Z"
+    UsageRequestTooLarge:
+      description: A single request exceeds what any day allows (e.g. a long speech selection). Not retryable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UsageErrorResponse"
+    UsageUnavailable:
+      description: The usage store could not be reached; requests fail closed (`usage_unavailable`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
     # --- User schemas ---
@@ -1085,3 +1162,87 @@ components:
         message:
           type: string
           description: Human-readable error message with actionable detail
+        code:
+          type: string
+          description: Optional stable reason, e.g. rate_limited, ai_provider_limited, usage_unavailable
+
+    UsageErrorResponse:
+      type: object
+      required: [error, message, code]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        code:
+          type: string
+          enum: [usage_quota_exceeded, usage_budget_exhausted, usage_request_too_large]
+        feature:
+          type: string
+          enum: [ocr, explanation, speech]
+        limit:
+          type: integer
+        used:
+          type: integer
+        remaining:
+          type: integer
+        max:
+          type: integer
+          description: Largest admissible single request (usage_request_too_large)
+        resetAt:
+          type: string
+          format: date-time
+
+    EntitlementResponse:
+      type: object
+      required: [plan, limits, usage]
+      properties:
+        plan:
+          type: string
+          example: free
+        limits:
+          type: object
+          properties:
+            aiRequestsPerWindow:
+              type: integer
+            aiWindowSeconds:
+              type: integer
+            maxUploadSize:
+              type: integer
+        usage:
+          type: object
+          required: [period, timezone, resetAt, features]
+          properties:
+            period:
+              type: string
+              example: daily
+            timezone:
+              type: string
+              example: UTC
+            resetAt:
+              type: string
+              format: date-time
+            features:
+              type: array
+              items:
+                type: object
+                required: [feature, unit, limit, used, remaining, globalAvailable]
+                properties:
+                  feature:
+                    type: string
+                    enum: [ocr, explanation, speech]
+                  unit:
+                    type: string
+                    enum: [page, request, character]
+                  limit:
+                    type: integer
+                    description: Daily allowance; 0 means unavailable during the beta
+                  used:
+                    type: integer
+                  remaining:
+                    type: integer
+                  maxPerRequest:
+                    type: integer
+                  globalAvailable:
+                    type: boolean
+                    description: False when the global beta budget for today is used up

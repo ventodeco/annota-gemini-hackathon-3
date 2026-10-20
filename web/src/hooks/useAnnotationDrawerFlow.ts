@@ -8,6 +8,7 @@ import type {
   CreateAnnotationResponse,
   SynthesizeSpeechRequest,
 } from '@/lib/types'
+import { getUsageErrorMessage } from '@/lib/usage'
 
 export const DEFAULT_MAX_ANNOTATION_VERSIONS = 2
 
@@ -104,7 +105,7 @@ export function useAnnotationDrawerFlow(
       setIsDrawerOpen(true)
     } catch (err) {
       console.error('Failed to analyze text:', err)
-      reportError(analyzeErrorMessage)
+      reportError(getUsageErrorMessage(err) ?? analyzeErrorMessage)
     } finally {
       setIsLoadingAnnotation(false)
     }
@@ -169,7 +170,7 @@ export function useAnnotationDrawerFlow(
       setAnnotationVersion((prev) => Math.min(prev + 1, maxVersions))
     } catch (err) {
       console.error('Failed to regenerate annotation:', err)
-      reportError(regenerateErrorMessage)
+      reportError(getUsageErrorMessage(err) ?? regenerateErrorMessage)
     }
   }, [
     currentAnnotation,
@@ -203,7 +204,7 @@ export function useAnnotationDrawerFlow(
     } catch (err) {
       speech.stop()
       console.error('Failed to synthesize speech:', err)
-      reportError(speechErrorMessage)
+      reportError(getUsageErrorMessage(err) ?? speechErrorMessage)
     }
   }, [selectedText, contextText, synthesizeSpeech, speech, reportError, speechErrorMessage])
 

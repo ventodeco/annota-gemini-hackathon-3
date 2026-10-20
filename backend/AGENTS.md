@@ -73,6 +73,11 @@ Optional (with defaults):
 - `MINIMAX_TTS_VOICE_ID` - Speech voice ID (default: `Japanese_Whisper_Belle`; not in the published system voice list as of 2026-10-20)
 - `AI_RATE_LIMIT` - AI-backed route limit, set `0` to disable locally (default: `60`)
 - `AI_RATE_LIMIT_WINDOW_SECONDS` - AI rate limit window (default: `3600`)
+- `USAGE_QUOTA_OCR_PAGES_PER_DAY` / `USAGE_QUOTA_EXPLANATIONS_PER_DAY` / `USAGE_QUOTA_SPEECH_CHARS_PER_DAY` - Persistent per-user daily allowances (defaults `20` / `100` / `3000`; `0` disables)
+- `USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY` / `USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY` / `USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY` - Global daily beta budgets (defaults `500` / `2500` / `75000`)
+- `USAGE_SPEECH_MAX_CHARS_PER_REQUEST` - Largest single speech selection (default: `500`)
+
+Paid AI handlers must admit work through `usage.Meter` (reserve before the provider call, `Finish`/`Release` exactly once, classify from structured `ai` metadata only). See `../docs/usage-quotas.md`.
 
 The flake provides developer tooling, local PostgreSQL/Redis service commands, and convenience env values. The running backend still requires Clerk keys and the selected AI provider configuration from `backend/.env`. See `../docs/clerk-auth.md` for authentication setup, identity mapping, and deletion rules.
 

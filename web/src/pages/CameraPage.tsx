@@ -5,6 +5,7 @@ import CameraView from '@/components/camera/CameraView'
 import CameraControls from '@/components/camera/CameraControls'
 import CameraError from '@/components/camera/CameraError'
 import { useCreateScan } from '@/hooks/useScans'
+import { getUsageErrorMessage } from '@/lib/usage'
 
 export default function CameraPage() {
   const navigate = useNavigate()
@@ -69,7 +70,7 @@ export default function CameraPage() {
       navigate(`/loading/${result.scanId}`)
     } catch (err) {
       console.error('Failed to upload scan:', err)
-      alert('Failed to upload image. Please try again.')
+      alert(getUsageErrorMessage(err) ?? 'Failed to upload image. Please try again.')
     }
   }
 
