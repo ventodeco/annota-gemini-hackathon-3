@@ -18,7 +18,7 @@ Furigana readings for ocr-03 are 雨上(あめあ), 公園(こうえん), 子供
 
 - **Base text only:** the transcript is scored as returned.
 - **Ruby in a separate block:** if the model puts the ruby in a separate block after the base text (a line or section explicitly labelled as readings, such as `ふりがな:`), delete that block, and only that block, before running `score_ocr.py`. Note the deletion in the results row.
-- **Ruby inline:** ruby mixed into the base text (inline or mid-word) stays in the text and counts as character errors.
+- **Ruby inline:** ruby mixed into the base text (inline or mid-word, e.g. `飛とび`) stays in the scored text. It also **fails ocr-03 regardless of CER**, because a short reading can stay under the threshold.
 
 `samples/*.html` are the sources. `render.sh` rebuilds the PNGs with headless Chrome (900×1200, scale 1, macOS Hiragino Mincho). The committed PNGs are the canonical fixtures, because re-rendering with other fonts changes pixels.
 
@@ -52,6 +52,7 @@ A route qualifies for the beta only if all of these hold on this set:
 
 - **OCR:**
   - character error rate (`score_ocr.py`: NFKC, whitespace removed, Levenshtein ÷ truth length) ≤ 0.02 on ocr-01, and ≤ 0.05 on ocr-02, ocr-03 (base text), ocr-04 and ocr-05;
+  - ocr-03 additionally fails if any ruby appears inline or mid-word in the base text, whatever its CER;
   - ocr-06 returns empty text or an explicit error;
   - no truncation (`finish_reason`/validation error) on any sample;
   - photo samples: recorded when available, not yet gating.
