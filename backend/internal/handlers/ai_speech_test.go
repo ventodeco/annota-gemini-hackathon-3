@@ -43,7 +43,7 @@ func (m *mockSpeechAIClient) SynthesizeSpeech(ctx context.Context, highlightedTe
 
 func TestSpeakAPI(t *testing.T) {
 	t.Run("returns unauthorized when user is missing", func(t *testing.T) {
-		h := handlers.NewAIHandlers(testutil.NewMockDB(), &mockSpeechAIClient{}, knowledge.NewEmptyService())
+		h := handlers.NewAIHandlers(testutil.NewMockDB(), &mockSpeechAIClient{}, knowledge.NewEmptyService(), newTestMeter(t))
 		req := httptest.NewRequest(http.MethodPost, "/v1/ai/speech", strings.NewReader(`{"highlightedText":"テスト"}`))
 		rec := httptest.NewRecorder()
 
@@ -55,7 +55,7 @@ func TestSpeakAPI(t *testing.T) {
 	})
 
 	t.Run("returns bad request when highlighted text is empty", func(t *testing.T) {
-		h := handlers.NewAIHandlers(testutil.NewMockDB(), &mockSpeechAIClient{}, knowledge.NewEmptyService())
+		h := handlers.NewAIHandlers(testutil.NewMockDB(), &mockSpeechAIClient{}, knowledge.NewEmptyService(), newTestMeter(t))
 		req := httptest.NewRequest(http.MethodPost, "/v1/ai/speech", strings.NewReader(`{"highlightedText":""}`))
 		req = req.WithContext(middleware.WithUserID(req.Context(), 1))
 		rec := httptest.NewRecorder()
@@ -77,6 +77,7 @@ func TestSpeakAPI(t *testing.T) {
 				},
 			},
 			knowledge.NewEmptyService(),
+			newTestMeter(t),
 		)
 		body := bytes.NewBufferString(`{"highlightedText":"おはよう","contextText":"丁寧に挨拶する場面","tone":"ignored"}`)
 		req := httptest.NewRequest(http.MethodPost, "/v1/ai/speech", body)
@@ -101,6 +102,7 @@ func TestSpeakAPI(t *testing.T) {
 			testutil.NewMockDB(),
 			&mockSpeechAIClient{err: context.DeadlineExceeded},
 			knowledge.NewEmptyService(),
+			newTestMeter(t),
 		)
 		req := httptest.NewRequest(http.MethodPost, "/v1/ai/speech", strings.NewReader(`{"highlightedText":"テスト"}`))
 		req = req.WithContext(middleware.WithUserID(req.Context(), 1))
@@ -120,6 +122,7 @@ func TestSpeakAPI(t *testing.T) {
 				err: &ai.ProviderError{Provider: "minimax", Kind: ai.ErrorKindQuota, StatusCode: 429, Message: "quota exceeded"},
 			},
 			knowledge.NewEmptyService(),
+			newTestMeter(t),
 		)
 		req := httptest.NewRequest(http.MethodPost, "/v1/ai/speech", strings.NewReader(`{"highlightedText":"テスト"}`))
 		req = req.WithContext(middleware.WithUserID(req.Context(), 1))
@@ -146,6 +149,7 @@ func TestSpeakAPI(t *testing.T) {
 				annErr: &ai.ProviderError{Provider: "minimax", Kind: ai.ErrorKindRateLimit, StatusCode: 429, Message: "rate limited"},
 			},
 			knowledge.NewEmptyService(),
+			newTestMeter(t),
 		)
 		req := httptest.NewRequest(http.MethodPost, "/v1/ai/analyze", strings.NewReader(`{"textToAnalyze":"小川未明","context":"小川未明"}`))
 		req = req.WithContext(middleware.WithUserID(req.Context(), 1))
@@ -197,7 +201,7 @@ func TestRoutedAIHandlerContracts(t *testing.T) {
 			if err := db.CreateUser(context.Background(), user); err != nil {
 				t.Fatal(err)
 			}
-			h := handlers.NewAIHandlers(db, client, knowledge.NewEmptyService())
+			h := handlers.NewAIHandlers(db, client, knowledge.NewEmptyService(), newTestMeter(t))
 			for _, speech := range []bool{false, true} {
 				body := `{"textToAnalyze":"日本語","context":"private-page"}`
 				if speech {

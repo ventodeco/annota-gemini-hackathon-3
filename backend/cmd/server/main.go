@@ -23,6 +23,7 @@ import (
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/pdf"
 	"github.com/gemini-hackathon/app/internal/storage"
+	"github.com/gemini-hackathon/app/internal/usage"
 )
 
 func main() {
@@ -85,12 +86,14 @@ func main() {
 		log.Fatalf("Failed to initialize Clerk authentication: %v", err)
 	}
 
+	usageMeter := usage.NewMeter(storage.NewPostgresUsageStore(db), usage.LimitsFromConfig(cfg))
+
 	userHandlers := handlers.NewUserHandlersWithStorage(storageDB, fileStorage, cfg, identityDirectory)
-	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, aiClient, cfg)
-	aiHandlers := handlers.NewAIHandlers(storageDB, aiClient, knowledgeSvc)
+	scanHandlers := handlers.NewScanHandlers(storageDB, fileStorage, aiClient, cfg, usageMeter)
+	aiHandlers := handlers.NewAIHandlers(storageDB, aiClient, knowledgeSvc, usageMeter)
 	annotationHandlers := handlers.NewAnnotationHandlers(storageDB, cfg).WithAIClient(aiClient)
 	analyticsHandlers := handlers.NewAnalyticsHandlers()
-	entitlementHandlers := handlers.NewEntitlementHandlers(cfg)
+	entitlementHandlers := handlers.NewEntitlementHandlers(cfg, usageMeter)
 	pdfExtractor := pdf.NewExtractor()
 	documentHandlers := handlers.NewDocumentHandlers(storageDB, fileStorage, pdfExtractor, cfg)
 
@@ -170,6 +173,7 @@ func buildAIClient(cfg *config.Config) (ai.Client, error) {
 		}
 		return ai.NewRoutedClient(*cfg.AIRouting, ai.RoutedClientOptions{Observe: func(ctx context.Context, meta ai.CallMetadata) {
 			logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(ctx)).WithField("ai", meta).Info("AI gateway attempt")
+			usage.RecordCall(ctx, meta)
 		}})
 	}
 	if mode != "" && mode != ai.ProviderGemini && mode != ai.ProviderMiniMax {

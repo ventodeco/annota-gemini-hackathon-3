@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select'
 import Header from '@/components/layout/Header'
 import BottomNavigation from '@/components/layout/BottomNavigation'
+import { AllowancePanel } from '@/components/usage/AllowancePanel'
 import { useAuth } from '@/contexts/useAuth'
 import { ApiError, deleteAccount, updateUserPreferences } from '@/lib/api'
 import type { PreferredLanguage } from '@/lib/types'
@@ -98,6 +99,8 @@ export default function ProfilePage() {
             <p className="text-xs text-gray-500">Signed in with Clerk</p>
           </div>
         </Card>
+
+        <AllowancePanel />
 
         {/* Edit preferred language */}
         <Card className="p-4 space-y-3">

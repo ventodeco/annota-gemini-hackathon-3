@@ -56,6 +56,16 @@ type Config struct {
 	AllowedOrigins           string // comma-separated list, * for wildcard
 	AIRateLimit              int
 	AIRateLimitWindowSeconds int
+
+	// Daily beta allowances (UTC days). Per-user quotas sit under a global
+	// budget per feature; 0 disables a feature and there is no unlimited value.
+	UsageOCRPagesPerDay           int
+	UsageExplanationsPerDay       int
+	UsageSpeechCharsPerDay        int
+	UsageGlobalOCRPagesPerDay     int
+	UsageGlobalExplanationsPerDay int
+	UsageGlobalSpeechCharsPerDay  int
+	UsageSpeechMaxCharsPerRequest int
 }
 
 func Load() (*Config, error) {
@@ -117,6 +127,14 @@ func Load() (*Config, error) {
 		AllowedOrigins:           getEnvOrDefault("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
 		AIRateLimit:              getEnvAsIntOrDefault("AI_RATE_LIMIT", 60),
 		AIRateLimitWindowSeconds: getEnvAsIntOrDefault("AI_RATE_LIMIT_WINDOW_SECONDS", 3600),
+
+		UsageOCRPagesPerDay:           getEnvAsIntOrDefault("USAGE_QUOTA_OCR_PAGES_PER_DAY", 20),
+		UsageExplanationsPerDay:       getEnvAsIntOrDefault("USAGE_QUOTA_EXPLANATIONS_PER_DAY", 100),
+		UsageSpeechCharsPerDay:        getEnvAsIntOrDefault("USAGE_QUOTA_SPEECH_CHARS_PER_DAY", 3000),
+		UsageGlobalOCRPagesPerDay:     getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY", 500),
+		UsageGlobalExplanationsPerDay: getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY", 2500),
+		UsageGlobalSpeechCharsPerDay:  getEnvAsIntOrDefault("USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY", 75000),
+		UsageSpeechMaxCharsPerRequest: getEnvAsIntOrDefault("USAGE_SPEECH_MAX_CHARS_PER_REQUEST", 500),
 	}
 
 	if cfg.normalizedAIProvider() == AIProviderRouted {
@@ -206,10 +224,35 @@ func (c *Config) Validate() error {
 	if c.AIRateLimitWindowSeconds < 0 {
 		return fmt.Errorf("AI_RATE_LIMIT_WINDOW_SECONDS cannot be negative")
 	}
+	if err := c.validateUsageQuotas(); err != nil {
+		return err
+	}
 	if c.AppEnv == "production" && c.AllowedOrigins == "*" {
 		return fmt.Errorf("ALLOWED_ORIGINS cannot be wildcard in production")
 	}
 	return c.validateClerk()
+}
+
+func (c *Config) validateUsageQuotas() error {
+	for _, quota := range []struct {
+		name  string
+		value int
+	}{
+		{"USAGE_QUOTA_OCR_PAGES_PER_DAY", c.UsageOCRPagesPerDay},
+		{"USAGE_QUOTA_EXPLANATIONS_PER_DAY", c.UsageExplanationsPerDay},
+		{"USAGE_QUOTA_SPEECH_CHARS_PER_DAY", c.UsageSpeechCharsPerDay},
+		{"USAGE_BUDGET_GLOBAL_OCR_PAGES_PER_DAY", c.UsageGlobalOCRPagesPerDay},
+		{"USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY", c.UsageGlobalExplanationsPerDay},
+		{"USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY", c.UsageGlobalSpeechCharsPerDay},
+	} {
+		if quota.value < 0 {
+			return fmt.Errorf("%s cannot be negative", quota.name)
+		}
+	}
+	if c.UsageSpeechMaxCharsPerRequest <= 0 {
+		return fmt.Errorf("USAGE_SPEECH_MAX_CHARS_PER_REQUEST must be positive")
+	}
+	return nil
 }
 
 func (c *Config) validateClerk() error {

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createScan, deleteScan, getScans } from '@/lib/api'
 import type { Scan } from '@/lib/types'
+import { useInvalidateEntitlements } from './useEntitlements'
 export { useScan, isScanFailed, isScanOcrReady } from './useScan'
 
 export function useScans(page = 1, size = 20) {
@@ -12,12 +13,14 @@ export function useScans(page = 1, size = 20) {
 
 export function useCreateScan() {
   const queryClient = useQueryClient()
+  const invalidateEntitlements = useInvalidateEntitlements()
 
   return useMutation({
     mutationFn: (image: File) => createScan(image),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scans'] })
     },
+    onSettled: invalidateEntitlements,
   })
 }
 

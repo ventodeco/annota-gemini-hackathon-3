@@ -18,6 +18,7 @@ import (
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/storage"
+	"github.com/gemini-hackathon/app/internal/usage"
 )
 
 type ScanHandlers struct {
@@ -25,16 +26,21 @@ type ScanHandlers struct {
 	fileStorage storage.FileStorage
 	aiClient    ai.Client
 	config      *config.Config
+	meter       *usage.Meter
 }
 
 const ocrProcessingTimeout = 5 * time.Minute
 
-func NewScanHandlers(db storage.DB, fileStorage storage.FileStorage, aiClient ai.Client, cfg *config.Config) *ScanHandlers {
+// errOCRIncomplete settles an OCR reservation whose job ended without a result.
+var errOCRIncomplete = errors.New("ocr job ended without a result")
+
+func NewScanHandlers(db storage.DB, fileStorage storage.FileStorage, aiClient ai.Client, cfg *config.Config, meter *usage.Meter) *ScanHandlers {
 	return &ScanHandlers{
 		db:          db,
 		fileStorage: fileStorage,
 		aiClient:    aiClient,
 		config:      cfg,
+		meter:       meter,
 	}
 }
 
@@ -134,6 +140,13 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 
 	log.Infof("Received image upload: size=%d bytes, type=%s", len(imageData), mimeType)
 
+	// Admit the OCR page before creating the scan row; refund it if no OCR starts.
+	usageCtx, reservation, err := h.meter.Reserve(r.Context(), userID, usage.FeatureOCR, 1)
+	if err != nil {
+		writeUsageError(w, err, log)
+		return
+	}
+
 	now := time.Now()
 	scan := &models.Scan{
 		UserID:     userID,
@@ -146,6 +159,7 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 	scanID, err := h.db.CreateScan(r.Context(), scan)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to create scan in database")
+		h.meter.Release(r.Context(), reservation)
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to initialize scan")
 		return
 	}
@@ -153,6 +167,7 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 	storagePath, _, err := h.fileStorage.SaveImage(strconv.FormatInt(scanID, 10), imageData, mimeType)
 	if err != nil {
 		log.ErrorWithErr(err, "Failed to save image to storage")
+		h.meter.Release(r.Context(), reservation)
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save uploaded image")
 		return
 	}
@@ -169,10 +184,10 @@ func (h *ScanHandlers) CreateScanAPI(w http.ResponseWriter, r *http.Request) {
 		"image_url": imageURL,
 	}).Infof("Scan created successfully, starting OCR processing")
 
-	ocrCtx, cancelOCR := context.WithTimeout(context.WithoutCancel(r.Context()), ocrProcessingTimeout)
+	ocrCtx, cancelOCR := context.WithTimeout(context.WithoutCancel(usageCtx), ocrProcessingTimeout)
 	go func() {
 		defer cancelOCR()
-		h.processOCR(ocrCtx, scanID, imageData, mimeType, storagePath)
+		h.processOCR(ocrCtx, reservation, scanID, imageData, mimeType, storagePath)
 	}()
 
 	response := CreateScanResponse{
@@ -437,12 +452,17 @@ func (h *ScanHandlers) getScanImageHandler(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (h *ScanHandlers) processOCR(ctx context.Context, scanID int64, imageData []byte, mimeType string, storagePath string) {
+func (h *ScanHandlers) processOCR(ctx context.Context, reservation *usage.Reservation, scanID int64, imageData []byte, mimeType string, storagePath string) {
 	log := logger.GetDefaultLogger().WithField("scan_id", scanID)
+
+	// Settle exactly once, even on an early return or panic.
+	outcome := errOCRIncomplete
+	defer func() { h.meter.Finish(ctx, reservation, outcome) }()
 
 	log.Infof("Starting OCR processing: image_size=%d bytes, mime_type=%s", len(imageData), mimeType)
 	ocrResp, err := h.aiClient.OCR(ctx, imageData, mimeType)
 	if err != nil {
+		outcome = err
 		log.ErrorWithErr(err, "OCR processing failed")
 		reason := "ocr_failed"
 		if err := h.db.UpdateScanStatus(ctx, scanID, "failed", &reason); err != nil {
@@ -457,9 +477,11 @@ func (h *ScanHandlers) processOCR(ctx context.Context, scanID int64, imageData [
 	_ = imageURL
 
 	if err := h.db.UpdateScanOCR(ctx, scanID, ocrResp.RawText, ocrResp.Language, provenanceFor(h.aiClient, "ocr")); err != nil {
+		outcome = err
 		log.ErrorWithErr(err, "Failed to update scan OCR in database")
 		return
 	}
+	outcome = nil
 
 	log.Infof("OCR results saved to database successfully")
 }

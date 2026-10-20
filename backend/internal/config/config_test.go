@@ -121,6 +121,52 @@ func TestLoadReadsRateLimitConfig(t *testing.T) {
 	}
 }
 
+func TestLoadReadsUsageQuotaConfig(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "openrouter-key")
+	t.Setenv("MINIMAX_API_KEY", "minimax-key")
+	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
+	setClerkTestEnv(t)
+	t.Setenv("USAGE_QUOTA_OCR_PAGES_PER_DAY", "0")
+	t.Setenv("USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY", "1234")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.UsageOCRPagesPerDay != 0 {
+		t.Fatalf("UsageOCRPagesPerDay = %d, want explicit 0", cfg.UsageOCRPagesPerDay)
+	}
+	if cfg.UsageGlobalSpeechCharsPerDay != 1234 {
+		t.Fatalf("UsageGlobalSpeechCharsPerDay = %d, want 1234", cfg.UsageGlobalSpeechCharsPerDay)
+	}
+	// Documented beta defaults.
+	if cfg.UsageExplanationsPerDay != 100 || cfg.UsageSpeechCharsPerDay != 3000 ||
+		cfg.UsageGlobalOCRPagesPerDay != 500 || cfg.UsageGlobalExplanationsPerDay != 2500 ||
+		cfg.UsageSpeechMaxCharsPerRequest != 500 {
+		t.Fatalf("unexpected usage defaults: %+v", cfg)
+	}
+}
+
+func TestValidateRejectsInvalidUsageQuotas(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"negative user quota", func(c *Config) { c.UsageExplanationsPerDay = -1 }},
+		{"negative global budget", func(c *Config) { c.UsageGlobalOCRPagesPerDay = -1 }},
+		{"zero speech request cap", func(c *Config) { c.UsageSpeechMaxCharsPerRequest = 0 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			tt.mutate(cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestLoadReadsAIProviderConfig(t *testing.T) {
 	t.Setenv("AI_PROVIDER", "minimax")
 	t.Setenv("OPENROUTER_API_KEY", "openrouter-key")
@@ -295,6 +341,14 @@ func validConfig() *Config {
 		ClerkAuthorizedParties:   []string{"http://localhost:5173"},
 		AIRateLimit:              60,
 		AIRateLimitWindowSeconds: 3600,
+
+		UsageOCRPagesPerDay:           20,
+		UsageExplanationsPerDay:       100,
+		UsageSpeechCharsPerDay:        3000,
+		UsageGlobalOCRPagesPerDay:     500,
+		UsageGlobalExplanationsPerDay: 2500,
+		UsageGlobalSpeechCharsPerDay:  75000,
+		UsageSpeechMaxCharsPerRequest: 500,
 	}
 }
 

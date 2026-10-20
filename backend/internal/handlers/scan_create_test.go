@@ -94,7 +94,7 @@ func buildUploadRequest(t *testing.T, path string) *http.Request {
 func TestCreateScanPersistsImageURLAndGetScanReturnsIt(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024}
-	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg, newTestMeter(t))
 
 	createReq := buildUploadRequest(t, "/v1/scans")
 	createReq = createReq.WithContext(middleware.WithUserID(createReq.Context(), 1))
@@ -134,7 +134,7 @@ func TestCreateScanPersistsImageURLAndGetScanReturnsIt(t *testing.T) {
 func TestGetScanImageRequiresOwnershipAndServesStoredImage(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024, UploadDir: "data/uploads"}
-	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg, newTestMeter(t))
 
 	createReq := buildUploadRequest(t, "/v1/scans")
 	createReq = createReq.WithContext(middleware.WithUserID(createReq.Context(), 1))
@@ -170,7 +170,7 @@ func TestGetScanImageRequiresOwnershipAndServesStoredImage(t *testing.T) {
 func TestCreateScanUnauthorized(t *testing.T) {
 	mockDB := testutil.NewMockDB()
 	cfg := &config.Config{MaxUploadSize: 10 * 1024 * 1024}
-	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg)
+	scanHandlers := handlers.NewScanHandlers(mockDB, &mockFileStorage{}, &mockAIClient{}, cfg, newTestMeter(t))
 
 	req := buildUploadRequest(t, "/v1/scans")
 	rec := httptest.NewRecorder()

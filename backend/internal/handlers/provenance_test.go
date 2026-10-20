@@ -14,7 +14,15 @@ import (
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
 	"github.com/gemini-hackathon/app/internal/testutil"
+	"github.com/gemini-hackathon/app/internal/usage"
 )
+
+func provenanceTestMeter() *usage.Meter {
+	return usage.NewMeter(testutil.NewMemoryUsageStore(), usage.Limits{
+		usage.FeatureOCR:         {User: 100, Global: 1000},
+		usage.FeatureExplanation: {User: 100, Global: 1000},
+	})
+}
 
 type provenanceAIClient struct {
 	producers map[string]ai.Producer
@@ -65,8 +73,8 @@ func TestProcessOCRStoresProducerProvenance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			h := NewScanHandlers(db, nil, tt.client, &config.Config{})
-			h.processOCR(context.Background(), scanID, []byte("image"), "image/png", "scan.png")
+			h := NewScanHandlers(db, nil, tt.client, &config.Config{}, provenanceTestMeter())
+			h.processOCR(context.Background(), nil, scanID, []byte("image"), "image/png", "scan.png")
 
 			got, recorded := db.ScanOCRProvenance(scanID)
 			if !recorded {
@@ -93,7 +101,7 @@ func TestAnalyzeProvenanceRoundTripsIntoSavedAnnotation(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/ai/analyze", strings.NewReader(`{"textToAnalyze":"図書館","context":"駅前の図書館"}`))
 		req = req.WithContext(middleware.WithUserID(req.Context(), 1))
 		rec := httptest.NewRecorder()
-		NewAIHandlers(db, client, knowledge.NewEmptyService()).AnalyzeAPI(rec, req)
+		NewAIHandlers(db, client, knowledge.NewEmptyService(), provenanceTestMeter()).AnalyzeAPI(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("analyze status %d: %s", rec.Code, rec.Body.String())
 		}
