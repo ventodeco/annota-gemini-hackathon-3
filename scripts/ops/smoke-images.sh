@@ -44,8 +44,9 @@ trap 'exit 143' TERM
 start_container() {
   local name="$1"
   shift
-  docker run --detach --name "$name" --network "$prefix" "$@" >/dev/null
+  docker create --name "$name" --network "$prefix" "$@" >/dev/null
   containers+=("$name")
+  docker start "$name" >/dev/null
 }
 
 wait_for_command() {
@@ -87,8 +88,11 @@ network_created=true
 if [[ "$mode" == all || "$mode" == backend ]]; then
   docker image inspect --format 'Backend image: {{.Id}}' "$backend_image"
   # This deliberately fails when the final image omits runtime migrations.
-  docker run --rm --network none --entrypoint sh "$backend_image" -c \
-    'test -d /app/migrations && test -n "$(find /app/migrations -name "*.sql" -print)"'
+  if ! docker run --rm --network none --entrypoint sh "$backend_image" -c \
+    'test -d /app/migrations && test -n "$(find /app/migrations -name "*.sql" -print)"'; then
+    echo "Final backend image is missing runtime SQL migrations" >&2
+    exit 1
+  fi
 
   start_container "$prefix-pg" \
     -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=smoke-only -e POSTGRES_DB=annota_smoke \
