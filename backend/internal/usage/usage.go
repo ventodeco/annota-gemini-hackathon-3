@@ -166,13 +166,16 @@ func (m *Meter) Reserve(ctx context.Context, userID int64, feature Feature, unit
 	return context.WithValue(ctx, collectorKey{}, c), res, nil
 }
 
-// admissibleMax is the largest single request that could ever be admitted.
-// A zero limit is reported as a quota rejection, not as too large.
+// admissibleMax is the largest single request a user could ever be admitted
+// for. It uses only the user's own and per-request limits so the public 413
+// never reveals the global budget; a request larger than the global budget is
+// rejected as an exhausted budget instead. A zero limit is reported as a quota
+// rejection, not as too large.
 func admissibleMax(limit Limit) int64 {
-	if limit.User <= 0 || limit.Global <= 0 {
+	if limit.User <= 0 {
 		return 0
 	}
-	largest := min(limit.User, limit.Global)
+	largest := limit.User
 	if limit.PerRequest > 0 {
 		largest = min(largest, limit.PerRequest)
 	}
@@ -229,8 +232,11 @@ func cleanRejection(kind ai.ErrorKind) bool {
 }
 
 // failureStatus decides from structured attempt data, never message text.
-// Observed attempts win; the final error kind is used only for clients that
-// report no attempts. Unknown and non-provider errors may have been billed.
+// Observed attempts win. Clients that report no attempts (legacy minimax and
+// gemini) may retry internally, so an earlier dispatched attempt could have
+// been billed even when the final error is a clean rejection; only a
+// configuration error raised before any HTTP status is treated as unbilled.
+// Unknown and non-provider errors may have been billed.
 func failureStatus(calls []ai.CallMetadata, callErr error) string {
 	if len(calls) > 0 {
 		for _, call := range calls {
@@ -241,7 +247,7 @@ func failureStatus(calls []ai.CallMetadata, callErr error) string {
 		return storage.UsageStatusReleased
 	}
 	var providerErr *ai.ProviderError
-	if errors.As(callErr, &providerErr) && cleanRejection(providerErr.Kind) {
+	if errors.As(callErr, &providerErr) && providerErr.Kind == ai.ErrorKindConfig && providerErr.StatusCode == 0 {
 		return storage.UsageStatusReleased
 	}
 	return storage.UsageStatusFailed

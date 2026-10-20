@@ -22,7 +22,7 @@ Paid AI work (image OCR, explanations and speech) is admitted against persisted 
 - Clerk (#39) maps users to a stable numeric `users.id`. Account deletion runs `DELETE FROM users`. Migrations end at `005`; `006` is reserved for #42.
 - #41 is changing `scan.go`, `document.go`, `user.go` and `main.go`. Admission therefore sits **before** the scan row insert, and the reservation does not depend on the scan row, because #41's discard paths delete it.
 
-## Policy (explicit beta defaults; all configurable)
+## Policy (provisional operation caps pending owner approval; all configurable)
 
 | Feature | Unit | Per-user/day | Global/day | Env |
 |---|---|---|---|---|
@@ -151,3 +151,9 @@ Billing or paid plans, model selection (#35), a service layer (#14), auth change
   - Owner confirmation of the default numbers.
   - Live provider cost reconciliation, which needs keys.
   - LegalPage privacy wording for usage counts. It is coordinated with #41/PR #67 and goes in whichever PR merges second.
+
+## Review round 1 (Sol, REQUEST_CHANGES on c9de071), resolved
+
+1. **Legacy clients.** They retry internally and report no attempts, so a final clean rejection could hide an earlier billed attempt. Without observed attempts, only a configuration error raised before any HTTP status is now `released`; everything else is `failed`. Tests added: transport failure then 429, legacy 429, and legacy config error before and after a response.
+2. **Hidden tab across the reset.** It could keep an exhausted allowance because the app disables focus refetching globally. Entitlements now opt in to `refetchOnWindowFocus`, and a regression test covers it (it fails without the fix).
+3. **The 413 `max` exposed the global cap.** It is now derived from the user and per-request limits only. A request larger than the global budget gets the existing `usage_budget_exhausted` error instead. Test added.

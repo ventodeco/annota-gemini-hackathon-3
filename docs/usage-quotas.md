@@ -2,7 +2,7 @@
 
 ANNOTA meters its paid AI work against persisted daily allowances: one per user per feature, plus one global beta budget per feature. The backend enforces them (`backend/internal/usage`, `backend/internal/storage/usage.go`, migration `006_usage_quotas.sql`). The app shows the remaining allowance on the profile page, and the image-scan allowance on the home screen.
 
-This is a beta cost control, not billing. There are no paid plans or prices, and the app makes no financial promises.
+The limits are **operation caps** (pages, requests, characters), not a currency budget. Their values are **provisional and pending owner approval**. This is a beta cost control, not billing. There are no paid plans or prices, and the app makes no financial promises.
 
 ## What is metered
 
@@ -12,8 +12,8 @@ This is a beta cost control, not billing. There are no paid plans or prices, and
 | `explanation` | `POST /v1/ai/analyze` | 1 request | `USAGE_QUOTA_EXPLANATIONS_PER_DAY` = 100 | `USAGE_BUDGET_GLOBAL_EXPLANATIONS_PER_DAY` = 2500 |
 | `speech` | `POST /v1/ai/speech` | characters (Unicode code points) of the selected text | `USAGE_QUOTA_SPEECH_CHARS_PER_DAY` = 3000 | `USAGE_BUDGET_GLOBAL_SPEECH_CHARS_PER_DAY` = 75000 |
 
-- The defaults are bounded beta values chosen for issue #42; the global budget is roughly 25 users at full allowance. The owner can change any of them through environment variables. `0` disables a feature, negative values fail startup validation, and there is no unlimited setting.
-- A speech selection longer than `USAGE_SPEECH_MAX_CHARS_PER_REQUEST` (default 500), or longer than the per-user daily limit, is rejected as too large.
+- The defaults are provisional, bounded beta values proposed in issue #42 and still pending owner approval; the global budget is roughly 25 users at full allowance. The owner can change any of them through environment variables. `0` disables a feature, negative values fail startup validation, and there is no unlimited setting.
+- A speech selection longer than `USAGE_SPEECH_MAX_CHARS_PER_REQUEST` (default 500), or longer than the per-user daily limit, is rejected as too large. A request larger than the global budget is reported as an exhausted budget, so the 413 never reveals the global value.
 - These are not metered, because they make no AI call:
   - PDF pages, whose text is extracted locally;
   - re-opening stored scans or OCR text;
@@ -39,10 +39,11 @@ This is a beta cost control, not billing. There are no paid plans or prices, and
    | Outcome | Status | User counter | Global counter |
    |---|---|---|---|
    | Success | `settled` | charged | charged |
-   | No billable work: a storage failure before dispatch, or every provider attempt was a clean `config` / `auth` / `rate_limit` / `quota` rejection | `released` | refunded | refunded |
+   | No billable work: a storage failure before dispatch, or every observed provider attempt was a clean `config` / `auth` / `rate_limit` / `quota` rejection | `released` | refunded | refunded |
    | Work was dispatched and may be billed: upstream errors, timeouts, transport failures, unusable responses, OCR result not saved | `failed` | refunded | **kept** |
 
    - The outcome comes only from structured `ai.CallMetadata` attempts and `ai.ProviderError.Kind`, never from provider message text. Raw provider bodies are never stored.
+   - The legacy `minimax`/`gemini` clients retry internally and report no attempts, so an earlier attempt may have been billed even when the final error is a clean rejection. For them, only a configuration error raised before any HTTP status counts as `released`; every other failure is `failed`.
    - Refunds apply to the reservation's own day, so a refund after midnight never credits the new day.
    - A second settlement is a no-op.
 3. **Stale reservations stay charged.** If the process dies mid-call, its reservation stays `reserved` and charged. This is deliberately conservative; operators can find these rows via `idx_usage_reservations_status_created`.

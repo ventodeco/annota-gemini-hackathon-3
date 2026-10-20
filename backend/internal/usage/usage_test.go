@@ -54,6 +54,20 @@ func TestReserveRejectsWithQuotaAndTooLargeErrors(t *testing.T) {
 	}
 }
 
+func TestReserveTooLargeNeverRevealsGlobalBudget(t *testing.T) {
+	meter, _, _ := newTestMeter(Limits{FeatureSpeech: {User: 3000, Global: 200, PerRequest: 500}})
+	_, _, err := meter.Reserve(context.Background(), 1, FeatureSpeech, 201)
+	var quotaErr *QuotaError
+	if !errors.As(err, &quotaErr) || !quotaErr.Global {
+		t.Fatalf("request above the global budget = %#v, want global budget error", err)
+	}
+	_, _, err = meter.Reserve(context.Background(), 1, FeatureSpeech, 501)
+	var tooLarge *TooLargeError
+	if !errors.As(err, &tooLarge) || tooLarge.Max != 500 {
+		t.Fatalf("request above the per-request cap = %#v, want max 500", err)
+	}
+}
+
 func TestFinishClassifiesFromStructuredAttempts(t *testing.T) {
 	upstream := &ai.ProviderError{Kind: ai.ErrorKindUpstream}
 	rateLimited := &ai.ProviderError{Kind: ai.ErrorKindRateLimit}
@@ -67,7 +81,9 @@ func TestFinishClassifiesFromStructuredAttempts(t *testing.T) {
 		{"all attempts cleanly rejected", []ai.CallMetadata{{ErrorKind: ai.ErrorKindRateLimit}, {ErrorKind: ai.ErrorKindQuota}}, rateLimited, storage.UsageStatusReleased},
 		{"earlier upstream attempt may be billed", []ai.CallMetadata{{ErrorKind: ai.ErrorKindUpstream}, {ErrorKind: ai.ErrorKindRateLimit}}, rateLimited, storage.UsageStatusFailed},
 		{"response arrived but result unusable", []ai.CallMetadata{{}}, errors.New("save failed"), storage.UsageStatusFailed},
-		{"legacy client clean rejection", nil, rateLimited, storage.UsageStatusReleased},
+		{"legacy client retries may hide a billed attempt", nil, rateLimited, storage.UsageStatusFailed},
+		{"legacy client configuration error before dispatch", nil, &ai.ProviderError{Kind: ai.ErrorKindConfig}, storage.UsageStatusReleased},
+		{"legacy client configuration error after a response", nil, &ai.ProviderError{Kind: ai.ErrorKindConfig, StatusCode: 400}, storage.UsageStatusFailed},
 		{"legacy client upstream failure", nil, upstream, storage.UsageStatusFailed},
 		{"deadline exceeded", nil, context.DeadlineExceeded, storage.UsageStatusFailed},
 	}
@@ -100,7 +116,7 @@ func TestFinishSettlesOnceAfterCancelledContext(t *testing.T) {
 		t.Fatalf("reserve: %v", err)
 	}
 	cancel()
-	meter.Finish(ctx, res, &ai.ProviderError{Kind: ai.ErrorKindAuth})
+	meter.Finish(ctx, res, &ai.ProviderError{Kind: ai.ErrorKindConfig})
 	meter.Finish(ctx, res, nil)
 	meter.Release(ctx, res)
 

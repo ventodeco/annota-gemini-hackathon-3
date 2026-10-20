@@ -20,6 +20,9 @@ export function useEntitlements() {
     queryFn: getEntitlements,
     staleTime: MIN_REFRESH_MS,
     refetchInterval: refreshAtReset,
+    // Intervals pause in hidden tabs and the app disables focus refetching
+    // globally; refresh on return so a reset that happened meanwhile shows.
+    refetchOnWindowFocus: true,
   })
 }
 

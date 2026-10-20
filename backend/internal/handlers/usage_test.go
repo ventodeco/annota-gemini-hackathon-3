@@ -117,21 +117,40 @@ func TestSpeakAPIEnforcesSpeechAllowance(t *testing.T) {
 	}
 }
 
+// observedSpeechClient reports its attempts the way the routed client's
+// Observe hook does, then fails with err.
+type observedSpeechClient struct {
+	mockSpeechAIClient
+	attempts []ai.CallMetadata
+}
+
+func (c *observedSpeechClient) SynthesizeSpeech(ctx context.Context, text, contextText string) (*ai.SpeechResponse, error) {
+	for _, attempt := range c.attempts {
+		usage.RecordCall(ctx, attempt)
+	}
+	return c.mockSpeechAIClient.SynthesizeSpeech(ctx, text, contextText)
+}
+
 func TestSpeakAPIRefundsFailedProviderCalls(t *testing.T) {
+	quota := &ai.ProviderError{Kind: ai.ErrorKindQuota, StatusCode: 429}
 	tests := []struct {
 		name       string
+		attempts   []ai.CallMetadata
 		err        error
 		wantCode   int
 		wantStatus string
 		wantBody   string
 	}{
-		{"provider limit is a clean rejection", &ai.ProviderError{Kind: ai.ErrorKindQuota, StatusCode: 429}, http.StatusTooManyRequests, storage.UsageStatusReleased, "ai_provider_limited"},
-		{"timeout may still be billed", context.DeadlineExceeded, http.StatusInternalServerError, storage.UsageStatusFailed, ""},
+		{"observed clean provider rejection", []ai.CallMetadata{{StatusCode: 429, ErrorKind: ai.ErrorKindQuota}}, quota, http.StatusTooManyRequests, storage.UsageStatusReleased, "ai_provider_limited"},
+		{"transport failure then provider 429 keeps the global charge", []ai.CallMetadata{{ErrorKind: ai.ErrorKindUpstream}, {StatusCode: 429, ErrorKind: ai.ErrorKindRateLimit}}, quota, http.StatusTooManyRequests, storage.UsageStatusFailed, "ai_provider_limited"},
+		{"legacy 429 without attempt metadata keeps the global charge", nil, quota, http.StatusTooManyRequests, storage.UsageStatusFailed, "ai_provider_limited"},
+		{"timeout may still be billed", nil, context.DeadlineExceeded, http.StatusInternalServerError, storage.UsageStatusFailed, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			meter, store := newMeterWithStore(usage.Limits{usage.FeatureSpeech: {User: 10, Global: 100}})
-			h := handlers.NewAIHandlers(testutil.NewMockDB(), &mockSpeechAIClient{err: tt.err}, knowledge.NewEmptyService(), meter)
+			client := &observedSpeechClient{mockSpeechAIClient: mockSpeechAIClient{err: tt.err}, attempts: tt.attempts}
+			h := handlers.NewAIHandlers(testutil.NewMockDB(), client, knowledge.NewEmptyService(), meter)
 			rec := httptest.NewRecorder()
 			h.SpeakAPI(rec, postJSON(1, "/v1/ai/speech", `{"highlightedText":"テスト"}`))
 			if rec.Code != tt.wantCode {
