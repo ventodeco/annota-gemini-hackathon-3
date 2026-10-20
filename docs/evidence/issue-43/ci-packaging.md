@@ -2,6 +2,27 @@
 
 PR: https://github.com/ventodeco/annota-gemini-hackathon-3/pull/46
 
+## Final Passing Verification
+
+Both CI jobs passed on `149690bfac7f6bcb4adda117d8146d00962248c2`:
+https://github.com/ventodeco/annota-gemini-hackathon-3/actions/runs/39362268833
+
+- The real PostgreSQL migration test passed without skipping, followed by
+  backend tests, vet, build, and final-image startup with the complete migration
+  inventory. Backend image ID:
+  `sha256:23d7bed40a2565f9ab9f52d43c592e5a0448793e4544995e688b86350046055d`.
+- Frontend tests, lint, build, and final-image HTTP checks passed for HTML,
+  bundled JS/CSS, manifest, PDF worker, and the direct client route. Frontend
+  image ID:
+  `sha256:75e6c937d46892f2b8c35fb6b4ecb936b5abb11497b2f71841adc6eba36e9fb4`.
+- The probe reported one existing external stylesheet separately and made no
+  third-party or paid AI requests. Services and probes used disposable resources
+  on the internal Docker network.
+
+The historical failures below explain how the checks and packaging were
+corrected. Final-image acceptance for PR 1 is verified; the administrator and
+remaining issue #43 checkpoints below are still outstanding.
+
 ## Baseline Container Failures
 
 Run: https://github.com/ventodeco/annota-gemini-hackathon-3/actions/runs/39360925534
@@ -44,7 +65,8 @@ The correction runs the same Python HTTP assertions in disposable probe
 containers on that network, with no published ports. It preserves external
 network isolation and registers probes for cleanup before starting them.
 PostgreSQL readiness explicitly probes TCP to avoid accepting the temporary
-Unix-socket-only bootstrap server. Final runtime results remain pending.
+Unix-socket-only bootstrap server. Runtime acceptance was still pending at this
+intermediate revision; the final passing run is recorded above.
 
 ## HTTP Probe Scope Correction
 
@@ -64,7 +86,7 @@ classifies third-party stylesheet links separately and reports their count;
 it still requires generated local CSS and checks its MIME type and body.
 No third-party requests are made. The same local checker then passed HTML,
 JS, CSS, manifest, PDF worker, and direct-route checks. This local HTTP fixture
-isolates checker behavior; final nginx acceptance still requires the CI run.
+isolates checker behavior; the final CI run above establishes nginx acceptance.
 
 ## Local Verification
 
@@ -82,8 +104,8 @@ These commands passed before submitting the packaging fixes:
 The local Go run skips the PostgreSQL integration test because it has no
 `POSTGRES_TEST_DSN`. The baseline CI run above executes it successfully against
 its PostgreSQL service. Local Docker is unavailable, so final-image runtime
-verification uses GitHub's disposable runner. Final packaging-fix results are
-recorded only after that run completes.
+verification uses GitHub's disposable runner. The final packaging-fix results
+are recorded above from the completed run.
 
 Existing frontend warnings about large chunks, stale Browserslist data, and
 React test `act` usage were not changed by this infrastructure task.
