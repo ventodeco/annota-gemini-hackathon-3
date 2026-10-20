@@ -14,7 +14,11 @@ A small, fixed set for comparing OCR, annotation, and speech routes. All text is
 | ocr-06 | `images/06-blank.png` | `ground-truth/ocr-06-blank.txt` (empty) | blank page (detects hallucination) |
 | photo-* | pending | pending | blurry and skewed phone photos. These need user-approved real captures of a printed sample and are not simulated here. |
 
-Furigana readings for ocr-03 are 雨上(あめあ), 公園(こうえん), 子供(こども), 水(みず), 飛(と), 越(こ) and 遊(あそ). A transcript may omit the ruby or keep it in a separate, clearly marked form. Ruby that is interleaved mid-word counts as character errors.
+Furigana readings for ocr-03 are 雨上(あめあ), 公園(こうえん), 子供(こども), 水(みず), 飛(と), 越(こ) and 遊(あそ). Ruby handling and scoring for ocr-03 follow one fixed rule:
+
+- **Base text only:** the transcript is scored as returned.
+- **Ruby in a separate block:** if the model puts the ruby in a separate block after the base text (a line or section explicitly labelled as readings, such as `ふりがな:`), delete that block, and only that block, before running `score_ocr.py`. Note the deletion in the results row.
+- **Ruby inline:** ruby mixed into the base text (inline or mid-word) stays in the text and counts as character errors.
 
 `samples/*.html` are the sources. `render.sh` rebuilds the PNGs with headless Chrome (900×1200, scale 1, macOS Hiragino Mincho). The committed PNGs are the canonical fixtures, because re-rendering with other fonts changes pixels.
 
@@ -85,7 +89,7 @@ From `backend/`, put only the active profiles' keys in the process environment. 
 3. Accuracy scoring needs the model output, which the report deliberately omits. Until an opt-in, local-only output option is added to `qualify-routes` as a reviewed follow-up (agreed with #34), capture output through the routed app on a local machine. Save OCR text to a temporary file outside the repo, then run:
 
    ```bash
-   python3 -I score_ocr.py ground-truth/ocr-01-horizontal.txt /tmp/annota-35-ocr-01.txt
+   python3 -I "$E/score_ocr.py" "$E/ground-truth/ocr-01-horizontal.txt" /tmp/annota-35-ocr-01.txt
    ```
 
    For annotations, compare `pronunciation.kana` by hand. Listen to the audio, record the observed reading, then delete the audio and output files. Do not commit outputs or audio.
