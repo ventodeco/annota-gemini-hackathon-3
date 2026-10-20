@@ -179,6 +179,9 @@ func (c *Config) Validate() error {
 	if c.DBConnectionString == "" {
 		return fmt.Errorf("DB_CONNECTION_STRING or PostgreSQL connection details are required")
 	}
+	if err := c.validateProductionDBPassword(); err != nil {
+		return err
+	}
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
 	}

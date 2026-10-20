@@ -1,0 +1,57 @@
+# Issue #12 Secret Exposure Assessment
+
+Date: 2026-10-20. Base: `origin/dev` at `58deb43`. Every check below records
+metadata or redacted pattern matches only. No `.env` file, key value, or
+historical blob content was printed or read into this record.
+
+## Claim under review
+
+Issue #12 says real API keys, a JWT secret, and OAuth credentials were
+**committed** in `backend/.env`. Within the scope below (the scanned refs, path
+metadata, and the listed provider patterns), the repository evidence does not
+support that. This assessment does not establish where the reported values were
+or whether they were exposed outside git. The pattern scan covers only the
+listed formats, so it cannot prove that no secret was ever exposed.
+
+## Results
+
+| Check | Result |
+| --- | --- |
+| Tracked env files (`git ls-files`) | No `.env`. Only `.envrc`, `backend/.env.example`, and `web/.env.example`. |
+| Refs scanned | All 22 remote branches plus all 26 `refs/pull/*/head` refs, fetched locally. |
+| Env-like paths ever recorded (`git rev-list --all --objects`) | `.env.example` (root, since removed), `backend/.env.example`, `web/.env.example`, and `.envrc`. No path named `.env`. |
+| Provider key patterns in all 1,166 reachable blobs (no size cap; includes 10 committed `server` build binaries of 14–27 MB) | None of the listed patterns: Google API key, Google OAuth client secret, `sk-`/OpenRouter, Clerk secret, AWS access key, GitHub token, or private-key block. |
+| Non-placeholder `*SECRET*`/`*PASSWORD*`/`*TOKEN*` assignments | Only code identifiers and test fixtures in `backend/internal/config/config_test.go`. Arbitrary high-entropy values without a recognizable prefix (for example, a JWT signing secret or a non-Google OAuth secret) are not detectable by this method. |
+| Ignore rules (`git check-ignore -v`) | `.gitignore:24` ignores `.env` and `web/.env`. `backend/.gitignore:1` ignores `backend/.env`. Docker contexts exclude `**/.env` and `**/.env.*`. |
+| Templates | Placeholder values only. |
+| Default PostgreSQL password | `docker-compose.yml` and `backend/.env.example` use `password`. `config.Load` falls back to `gemini_password`. Production had no guard against either. |
+
+## Reproduce
+
+Run from the repository root:
+
+```bash
+git fetch origin '+refs/pull/*/head:refs/remotes/origin-pr/*'
+git ls-files | grep -iE '(^|/)\.env'
+git rev-list --all --objects | awk '{print $2}' | grep -iE '(^|/)\.env' | sort -u
+git check-ignore -v backend/.env web/.env .env
+python3 -I docs/evidence/issue-12/scan_history_secrets.py .
+```
+
+The scanner prints the rule, the path, and value lengths only.
+
+## Consequences
+
+- **History rewrite:** Not indicated. No `.env` path exists in the scanned
+  refs and no listed provider pattern matched. Refs not fetched here (deleted
+  branches, forks, other clones) are outside this scope. Rewriting history
+  would not un-expose a credential that was pushed anyway. Rotating it is the
+  remedy.
+- **Repository fixes in this change:** Production now refuses known default
+  database passwords. Local compose services bind to loopback. The secrets
+  runbook in `docs/commercial-ops.md` documents rotation and verification.
+- **Still open (owner access required):** Decide whether to rotate the
+  credentials named in the issue (AI provider keys, Google OAuth client
+  secret, `JWT_SECRET`). Verify production configuration on
+  the host without printing values. GitHub environment and credential-scope
+  administration is already tracked in #43/#50.

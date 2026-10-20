@@ -1,9 +1,12 @@
+# Local development services only. Production uses separate host configuration;
+# never reuse these credentials there. Ports bind to loopback so the default
+# database password and unauthenticated Redis are not reachable from the network.
 version: '3'
 services:
   db:
     image: postgres:13-alpine
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - "pg-data:/var/lib/postgresql/data"
     environment:
@@ -14,7 +17,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - "redis-data:/data"
     command: redis-server --appendonly yes
