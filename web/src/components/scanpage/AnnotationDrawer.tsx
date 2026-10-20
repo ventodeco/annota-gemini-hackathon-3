@@ -1,10 +1,11 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { motion } from 'framer-motion'
 import { useDrawerHeight, useDrawerGestures } from '@/hooks/useDrawerHeight'
 import { DrawerHeader } from './DrawerHeader'
 import { AnnotationContent } from './AnnotationContent'
 import { Button } from '@/components/ui/button'
+import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
 import { Bookmark, RotateCcw } from 'lucide-react'
 import type { Annotation } from '@/lib/types'
 import type { DrawerState } from '@/hooks/useDrawerHeight'
@@ -42,7 +43,49 @@ function getDrawerAriaValue(drawerState: DrawerState): number {
   }
 }
 
-export function AnnotationDrawer({
+// Contains render failures (for example malformed AI output) to the drawer so
+// the reader page stays usable. Closing the drawer clears the error.
+export function AnnotationDrawer(props: AnnotationDrawerProps) {
+  const { isOpen, onClose } = props
+
+  return (
+    <ErrorBoundary
+      resetKey={isOpen ? 'open' : 'closed'}
+      fallback={() => (isOpen ? <AnnotationDrawerFallback onClose={onClose} /> : null)}
+    >
+      <AnnotationDrawerSheet {...props} />
+    </ErrorBoundary>
+  )
+}
+
+function AnnotationDrawerFallback({ onClose }: { onClose: () => void }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+
+  return (
+    <section
+      role="alert"
+      className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl border-t border-gray-200 bg-white p-6 shadow-lg"
+    >
+      <div className="mx-auto flex max-w-md flex-col gap-3">
+        <h2 ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-gray-900 outline-none">
+          Explanation unavailable
+        </h2>
+        <p className="text-sm leading-6 text-gray-600">
+          This explanation could not be displayed. Close it and try explaining the text again.
+        </p>
+        <Button type="button" onClick={onClose} className="min-h-11 self-start px-5">
+          Close
+        </Button>
+      </div>
+    </section>
+  )
+}
+
+function AnnotationDrawerSheet({
   isOpen,
   onClose,
   annotation,
