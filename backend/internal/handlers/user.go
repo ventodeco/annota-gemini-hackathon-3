@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gemini-hackathon/app/internal/auth"
 	"github.com/gemini-hackathon/app/internal/config"
 	"github.com/gemini-hackathon/app/internal/httputil"
 	"github.com/gemini-hackathon/app/internal/logger"
@@ -21,14 +23,15 @@ type UserHandlers struct {
 	db          storage.DB
 	fileStorage storage.FileStorage
 	config      *config.Config
+	identities  auth.IdentityDirectory
 }
 
 func NewUserHandlers(db storage.DB) *UserHandlers {
 	return &UserHandlers{db: db}
 }
 
-func NewUserHandlersWithStorage(db storage.DB, fileStorage storage.FileStorage, cfg *config.Config) *UserHandlers {
-	return &UserHandlers{db: db, fileStorage: fileStorage, config: cfg}
+func NewUserHandlersWithStorage(db storage.DB, fileStorage storage.FileStorage, cfg *config.Config, identities auth.IdentityDirectory) *UserHandlers {
+	return &UserHandlers{db: db, fileStorage: fileStorage, config: cfg, identities: identities}
 }
 
 type Language struct {
@@ -146,24 +149,42 @@ func (h *UserHandlers) UsersMeAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DeleteAccountAPI deletes owned files, then the local profile together with a
+// permanent Clerk tombstone, then the Clerk user. If the Clerk step fails the
+// caller may retry: the tombstoned subject can still reach this endpoint,
+// which then only repeats the Clerk deletion.
 func (h *UserHandlers) DeleteAccountAPI(w http.ResponseWriter, r *http.Request) {
+	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context()))
 	userID := middleware.GetUserID(r.Context())
-	if userID == 0 {
+	clerkUserID := middleware.GetClerkUserID(r.Context())
+	if userID == 0 && clerkUserID == "" {
 		httputil.WriteJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	if err := h.deleteOwnedFiles(r, userID); err != nil {
-		logger.GetDefaultLogger().
-			WithRequestID(middleware.GetRequestID(r.Context())).
-			WithUserID(userID).
-			ErrorWithErr(err, "Failed to purge owned files during account deletion")
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete account data")
-		return
+	if userID != 0 {
+		if err := h.deleteOwnedFiles(r, userID); err != nil {
+			log.WithUserID(userID).ErrorWithErr(err, "Failed to purge owned files during account deletion")
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete account data")
+			return
+		}
+		if err := h.db.DeleteUserAndTombstoneClerk(r.Context(), userID, clerkUserID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
+				return
+			}
+			log.WithUserID(userID).ErrorWithErr(err, "Failed to delete account records")
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to delete account data")
+			return
+		}
 	}
-	if err := h.db.DeleteUser(r.Context(), userID); err != nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
-		return
+
+	if clerkUserID != "" && h.identities != nil {
+		if err := h.identities.DeleteUser(r.Context(), clerkUserID); err != nil {
+			log.ErrorWithErr(err, "Account data deleted but Clerk user deletion failed")
+			httputil.WriteJSONError(w, http.StatusBadGateway, "Account data deleted; sign-in removal failed, please retry")
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -104,9 +104,7 @@ func TestLoadReadsRateLimitConfig(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "openrouter-key")
 	t.Setenv("MINIMAX_API_KEY", "minimax-key")
 	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
-	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")
+	setClerkTestEnv(t)
 	t.Setenv("AI_RATE_LIMIT", "7")
 	t.Setenv("AI_RATE_LIMIT_WINDOW_SECONDS", "30")
 
@@ -136,9 +134,7 @@ func TestLoadReadsAIProviderConfig(t *testing.T) {
 	t.Setenv("MINIMAX_TTS_MODEL", "speech-2.8-hd")
 	t.Setenv("MINIMAX_TTS_VOICE_ID", "Japanese_Whisper_Belle")
 	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
-	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")
+	setClerkTestEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -184,9 +180,7 @@ func TestLoadUsesAIProviderDefaults(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "openrouter-key")
 	t.Setenv("MINIMAX_API_KEY", "minimax-key")
 	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
-	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")
+	setClerkTestEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -220,9 +214,7 @@ func TestLoadReadsGeminiProviderConfig(t *testing.T) {
 	t.Setenv("AI_PROVIDER", "gemini")
 	t.Setenv("GEMINI_API_KEY", "gemini-key")
 	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
-	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")
+	setClerkTestEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -281,29 +273,6 @@ func TestConfigValidateRejectsUnknownAIProvider(t *testing.T) {
 	}
 }
 
-func TestConfigValidateRequiresStrongJWTSecret(t *testing.T) {
-	cfg := &Config{
-		OpenRouterAPIKey:         "openrouter-key",
-		MiniMaxAPIKey:            "minimax-key",
-		DBConnectionString:       "postgres://test",
-		UploadDir:                "data/uploads",
-		MaxUploadSize:            1,
-		FrontendBaseURL:          "http://localhost:5173",
-		TokenExpiryMinutes:       30,
-		DefaultPageSize:          20,
-		JWTSecret:                "short",
-		GoogleOAuthClientID:      "client-id",
-		GoogleOAuthClientSecret:  "client-secret",
-		AIRateLimit:              60,
-		AIRateLimitWindowSeconds: 3600,
-	}
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatalf("expected weak JWT_SECRET to fail validation")
-	}
-}
-
 func validConfig() *Config {
 	return &Config{
 		AIProvider:               "minimax",
@@ -320,80 +289,90 @@ func validConfig() *Config {
 		UploadDir:                "data/uploads",
 		MaxUploadSize:            1,
 		FrontendBaseURL:          "http://localhost:5173",
-		TokenExpiryMinutes:       30,
 		DefaultPageSize:          20,
-		JWTSecret:                "01234567890123456789012345678912",
-		GoogleOAuthClientID:      "client-id",
-		GoogleOAuthClientSecret:  "client-secret",
+		ClerkSecretKey:           "sk_test_fixture",
+		ClerkPublishableKey:      testPublishableKey,
+		ClerkAuthorizedParties:   []string{"http://localhost:5173"},
 		AIRateLimit:              60,
 		AIRateLimitWindowSeconds: 3600,
 	}
 }
 
-func TestConfigValidateRequiresGoogleOAuthClientID(t *testing.T) {
-	cfg := &Config{
-		OpenRouterAPIKey:         "openrouter-key",
-		MiniMaxAPIKey:            "minimax-key",
-		DBConnectionString:       "postgres://test",
-		UploadDir:                "data/uploads",
-		MaxUploadSize:            1,
-		FrontendBaseURL:          "http://localhost:5173",
-		TokenExpiryMinutes:       30,
-		DefaultPageSize:          20,
-		JWTSecret:                "01234567890123456789012345678912",
-		GoogleOAuthClientID:      "",
-		GoogleOAuthClientSecret:  "some-secret",
-		AIRateLimit:              60,
-		AIRateLimitWindowSeconds: 3600,
-	}
+// testPublishableKey encodes the fixture host annota-test.clerk.accounts.dev.
+const testPublishableKey = "pk_test_YW5ub3RhLXRlc3QuY2xlcmsuYWNjb3VudHMuZGV2JA=="
 
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatalf("expected missing GOOGLE_OAUTH_CLIENT_ID to fail validation")
+func setClerkTestEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLERK_SECRET_KEY", "sk_test_fixture")
+	t.Setenv("CLERK_PUBLISHABLE_KEY", testPublishableKey)
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", "")
+	t.Setenv("FRONTEND_BASE_URL", "http://localhost:5173")
+}
+
+func TestConfigValidateClerkSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr bool
+	}{
+		{name: "valid", mutate: func(*Config) {}},
+		{name: "missing secret key", mutate: func(c *Config) { c.ClerkSecretKey = "" }, wantErr: true},
+		{name: "publishable key in secret slot", mutate: func(c *Config) { c.ClerkSecretKey = testPublishableKey }, wantErr: true},
+		{name: "missing publishable key", mutate: func(c *Config) { c.ClerkPublishableKey = "" }, wantErr: true},
+		{name: "malformed publishable key", mutate: func(c *Config) { c.ClerkPublishableKey = "pk_test_not-base64!" }, wantErr: true},
+		{name: "no authorized parties", mutate: func(c *Config) { c.ClerkAuthorizedParties = nil }, wantErr: true},
+		{name: "wildcard authorized party", mutate: func(c *Config) { c.ClerkAuthorizedParties = []string{"*"} }, wantErr: true},
+		{name: "authorized party with path", mutate: func(c *Config) { c.ClerkAuthorizedParties = []string{"https://annota.example.com/app"} }, wantErr: true},
+		{name: "multiple origins", mutate: func(c *Config) {
+			c.ClerkAuthorizedParties = []string{"https://annota.example.com", "http://localhost:5173"}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			tt.mutate(cfg)
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected validation error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
 	}
 }
 
-func TestConfigValidateRequiresGoogleOAuthClientSecret(t *testing.T) {
-	cfg := &Config{
-		OpenRouterAPIKey:         "openrouter-key",
-		MiniMaxAPIKey:            "minimax-key",
-		DBConnectionString:       "postgres://test",
-		UploadDir:                "data/uploads",
-		MaxUploadSize:            1,
-		FrontendBaseURL:          "http://localhost:5173",
-		TokenExpiryMinutes:       30,
-		DefaultPageSize:          20,
-		JWTSecret:                "01234567890123456789012345678912",
-		GoogleOAuthClientID:      "client-id",
-		GoogleOAuthClientSecret:  "",
-		AIRateLimit:              60,
-		AIRateLimitWindowSeconds: 3600,
+func TestConfigValidateDerivesClerkIssuer(t *testing.T) {
+	cfg := validConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
 	}
+	if cfg.ClerkIssuer != "https://annota-test.clerk.accounts.dev" {
+		t.Fatalf("unexpected issuer %q", cfg.ClerkIssuer)
+	}
+}
 
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatalf("expected missing GOOGLE_OAUTH_CLIENT_SECRET to fail validation")
+func TestLoadDefaultsAuthorizedPartiesToFrontendBaseURL(t *testing.T) {
+	t.Setenv("AI_PROVIDER", "gemini")
+	t.Setenv("GEMINI_API_KEY", "gemini-key")
+	t.Setenv("AI_ROUTING_CONFIG", "")
+	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
+	setClerkTestEnv(t)
+	t.Setenv("FRONTEND_BASE_URL", "https://annota.example.com")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.ClerkAuthorizedParties) != 1 || cfg.ClerkAuthorizedParties[0] != "https://annota.example.com" {
+		t.Fatalf("unexpected authorized parties %v", cfg.ClerkAuthorizedParties)
 	}
 }
 
 func TestConfigValidateRejectsWildcardProductionOrigins(t *testing.T) {
-	cfg := &Config{
-		OpenRouterAPIKey:         "openrouter-key",
-		MiniMaxAPIKey:            "minimax-key",
-		DBConnectionString:       "postgres://test",
-		UploadDir:                "data/uploads",
-		MaxUploadSize:            1,
-		FrontendBaseURL:          "https://annota.example.com",
-		TokenExpiryMinutes:       30,
-		DefaultPageSize:          20,
-		JWTSecret:                "01234567890123456789012345678912",
-		GoogleOAuthClientID:      "client-id",
-		GoogleOAuthClientSecret:  "client-secret",
-		AllowedOrigins:           "*",
-		AppEnv:                   "production",
-		AIRateLimit:              60,
-		AIRateLimitWindowSeconds: 3600,
-	}
+	cfg := validConfig()
+	cfg.AllowedOrigins = "*"
+	cfg.AppEnv = "production"
 
 	err := cfg.Validate()
 	if err == nil {
@@ -417,9 +396,7 @@ func TestLoadRoutedConfigOnlyRequiresActiveKeys(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("GOOGLE_API_KEY", "")
 	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
-	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client")
-	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")
+	setClerkTestEnv(t)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)

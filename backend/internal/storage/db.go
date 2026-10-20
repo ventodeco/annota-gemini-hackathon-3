@@ -18,6 +18,11 @@ type DB interface {
 	UpdateUserLanguage(ctx context.Context, userID int64, language string) error
 	DeleteUser(ctx context.Context, userID int64) error
 
+	GetUserByClerkID(ctx context.Context, clerkUserID string) (*models.User, error)
+	IsClerkUserDeleted(ctx context.Context, clerkUserID string) (bool, error)
+	ProvisionClerkUser(ctx context.Context, params ClerkProvisionParams) (*models.User, error)
+	DeleteUserAndTombstoneClerk(ctx context.Context, userID int64, clerkUserID string) error
+
 	CreateScan(ctx context.Context, scan *models.Scan) (int64, error)
 	GetScanByID(ctx context.Context, scanID int64) (*models.Scan, error)
 	GetScansByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Scan, error)
@@ -72,7 +77,7 @@ func (s *postgresDB) CreateUser(ctx context.Context, user *models.User) error {
 
 func (s *postgresDB) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at
+		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at, clerk_user_id
 		FROM users
 		WHERE email = $1
 	`
@@ -85,7 +90,7 @@ func (s *postgresDB) GetUserByEmail(ctx context.Context, email string) (*models.
 
 func (s *postgresDB) GetUserByProvider(ctx context.Context, provider, providerID string) (*models.User, error) {
 	query := `
-		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at
+		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at, clerk_user_id
 		FROM users
 		WHERE provider = $1 AND provider_id = $2
 	`
@@ -98,7 +103,7 @@ func (s *postgresDB) GetUserByProvider(ctx context.Context, provider, providerID
 
 func (s *postgresDB) GetUserByID(ctx context.Context, userID int64) (*models.User, error) {
 	query := `
-		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at
+		SELECT id, email, provider, provider_id, avatar_url, preferred_language, created_at, updated_at, clerk_user_id
 		FROM users
 		WHERE id = $1
 	`
@@ -136,7 +141,7 @@ func (s *postgresDB) DeleteUser(ctx context.Context, userID int64) error {
 
 func (s *postgresDB) scanUser(row *sql.Row) (*models.User, error) {
 	var user models.User
-	var avatarURL sql.NullString
+	var avatarURL, clerkUserID sql.NullString
 	var preferredLanguage string
 	var createdAt, updatedAt time.Time
 
@@ -149,6 +154,7 @@ func (s *postgresDB) scanUser(row *sql.Row) (*models.User, error) {
 		&preferredLanguage,
 		&createdAt,
 		&updatedAt,
+		&clerkUserID,
 	)
 	if err != nil {
 		return nil, err
@@ -156,6 +162,9 @@ func (s *postgresDB) scanUser(row *sql.Row) (*models.User, error) {
 
 	if avatarURL.Valid {
 		user.AvatarURL = &avatarURL.String
+	}
+	if clerkUserID.Valid {
+		user.ClerkUserID = &clerkUserID.String
 	}
 	user.PreferredLanguage = preferredLanguage
 	user.CreatedAt = createdAt

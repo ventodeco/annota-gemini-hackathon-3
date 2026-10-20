@@ -62,7 +62,7 @@ func TestCORSMiddleware_PreflightAllowedOrigin(t *testing.T) {
 				t.Fatalf("unexpected Access-Control-Allow-Methods: %q", got)
 			}
 
-			if got := recorder.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, x-token, Authorization" {
+			if got := recorder.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Authorization" {
 				t.Fatalf("unexpected Access-Control-Allow-Headers: %q", got)
 			}
 		})

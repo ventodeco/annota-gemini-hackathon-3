@@ -3,11 +3,13 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/gemini-hackathon/app/internal/ai"
+	"github.com/gemini-hackathon/app/internal/auth"
 )
 
 const (
@@ -40,11 +42,15 @@ type Config struct {
 	SessionCookieName       string
 	SessionSecure           bool
 
-	GoogleOAuthClientID      string
-	GoogleOAuthClientSecret  string
+	// Clerk authentication. The secret key is backend-only; the publishable
+	// key is public and identifies the instance whose tokens are accepted.
+	ClerkSecretKey         string
+	ClerkPublishableKey    string
+	ClerkIssuer            string
+	ClerkJWTKey            string
+	ClerkAuthorizedParties []string
+
 	RedisAddr                string
-	JWTSecret                string
-	TokenExpiryMinutes       int
 	DefaultPageSize          int
 	KnowledgeCSVPath         string
 	AllowedOrigins           string // comma-separated list, * for wildcard
@@ -101,11 +107,11 @@ func Load() (*Config, error) {
 		MaxUploadSize:            getEnvAsInt64OrDefault("MAX_UPLOAD_SIZE", 10*1024*1024),
 		SessionCookieName:        getEnvOrDefault("SESSION_COOKIE_NAME", "sid"),
 		SessionSecure:            getEnvAsBoolOrDefault("SESSION_SECURE", false),
-		GoogleOAuthClientID:      os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
-		GoogleOAuthClientSecret:  os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+		ClerkSecretKey:           os.Getenv("CLERK_SECRET_KEY"),
+		ClerkPublishableKey:      os.Getenv("CLERK_PUBLISHABLE_KEY"),
+		ClerkJWTKey:              os.Getenv("CLERK_JWT_KEY"),
+		ClerkAuthorizedParties:   splitList(getEnvOrDefault("CLERK_AUTHORIZED_PARTIES", frontendBaseURL)),
 		RedisAddr:                getEnvOrDefault("REDIS_ADDR", "localhost:6379"),
-		JWTSecret:                os.Getenv("JWT_SECRET"),
-		TokenExpiryMinutes:       getEnvAsIntOrDefault("TOKEN_EXPIRY_MINUTES", 30),
 		DefaultPageSize:          getEnvAsIntOrDefault("DEFAULT_PAGE_SIZE", 20),
 		KnowledgeCSVPath:         getEnvOrDefault("KNOWLEDGE_CSV_PATH", "data/knowledge.csv"),
 		AllowedOrigins:           getEnvOrDefault("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000"),
@@ -182,9 +188,6 @@ func (c *Config) Validate() error {
 	if err := c.validateProductionDBPassword(); err != nil {
 		return err
 	}
-	if len(c.JWTSecret) < 32 {
-		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
-	}
 	if c.UploadDir == "" {
 		return fmt.Errorf("UPLOAD_DIR cannot be empty")
 	}
@@ -193,9 +196,6 @@ func (c *Config) Validate() error {
 	}
 	if c.FrontendBaseURL == "" {
 		return fmt.Errorf("FRONTEND_BASE_URL cannot be empty")
-	}
-	if c.TokenExpiryMinutes <= 0 {
-		return fmt.Errorf("TOKEN_EXPIRY_MINUTES must be positive")
 	}
 	if c.DefaultPageSize <= 0 {
 		return fmt.Errorf("DEFAULT_PAGE_SIZE must be positive")
@@ -209,13 +209,45 @@ func (c *Config) Validate() error {
 	if c.AppEnv == "production" && c.AllowedOrigins == "*" {
 		return fmt.Errorf("ALLOWED_ORIGINS cannot be wildcard in production")
 	}
-	if c.GoogleOAuthClientID == "" {
-		return fmt.Errorf("GOOGLE_OAUTH_CLIENT_ID is required for Google login")
+	return c.validateClerk()
+}
+
+func (c *Config) validateClerk() error {
+	if !strings.HasPrefix(c.ClerkSecretKey, "sk_test_") && !strings.HasPrefix(c.ClerkSecretKey, "sk_live_") {
+		return fmt.Errorf("CLERK_SECRET_KEY is required and must start with sk_test_ or sk_live_")
 	}
-	if c.GoogleOAuthClientSecret == "" {
-		return fmt.Errorf("GOOGLE_OAUTH_CLIENT_SECRET is required for Google login")
+	issuer, err := auth.IssuerFromPublishableKey(c.ClerkPublishableKey)
+	if err != nil {
+		return fmt.Errorf("CLERK_PUBLISHABLE_KEY is invalid: %w", err)
+	}
+	c.ClerkIssuer = issuer
+	if len(c.ClerkAuthorizedParties) == 0 {
+		return fmt.Errorf("CLERK_AUTHORIZED_PARTIES or FRONTEND_BASE_URL must list the frontend origin")
+	}
+	for _, party := range c.ClerkAuthorizedParties {
+		if !isOrigin(party) {
+			return fmt.Errorf("CLERK_AUTHORIZED_PARTIES entries must be http(s) origins without a path; got %q", party)
+		}
 	}
 	return nil
+}
+
+func isOrigin(value string) bool {
+	u, err := url.Parse(value)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return false
+	}
+	return u.Path == "" && u.RawQuery == "" && u.Fragment == "" && u.User == nil
+}
+
+func splitList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
 }
 
 func (c *Config) normalizedAIProvider() string {
