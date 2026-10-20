@@ -89,12 +89,12 @@ curl -s -X PATCH -H "Authorization: Bearer $ANNOTA_TOKEN" -H 'Content-Type: appl
   -d '{"lastPageNumber":4}' "$ANNOTA_URL/v1/documents/3/progress"
 ```
 
-Explain a selection. With `scanId`, the server uses the scan's text as context:
+Explain a selection. With `scanId`, the server uses the scan's text as context. Keep the response for saving:
 
 ```sh
 curl -s -H "Authorization: Bearer $ANNOTA_TOKEN" -H 'Content-Type: application/json' \
   -d '{"textToAnalyze":"お疲れ様です","context":"会議が終わった後、同僚にお疲れ様ですと言いました。","scanId":42}' \
-  "$ANNOTA_URL/v1/ai/analyze"
+  "$ANNOTA_URL/v1/ai/analyze" > analysis.json
 ```
 
 Speak a selection. The audio format depends on the provider, so check `Content-Type`:
@@ -104,12 +104,13 @@ curl -s -D - -H "Authorization: Bearer $ANNOTA_TOKEN" -H 'Content-Type: applicat
   -d '{"highlightedText":"お疲れ様です"}' -o speech.audio "$ANNOTA_URL/v1/ai/speech"
 ```
 
-Save the explanation as an annotation. Send the analyze response back as `nuanceData`, including `provenance`. Then list or delete annotations:
+Save the explanation as an annotation. Send the analyze response back unchanged as `nuanceData`; its `provenance` is kept only if it is unmodified. This example uses `jq`. Then list or delete annotations:
 
 ```sh
-curl -s -H "Authorization: Bearer $ANNOTA_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"scanId":42,"highlightedText":"お疲れ様です","contextText":"会議が終わった後。","nuanceData":{"meaning":"Thank you for your hard work","usageExample":"会議後に「お疲れ様です」と挨拶した。","usageTiming":"After work","wordBreakdown":"お + 疲れ + 様 + です","alternativeMeaning":""}}' \
-  "$ANNOTA_URL/v1/annotations"
+jq -n --slurpfile analysis analysis.json \
+  '{scanId: 42, highlightedText: "お疲れ様です", contextText: "会議が終わった後、同僚にお疲れ様ですと言いました。", nuanceData: $analysis[0]}' |
+  curl -s -H "Authorization: Bearer $ANNOTA_TOKEN" -H 'Content-Type: application/json' \
+    -d @- "$ANNOTA_URL/v1/annotations"
 # {"annotationId":7,"status":"saved"}
 
 curl -s -H "Authorization: Bearer $ANNOTA_TOKEN" "$ANNOTA_URL/v1/annotations?documentId=3&pageNumber=4"

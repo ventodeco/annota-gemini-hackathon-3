@@ -296,7 +296,15 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "503":
-          $ref: "#/components/responses/UsageUnavailable"
+          description: The usage store could not be reached (`usage_unavailable`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Service Unavailable
+                message: Your usage allowance could not be loaded. Please try again shortly.
+                code: usage_unavailable
 
   /v1/scans:
     post:
