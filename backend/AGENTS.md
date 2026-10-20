@@ -147,6 +147,7 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 - Use `context.Context` for cancellation support
 - Store timestamps as `time.Time` in models
 - Production migrations target PostgreSQL. Do not assume SQLite compatibility for `migrations/*.sql`.
+- `RunMigrations` is PostgreSQL-only and runs each migration with its ledger row in one transaction under an advisory lock. Keep migrations transactional (no `CREATE INDEX CONCURRENTLY`) and test runner changes with `POSTGRES_TEST_DSN`.
 
 ### AI Provider Integration
 

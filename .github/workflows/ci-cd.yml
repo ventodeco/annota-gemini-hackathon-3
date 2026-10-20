@@ -45,11 +45,16 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
-      - name: Verify production PostgreSQL migrations without skipping
+      - name: Verify PostgreSQL migrations without skipping
         working-directory: backend
         run: |
+          set -o pipefail
           test -n "$POSTGRES_TEST_DSN"
-          go test -count=1 -v ./internal/storage -run '^TestRunProductionMigrations_Postgres$'
+          go test -count=1 -v ./internal/storage -run 'Postgres$' | tee "$RUNNER_TEMP/postgres-tests.log"
+          if grep -q -- '--- SKIP' "$RUNNER_TEMP/postgres-tests.log"; then
+            echo "A PostgreSQL test skipped" >&2
+            exit 1
+          fi
 
       - name: Test, vet, and build backend
         working-directory: backend

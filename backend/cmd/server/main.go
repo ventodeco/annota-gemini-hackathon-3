@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -101,6 +100,10 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("/readyz", handlers.NewReadinessHandler(2*time.Second,
+		handlers.ReadinessCheck{Name: "postgres", Check: db.PingContext},
+		handlers.ReadinessCheck{Name: "redis", Check: redisClient.Ping},
+	))
 
 	mux.HandleFunc("/v1/auth/google/state", authHandlers.GoogleStateAPI)
 	mux.HandleFunc("/v1/auth/google/callback", authHandlers.GoogleCallback)
@@ -121,22 +124,7 @@ func main() {
 
 	mux.Handle("/v1/", authMiddleware.Handle(authMux))
 
-	reactFS := http.FileServer(http.Dir("web/dist"))
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/v1/") || strings.HasPrefix(r.URL.Path, "/healthz") {
-			http.NotFound(w, r)
-			return
-		}
-
-		if _, err := os.Stat("web/dist/index.html"); err == nil {
-			if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.Path != "/healthz" {
-				r.URL.Path = "/"
-			}
-			reactFS.ServeHTTP(w, r)
-		} else {
-			http.Error(w, "Frontend not built. Run: cd web && bun run build", http.StatusServiceUnavailable)
-		}
-	})
+	mux.Handle("/", handlers.NewFrontendHandler("web/dist"))
 
 	corsMiddleware := middleware.NewCORSMiddleware(cfg)
 	handler := middleware.LoggingMiddleware(corsMiddleware.Handle(mux))

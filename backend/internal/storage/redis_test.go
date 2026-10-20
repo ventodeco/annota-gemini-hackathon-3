@@ -71,3 +71,26 @@ func TestRedisClientUsesExpectedKeyPrefix(t *testing.T) {
 		t.Fatalf("stored value = %q, want sid", got)
 	}
 }
+
+func TestRedisClientPingReportsAvailability(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	defer mr.Close()
+
+	client, err := NewRedisClient(mr.Addr())
+	if err != nil {
+		t.Fatalf("NewRedisClient() error = %v", err)
+	}
+	defer client.Close()
+
+	if err := client.Ping(context.Background()); err != nil {
+		t.Fatalf("Ping() with Redis up error = %v", err)
+	}
+
+	mr.Close()
+	if err := client.Ping(context.Background()); err == nil {
+		t.Fatal("Ping() with Redis stopped should fail")
+	}
+}

@@ -3,151 +3,16 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	_ "github.com/lib/pq"
-	_ "modernc.org/sqlite"
 )
-
-func createTestMigrationsDir(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-
-	migration := `
-		CREATE TABLE IF NOT EXISTS users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			email VARCHAR(255) NOT NULL,
-			provider VARCHAR(50) NOT NULL,
-			provider_id VARCHAR(255) NOT NULL,
-			avatar_url TEXT,
-			preferred_language VARCHAR(10) DEFAULT 'ID',
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (provider, provider_id)
-		);
-
-		CREATE TABLE IF NOT EXISTS scans (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
-			image_url TEXT NOT NULL,
-			full_ocr_text TEXT,
-			detected_language VARCHAR(10),
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE IF NOT EXISTS annotations (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
-			scan_id BIGINT REFERENCES scans(id) ON DELETE SET NULL,
-			highlighted_text TEXT NOT NULL,
-			context_text TEXT,
-			nuance_data TEXT NOT NULL,
-			is_bookmarked BOOLEAN DEFAULT 1,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_annotations_scan_id ON annotations(scan_id);
-	`
-	err := os.WriteFile(filepath.Join(dir, "001_schema.sql"), []byte(migration), 0644)
-	if err != nil {
-		t.Fatalf("failed to write migration file: %v", err)
-	}
-	return dir
-}
-
-func TestRunMigrations_CreatesTablesFromSQLFiles(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("failed to open sqlite: %v", err)
-	}
-	defer db.Close()
-
-	migrationsDir := createTestMigrationsDir(t)
-
-	// RunMigrations will error because recordMigration uses NOW() which SQLite
-	// doesn't support. However, executeMigration commits its own transaction
-	// before recordMigration runs, so the DDL should be persisted.
-	err = RunMigrations(db, migrationsDir)
-	if err == nil {
-		t.Fatal("expected error from RunMigrations due to NOW() incompatibility with SQLite")
-	}
-
-	_, err = db.Exec("INSERT INTO users (email, provider, provider_id) VALUES ('a@b.com', 'google', 'g1')")
-	if err != nil {
-		t.Fatalf("users table should exist after migration: %v", err)
-	}
-
-	_, err = db.Exec("INSERT INTO scans (user_id, image_url) VALUES (1, '/img.jpg')")
-	if err != nil {
-		t.Fatalf("scans table should exist after migration: %v", err)
-	}
-
-	_, err = db.Exec("INSERT INTO annotations (user_id, highlighted_text, nuance_data) VALUES (1, 'text', '{}')")
-	if err != nil {
-		t.Fatalf("annotations table should exist after migration: %v", err)
-	}
-
-	var indexName string
-	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_annotations_scan_id'").Scan(&indexName)
-	if err != nil {
-		t.Fatalf("idx_annotations_scan_id should exist after migration: %v", err)
-	}
-}
-
-func TestRunMigrations_IdempotentRerun(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("failed to open sqlite: %v", err)
-	}
-	defer db.Close()
-
-	migrationsDir := createTestMigrationsDir(t)
-
-	// First run will fail at recordMigration (NOW() unsupported in SQLite),
-	// but executeMigration commits the DDL. Manually record the migration
-	// with SQLite-compatible SQL so the second run can test the idempotency path.
-	_ = RunMigrations(db, migrationsDir)
-
-	_, err = db.Exec(
-		"INSERT INTO schema_migrations (name, applied_at) VALUES ($1, CURRENT_TIMESTAMP)",
-		"001_schema.sql",
-	)
-	if err != nil {
-		t.Fatalf("failed to manually record migration: %v", err)
-	}
-
-	err = RunMigrations(db, migrationsDir)
-	if err != nil {
-		t.Errorf("second RunMigrations should succeed (migration already recorded), got: %v", err)
-	}
-}
-
-func TestRunMigrations_EmptyDirectory(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("failed to open sqlite: %v", err)
-	}
-	defer db.Close()
-
-	emptyDir := t.TempDir()
-
-	err = RunMigrations(db, emptyDir)
-	if err != nil {
-		t.Fatalf("RunMigrations with empty dir should not error, got: %v", err)
-	}
-
-	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
-	if err != nil {
-		t.Fatalf("schema_migrations table should exist: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("expected 0 migrations recorded, got %d", count)
-	}
-}
 
 func TestRunProductionMigrations_Postgres(t *testing.T) {
 	dsn := os.Getenv("POSTGRES_TEST_DSN")
@@ -331,6 +196,196 @@ func seedMigrationAnnotations(t *testing.T, db *sql.DB) []migrationAnnotation {
 		}
 	}
 	return annotations
+}
+
+func postgresTestDSN(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv("POSTGRES_TEST_DSN")
+	if dsn == "" {
+		t.Skip("set POSTGRES_TEST_DSN to run PostgreSQL migration runner coverage")
+	}
+	return dsn
+}
+
+func writeMigrations(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
+			t.Fatalf("failed to write migration %s: %v", name, err)
+		}
+	}
+	return dir
+}
+
+func tableExists(t *testing.T, db *sql.DB, schema, table string) bool {
+	t.Helper()
+	var exists bool
+	if err := db.QueryRow("SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = $1 AND tablename = $2)", schema, table).Scan(&exists); err != nil {
+		t.Fatalf("failed to inspect table %s: %v", table, err)
+	}
+	return exists
+}
+
+func recordedMigrations(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.Query("SELECT name FROM schema_migrations ORDER BY name")
+	if err != nil {
+		t.Fatalf("failed to read migration ledger: %v", err)
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("failed to scan migration ledger: %v", err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("failed to iterate migration ledger: %v", err)
+	}
+	return names
+}
+
+func TestRunMigrations_RollsBackFailedSQL_Postgres(t *testing.T) {
+	db, schema := createPostgresMigrationSchema(t, postgresTestDSN(t))
+	dir := writeMigrations(t, map[string]string{
+		"001_ok.sql":   "CREATE TABLE first_table (id INT);",
+		"002_fail.sql": "CREATE TABLE partial_table (id INT); SELECT missing_column FROM first_table;",
+	})
+
+	if err := RunMigrations(db, dir); err == nil {
+		t.Fatal("expected failing migration SQL to return an error")
+	}
+	if !tableExists(t, db, schema, "first_table") {
+		t.Fatal("successful earlier migration should remain applied")
+	}
+	if tableExists(t, db, schema, "partial_table") {
+		t.Fatal("failed migration left partial DDL behind")
+	}
+	if got := strings.Join(recordedMigrations(t, db), ","); got != "001_ok.sql" {
+		t.Fatalf("ledger = %q, want only 001_ok.sql", got)
+	}
+}
+
+func TestRunMigrations_RollsBackSQLWhenLedgerWriteFails_Postgres(t *testing.T) {
+	db, schema := createPostgresMigrationSchema(t, postgresTestDSN(t))
+	// A ledger that rejects one name makes the bookkeeping insert fail after
+	// the migration's SQL has run.
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (
+		name VARCHAR(255) PRIMARY KEY CHECK (name <> '002_unrecordable.sql'),
+		applied_at TIMESTAMP NOT NULL
+	)`); err != nil {
+		t.Fatalf("failed to create restricted ledger: %v", err)
+	}
+	dir := writeMigrations(t, map[string]string{
+		"001_ok.sql":           "CREATE TABLE first_table (id INT);",
+		"002_unrecordable.sql": "CREATE TABLE unrecorded_table (id INT);",
+	})
+
+	if err := RunMigrations(db, dir); err == nil {
+		t.Fatal("expected ledger write failure to return an error")
+	}
+	if tableExists(t, db, schema, "unrecorded_table") {
+		t.Fatal("migration SQL committed without its ledger row")
+	}
+	if got := strings.Join(recordedMigrations(t, db), ","); got != "001_ok.sql" {
+		t.Fatalf("ledger = %q, want only 001_ok.sql", got)
+	}
+}
+
+func TestRunMigrations_ConcurrentStarters_Postgres(t *testing.T) {
+	dsn := postgresTestDSN(t)
+	db, schema := createPostgresMigrationSchema(t, dsn)
+	schemaDSN, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("POSTGRES_TEST_DSN must be a URL: %v", err)
+	}
+	query := schemaDSN.Query()
+	query.Set("search_path", schema)
+	schemaDSN.RawQuery = query.Encode()
+
+	const starters = 4
+	migrationsDir := filepath.Join("..", "..", "migrations")
+	start := make(chan struct{})
+	errs := make(chan error, starters)
+	var wg sync.WaitGroup
+	for i := 0; i < starters; i++ {
+		starterDB, err := sql.Open("postgres", schemaDSN.String())
+		if err != nil {
+			t.Fatalf("failed to open starter connection: %v", err)
+		}
+		t.Cleanup(func() { starterDB.Close() })
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- RunMigrations(starterDB, migrationsDir)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent starter failed: %v", err)
+		}
+	}
+
+	files, err := readMigrationFiles(migrationsDir)
+	if err != nil {
+		t.Fatalf("failed to read production migrations: %v", err)
+	}
+	var want []string
+	for _, file := range files {
+		want = append(want, file.Name)
+	}
+	if got := recordedMigrations(t, db); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("ledger = %v, want each production migration once: %v", got, want)
+	}
+}
+
+func TestRunMigrations_RejectsEmptyDirectory_Postgres(t *testing.T) {
+	db, schema := createPostgresMigrationSchema(t, postgresTestDSN(t))
+
+	if err := RunMigrations(db, t.TempDir()); err == nil {
+		t.Fatal("expected an empty migration directory to fail startup")
+	}
+	if tableExists(t, db, schema, "schema_migrations") {
+		t.Fatal("empty migration directory should not touch the database")
+	}
+}
+
+func TestRunMigrations_BoundsLockWait_Postgres(t *testing.T) {
+	dsn := postgresTestDSN(t)
+	db, _ := createPostgresMigrationSchema(t, dsn)
+	holder, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatalf("failed to open lock holder: %v", err)
+	}
+	t.Cleanup(func() { holder.Close() })
+	holderTx, err := holder.Begin()
+	if err != nil {
+		t.Fatalf("failed to begin lock holder: %v", err)
+	}
+	t.Cleanup(func() { holderTx.Rollback() })
+	if _, err := holderTx.Exec("SELECT pg_advisory_xact_lock($1)", migrationLockKey); err != nil {
+		t.Fatalf("failed to hold migration lock: %v", err)
+	}
+
+	previous := migrationLockTimeout
+	migrationLockTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { migrationLockTimeout = previous })
+
+	started := time.Now()
+	err = RunMigrations(db, writeMigrations(t, map[string]string{"001_ok.sql": "CREATE TABLE first_table (id INT);"}))
+	if err == nil || !strings.Contains(err.Error(), "migration lock") {
+		t.Fatalf("expected a migration lock timeout error, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Fatalf("lock wait took %s, want it bounded", elapsed)
+	}
 }
 
 func TestReadMigrationFiles_SortsAlphabetically(t *testing.T) {

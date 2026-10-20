@@ -8,14 +8,15 @@ The `CI` workflow verifies pushes to `dev` and PRs targeting `dev` or the frozen
 Tests use fixture configuration, not production credentials.
 
 Backend CI supplies `POSTGRES_TEST_DSN` to PostgreSQL 14 and explicitly runs
-`TestRunProductionMigrations_Postgres` before the backend tests, vet, and build.
-Without that variable, the integration test skips locally. PostgreSQL 14 is the
+every storage test ending in `Postgres` before the backend tests, vet, and
+build. That step fails if any of them reports a skip. Without that variable,
+these integration tests skip locally. PostgreSQL 14 is the
 existing CI baseline, not a claim about the deployed database version. Qualify
 the eventual release against the actual target major before deployment.
 
 Frontend CI installs the committed root Bun workspace with
 `bun install --frozen-lockfile`, then runs the configured Vitest script, lint,
-and build in `web/`. CI and the frontend image builder use Bun 1.4.0. Dependency
+and build in `web/`. CI and the frontend image builder use Bun 1.4.3. Dependency
 modernization remains tracked separately in #36/#37.
 
 ### Final Image Checks
@@ -44,14 +45,48 @@ on exit, including failures. It does not connect to production storage or
 services. Provider URLs point to a closed local port, with fixture values used
 only to satisfy startup validation.
 
-Backend checks require migrations in the final image, successful startup, and
+Backend checks require migrations in the final image, a ready `/readyz`, and
 an exact match between migration ledger entries and the source SQL inventory.
+They then stop Redis and PostgreSQL in turn, requiring `/readyz` to return 503
+while `/healthz` stays 200, and `/readyz` to return 200 after each restart.
 Frontend checks request the entry document, referenced JS/CSS, PWA manifest,
 PDF worker, and `/login`. Asset responses must have appropriate content types
 and must not contain an HTML fallback document. Image IDs are printed for the
 verification record. Existing third-party stylesheet links are reported
 separately; the check requires local generated CSS and makes no font-provider
 requests. These checks do not establish live login or AI readiness.
+
+## Liveness And Readiness
+
+- `/healthz` is process liveness. It returns `200 ok` whenever the server
+  handles requests and does not check dependencies. Use it to decide whether to
+  restart the container.
+- `/readyz` is dependency readiness. It returns `200 ready` only when
+  PostgreSQL and Redis both respond within 2 seconds; otherwise `503 not
+  ready`. The response never includes error details; the failing dependency is
+  logged server-side. It makes no AI provider calls. Use it to accept a release
+  and to route traffic.
+- Neither endpoint requires authentication. Both are excluded from the
+  frontend fallback in the Go server.
+
+## Database Migrations
+
+The backend applies `migrations/*.sql` in name order at startup, and refuses to
+start when the directory is missing or contains no SQL files. Each migration's
+SQL and its `schema_migrations` row commit in one PostgreSQL transaction that
+holds a database-wide advisory lock. Consequences for operators and authors:
+
+- A failed migration leaves no partial schema change and no ledger row. Fix
+  the SQL in a new release and start again; do not edit the ledger by hand.
+- Containers starting at the same time serialize on the lock and apply each
+  migration once. A starter that waits longer than 60 seconds for the lock
+  exits with a `migration lock` error; check for a stuck or long-running
+  migration in the other starter before retrying.
+- Migrations must be valid inside a transaction. Do not use
+  `CREATE INDEX CONCURRENTLY` or other statements PostgreSQL forbids in a
+  transaction block.
+- Applied migrations that an older image does not contain are left alone, so a
+  schema-compatible previous image can still start during rollback.
 
 ## Release And Rollback
 
@@ -92,7 +127,7 @@ recovery procedure, not just restarting an old binary.
 
 - Postgres: run a daily `pg_dump` for the application database and test restore into a staging database weekly.
 - Uploads: snapshot `UPLOAD_DIR` or object-storage bucket daily. Keep file backups aligned with database backup timestamps.
-- Restore order: database first, uploaded files second, then run `/healthz` and smoke-test login, upload, annotation, and PDF open flows.
+- Restore order: database first, uploaded files second, then check `/readyz` and smoke-test login, upload, annotation, and PDF open flows.
 
 ## Secrets Rotation
 

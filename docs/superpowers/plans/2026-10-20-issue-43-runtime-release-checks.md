@@ -2,7 +2,9 @@
 
 **Issue:** https://github.com/ventodeco/annota-gemini-hackathon-3/issues/43 (part of #33)
 
-**Status:** Plan v1, awaiting independent review. Application code starts only after approval.
+**Status:** Plan v1 (`9ffeeae`) implemented. The user removed the separate plan
+review gate on 2026-10-20; the cancelled plan-review task returned no
+findings. GPT-6.1 Sol reviews the PR only.
 
 **Base:** `dev` at `59500daf3443b95fa96f089c893ea162d33c3394`.
 
@@ -71,7 +73,9 @@ Tests (`migrate_test.go`, all PostgreSQL, skipped without
   shortened in the test).
 - Keep `TestRunProductionMigrations_Postgres` and the `readMigrationFiles`
   tests. Remove the three SQLite `RunMigrations` tests, which assert the
-  partial-commit defect and cannot use advisory locks.
+  partial-commit defect and cannot use advisory locks. Also remove the unused
+  `backend/internal/testutil/helpers.go`, whose only purpose was running
+  `RunMigrations` against SQLite (no callers).
 
 ### 2. Readiness separate from liveness
 
@@ -172,3 +176,38 @@ with a bounded wait; `/readyz` returns 503 while either dependency is down
 and 200 after recovery, while `/healthz` stays 200; Go static serving returns
 real assets and 404s missing ones; CI and final-image checks pass; independent
 review is clean; evidence is recorded here and in #43.
+
+## Implementation evidence
+
+Local environment: Go 1.27.3 (official darwin-arm64 archive, SHA-256 matched
+go.dev), disposable PostgreSQL 17.x cluster on `127.0.0.1:55433`, macOS arm64.
+Docker, shellcheck, and actionlint are not installed locally.
+
+Baseline (new tests against the `dev` runner, with only the new lock
+identifiers shimmed in so it compiles):
+
+| Test | Result on `dev` runner |
+| --- | --- |
+| `RollsBackFailedSQL` | pass (single-statement transaction already rolled back) |
+| `RollsBackSQLWhenLedgerWriteFails` | FAIL: migration SQL committed without its ledger row |
+| `ConcurrentStarters` | FAIL: `duplicate key value violates unique constraint "pg_type_typname_nsp_index"` creating `schema_migrations` |
+| `RejectsEmptyDirectory` | FAIL: empty directory accepted |
+| `BoundsLockWait` | FAIL: no lock taken |
+
+After the change, every `Postgres$` storage test passed three consecutive
+runs. `go test -count=1 ./...` with `POSTGRES_TEST_DSN`, `go vet ./...`,
+`go build ./cmd/server`, and `go test -race` for `internal/storage` and
+`internal/handlers` pass. Readiness and frontend handler tests pass. YAML
+parses; `bash -n` passes on the smoke script; its new HTTP status probe was
+exercised against a local HTTP server (404 and 200 matched).
+
+Also verified on PostgreSQL 17 that `lock_timeout` cancels a
+`pg_advisory_lock` wait (`canceling statement due to lock timeout`).
+
+Test-debugging time used in this PR so far: none (the baseline failures were
+intended reproductions, not debugging). CI evidence, image IDs, and review
+task IDs are recorded below as they complete.
+
+### CI and review
+
+- Pending.

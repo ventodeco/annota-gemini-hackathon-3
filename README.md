@@ -191,7 +191,8 @@ gemini-hackathon/
 
 ## API Endpoints
 
-- `GET /healthz` - Health check endpoint
+- `GET /healthz` - Process liveness check
+- `GET /readyz` - Dependency readiness check (PostgreSQL and Redis)
 - `POST /api/scans` - Upload image and create scan
 - `GET /api/scans/{id}` - Get scan data with OCR result
 - `POST /api/scans/{id}/annotate` - Generate annotation for selected text
