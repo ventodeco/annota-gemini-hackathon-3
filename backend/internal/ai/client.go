@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -506,7 +507,7 @@ func (c *client) SynthesizeSpeech(ctx context.Context, highlightedText string, _
 		return nil, &ProviderError{
 			Provider: "minimax",
 			Kind:     classifyMiniMaxStatus(response.BaseResp.StatusCode, response.BaseResp.StatusMsg),
-			Message:  response.BaseResp.StatusMsg,
+			Message:  fmt.Sprintf("provider status code %d", response.BaseResp.StatusCode),
 		}
 	}
 	audio, err := hex.DecodeString(response.Data.Audio)
@@ -599,7 +600,9 @@ func classifyHTTPError(provider string, status int, body string) error {
 	case strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "insufficient") || strings.Contains(bodyLower, "resource_exhausted"):
 		kind = ErrorKindQuota
 	}
-	return &ProviderError{Provider: provider, Kind: kind, StatusCode: status, Message: strings.TrimSpace(body)}
+	// The body is only classified, never kept: providers can echo request
+	// content or credential fragments, and ProviderError text reaches logs.
+	return &ProviderError{Provider: provider, Kind: kind, StatusCode: status, Message: "provider returned an error response"}
 }
 
 func classifyMiniMaxStatus(status int, message string) ErrorKind {
@@ -634,7 +637,14 @@ func wrapGeminiError(message string, err error) error {
 	case strings.Contains(msg, "rate limit"):
 		kind = ErrorKindRateLimit
 	}
-	return &ProviderError{Provider: ProviderGemini, Kind: kind, Message: fmt.Sprintf("%s: %v", message, err)}
+	// Keep the SDK error (which carries the provider's message) as an
+	// unlogged cause; Error() reports only the operation and classification.
+	providerErr := &ProviderError{Provider: ProviderGemini, Kind: kind, Message: message, Cause: err}
+	var apiErr genai.APIError
+	if errors.As(err, &apiErr) {
+		providerErr.StatusCode = apiErr.Code
+	}
+	return providerErr
 }
 
 func isOverloadedError(err error) bool {

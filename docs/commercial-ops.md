@@ -159,6 +159,104 @@ If a secret is ever committed, rotate it first. Rewriting git history does not u
 - For deletion requests, ask the user to use the in-app Delete account action first. Manual deletion and Clerk reconciliation steps are in [`clerk-auth.md`](clerk-auth.md#deletion-and-reconciliation).
 - For abuse investigations, collect request IDs, user ID, target route, timestamp, and AI rate-limit status from structured logs.
 
+## Privacy And Data Lifecycle
+
+The user-facing summary is the in-app Privacy Policy (`web/src/pages/LegalPage.tsx`). Keep the two in sync.
+
+| Data | Where | Removed by |
+| --- | --- | --- |
+| Profile: Clerk user ID, email, avatar URL, preferred language | `users` | Account deletion (row deleted, Clerk ID tombstoned) |
+| Page images | `UPLOAD_DIR/{scanID}.{jpg,png,webp}` + `scans` | Scan or account deletion |
+| PDFs | `UPLOAD_DIR/documents/{documentID}.pdf` + `documents` | Document or account deletion |
+| OCR / extracted page text | `scans.full_ocr_text` | Scan, document (page scans) or account deletion |
+| Saved annotations (selection, context, AI explanation) | `annotations` | Annotation or account deletion only |
+| Reading progress | `documents` | Document or account deletion |
+
+- **Isolation.** Every `/v1/*` route requires a Clerk session and checks ownership with the numeric `users.id`.
+  Another account's ID gets 403 or an empty list, never content.
+- **Caching.** `/v1/*` responses are `Cache-Control: no-store`, every authenticated web request uses
+  `fetch(..., { cache: 'no-store' })` so older HTTP-cached responses are never reused. `GET /v1/users/me`, which
+  the app calls at each sign-in and account switch, sends `Clear-Site-Data: "cache"`. That evicts entries
+  earlier builds cached (images were `private, max-age=300`), which a copied URL could otherwise still open.
+  The header needs HTTPS (or localhost). Browsers apply it to a separate API origin only on credentialed
+  requests, so the profile request uses `credentials: 'include'`. The API allows that only for its exact
+  `ALLOWED_ORIGINS`; wildcard origins are rejected in production. The service worker caches only the app
+  shell. The web app clears its in-memory query cache on sign-out, account switch and deletion. At startup it
+  removes the `api-cache` storage and the unscoped `auth_token`/`savedAnnotations` keys left by older builds.
+- **Deletion order.**
+  - Scan and document deletion remove files first. If a file can't be removed, the API returns 500, keeps the
+    rows, and a retry finishes.
+  - Document deletion removes the PDF, then deletes the page scans and the document row in one transaction. The
+    document row is locked first (`FOR UPDATE`), so a page scan created at the same moment is either removed
+    with it or rejected.
+  - Failed or malformed uploads remove their row and file before returning an error. PDF and multipart parser
+    errors are not logged because they can quote file or request bytes.
+  - Uploads hold a shared per-account PostgreSQL advisory lock from creating the row until the file is
+    recorded. Account deletion holds it exclusively while it removes files and rows, so an upload can't
+    publish a file the deletion has already passed.
+  - Single scan and document deletion also hold the lock exclusively, so an upload of that same item can't
+    write its file after the row is gone.
+  - Account deletion lists the account's files in one unpaginated query. Concurrent reordering, such as a
+    reading-progress update, can't make it skip a file.
+  - Once acquired, the lock is held even if the client disconnects, until the upload's file and record work
+    finishes.
+  - Each lock holder or waiter keeps one database connection open, and the holder's queries borrow more.
+    Keep the Go pool uncapped (the current default). PostgreSQL's `max_connections` then makes extra
+    attempts fail fast, and the upload returns 500 and releases its lock.
+  - Capping `MaxOpenConns` safely would also require limiting how many requests can hold *or wait for*
+    account locks at once, with spare connections reserved for their queries. A larger cap alone can still
+    deadlock, for example one upload holding the lock while deletion waiters take every other connection.
+- **Retained annotations.** Annotations are separate learning items. Deleting their scan sets
+  `annotations.scan_id` to NULL. Deleting their document keeps `document_id` as a historical reference (no FK;
+  IDs are never reused). They are removed when the user deletes them or the account.
+- **In-flight AI work.**
+  - OCR runs in the background for up to 5 minutes after upload.
+  - If the scan or account is deleted first, the provider call isn't cancelled. Its result is discarded,
+    because the update matches no row.
+  - Content already sent to a provider is subject to that provider's terms.
+- **Logs.**
+  - Request logs carry the request ID, user ID, method, path, status and duration, plus the short JSON error
+    message for 4xx/5xx responses.
+  - Routed AI attempts log provider, model, status, usage and cost metadata.
+  - AI provider errors carry only a classification and status code, never the provider's response body or
+    message.
+  - Uploaded content, OCR text and selections are not logged.
+- **Backups.** Database and upload backups (see Backup And Restore) keep deleted data until they expire. The
+  backup retention period is an owner decision and is not yet set; state it in the Privacy Policy once
+  chosen.
+
+### Orphaned upload sweep (read-only)
+
+Builds before #41 could leave files without a row:
+
+- malformed PDF uploads;
+- failed image writes;
+- scan or document deletes that continued after a file error;
+- an upload racing account deletion.
+
+List candidates once after deploying, review them, and delete them manually:
+
+```sh
+cd "$UPLOAD_DIR"
+ls | sed -nE 's/^([0-9]+)\.(jpg|png|webp|bin)$/\1/p' | sort -u > /tmp/scan-file-ids
+psql "$DATABASE_URL" -Atc 'SELECT id FROM scans' | sort -u > /tmp/scan-row-ids
+comm -23 /tmp/scan-file-ids /tmp/scan-row-ids    # image files with no scan row
+ls documents | sed -nE 's/^([0-9]+)\.pdf$/\1/p' | sort -u > /tmp/doc-file-ids
+psql "$DATABASE_URL" -Atc 'SELECT id FROM documents' | sort -u > /tmp/doc-row-ids
+comm -23 /tmp/doc-file-ids /tmp/doc-row-ids      # PDFs with no document row
+```
+
+Older scans store `/uploads/...` in `scans.image_url`. Their file is still named `{scanID}.{ext}`, so the listing covers them.
+
+### Owner actions before public beta
+
+- Confirm that production `AI_PROVIDER` and routing profiles match the Privacy Policy. Review the selected
+  providers' data-use and retention terms.
+- Add operator contact details for data requests to the Privacy Policy. Choose the backup retention period.
+- Record the #12 credential revocation/rotation evidence.
+- Confirm the production HTTPS origins (`FRONTEND_BASE_URL`, `ALLOWED_ORIGINS`, `CLERK_AUTHORIZED_PARTIES`).
+- Run the live two-account Clerk sign-in, switch and delete check on desktop and mobile.
+
 ## Billing And Entitlements
 
 - Current entitlement foundation exposes `/v1/entitlements/me` with the active plan and configured usage limits.

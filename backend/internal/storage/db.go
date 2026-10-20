@@ -39,6 +39,10 @@ type DB interface {
 	UpdateDocumentProgress(ctx context.Context, docID, userID int64, pageNumber int) error
 	DeleteDocument(ctx context.Context, docID, userID int64) error
 	DeleteScansByDocument(ctx context.Context, docID, userID int64) error
+	// DeleteDocumentAndPageScans removes a document and all of its page scans
+	// atomically; a page scan created concurrently is either removed too or
+	// rejected, never left behind without its document.
+	DeleteDocumentAndPageScans(ctx context.Context, docID, userID int64) error
 	GetScanByDocumentPage(ctx context.Context, documentID int64, pageNumber int) (*models.Scan, error)
 	CreateScanFromDocument(ctx context.Context, scan *models.Scan) (int64, error)
 
@@ -48,6 +52,16 @@ type DB interface {
 	GetAnnotationsByUserIDAndScanID(ctx context.Context, userID, scanID int64, page, size int) ([]*models.Annotation, error)
 	GetAnnotationsByUserIDAndDocumentPage(ctx context.Context, userID, documentID int64, pageNumber *int, page, size int) ([]*models.Annotation, error)
 	DeleteAnnotation(ctx context.Context, annotationID, userID int64) error
+
+	// GetUserUploads lists every scan (id, image_url) and document (id,
+	// file_url) of a user without pagination, so concurrent changes to list
+	// ordering can't make account deletion skip a file.
+	GetUserUploads(ctx context.Context, userID int64) ([]*models.Scan, []*models.Document, error)
+
+	// WithAccountLock runs fn while holding a per-account lock. Uploads take it
+	// shared and account deletion exclusive, so an upload can't write a file
+	// while the account's files are being removed.
+	WithAccountLock(ctx context.Context, userID int64, exclusive bool, fn func(context.Context) error) error
 }
 
 type postgresDB struct {
@@ -471,6 +485,94 @@ func (s *postgresDB) DeleteScansByDocument(ctx context.Context, docID, userID in
 	query := `DELETE FROM scans WHERE document_id = $1 AND user_id = $2`
 	_, err := s.db.ExecContext(ctx, query, docID, userID)
 	return err
+}
+
+func (s *postgresDB) DeleteDocumentAndPageScans(ctx context.Context, docID, userID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// The row lock conflicts with the key-share lock a page-scan INSERT takes
+	// for its foreign key: inserts already running finish first and are then
+	// deleted below; later inserts fail once the document is gone.
+	var id int64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM documents WHERE id = $1 AND user_id = $2 FOR UPDATE`, docID, userID).Scan(&id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM scans WHERE document_id = $1 AND user_id = $2`, docID, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM documents WHERE id = $1 AND user_id = $2`, docID, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *postgresDB) GetUserUploads(ctx context.Context, userID int64) ([]*models.Scan, []*models.Document, error) {
+	scanRows, err := s.db.QueryContext(ctx, `SELECT id, image_url FROM scans WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer scanRows.Close()
+	var scans []*models.Scan
+	for scanRows.Next() {
+		scan := &models.Scan{UserID: userID}
+		var imageURL sql.NullString
+		if err := scanRows.Scan(&scan.ID, &imageURL); err != nil {
+			return nil, nil, err
+		}
+		scan.ImageURL = imageURL.String
+		scans = append(scans, scan)
+	}
+	if err := scanRows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	docRows, err := s.db.QueryContext(ctx, `SELECT id, file_url FROM documents WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer docRows.Close()
+	var docs []*models.Document
+	for docRows.Next() {
+		doc := &models.Document{UserID: userID}
+		var fileURL sql.NullString
+		if err := docRows.Scan(&doc.ID, &fileURL); err != nil {
+			return nil, nil, err
+		}
+		doc.FileURL = fileURL.String
+		docs = append(docs, doc)
+	}
+	return scans, docs, docRows.Err()
+}
+
+// WithAccountLock holds one pooled connection for the lock while fn uses
+// others. Waiters also hold a connection, so the pool must stay uncapped (or
+// lock holders and waiters be admission-limited) to avoid a pool deadlock.
+func (s *postgresDB) WithAccountLock(ctx context.Context, userID int64, exclusive bool, fn func(context.Context) error) error {
+	// The lock transaction must outlive request cancellation: database/sql
+	// rolls back a transaction when its context ends, which would release the
+	// lock while fn is still writing files. Waiting for the lock still honors ctx.
+	tx, err := s.db.BeginTx(context.WithoutCancel(ctx), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	lock := `SELECT pg_advisory_xact_lock_shared(hashtextextended('account:' || $1::text, 0))`
+	if exclusive {
+		lock = `SELECT pg_advisory_xact_lock(hashtextextended('account:' || $1::text, 0))`
+	}
+	if _, err := tx.ExecContext(ctx, lock, userID); err != nil {
+		return fmt.Errorf("lock account: %w", err)
+	}
+	if err := fn(ctx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *postgresDB) DeleteDocument(ctx context.Context, docID, userID int64) error {

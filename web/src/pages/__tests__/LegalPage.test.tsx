@@ -3,12 +3,25 @@ import { describe, expect, it } from 'vitest'
 import LegalPage from '../LegalPage'
 
 describe('LegalPage', () => {
-  it('renders privacy policy AI processing and deletion guidance', () => {
+  it('describes the configured processors without retention guarantees', () => {
     render(<LegalPage kind="privacy" />)
 
-    expect(screen.getByRole('heading', { name: 'Privacy Policy' })).toBeInTheDocument()
-    expect(screen.getByText(/Google Gemini/i)).toBeInTheDocument()
-    expect(screen.getByText(/delete your account/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeInTheDocument()
+    expect(screen.getByText(/Sign-in is provided by Clerk/i)).toBeInTheDocument()
+    const processing = screen.getByText(/UCloud AstraFlow \(ModelVerse\) or\s+OpenRouter/i)
+    expect(processing).toHaveTextContent(/does not promise zero retention or a particular processing region/i)
+    expect(screen.queryByText(/stores .*pronunciation requests/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/usage counts for AI features/i)).toHaveTextContent(/audio is generated\s+on request and not stored/i)
+  })
+
+  it('explains deletion, retained annotations and backups', () => {
+    render(<LegalPage kind="privacy" />)
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Deleting your data' })).toBeInTheDocument()
+    const deletion = screen.getByText(/Deleting a scan removes its image and text/i)
+    expect(deletion).toHaveTextContent(/Annotations you saved are separate and stay until you\s+delete them or your account/i)
+    expect(deletion).toHaveTextContent(/Deleting your account removes your files, records and\s+Clerk sign-in/i)
+    expect(deletion).toHaveTextContent(/Backups made before your deletion/i)
   })
 
   it('renders terms with upload rights and paid-use notice', () => {
