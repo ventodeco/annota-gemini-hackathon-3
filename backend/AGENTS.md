@@ -4,7 +4,7 @@ Guidelines for AI agents working on the Go backend of the Gemini OCR+Annotation 
 
 ## Project Overview
 
-Go backend providing JSON API for a mobile-first PWA that uses OpenRouter OCR and MiniMax text/speech APIs for Japanese OCR, contextual annotations, and text-to-speech. See `../docs/rfc.md` and `../docs/prd.md` for detailed requirements.
+Go 1.27.3 backend providing JSON API for a mobile-first PWA that uses OpenRouter OCR and MiniMax text/speech APIs for Japanese OCR, contextual annotations, and text-to-speech. See `../docs/rfc.md` and `../docs/prd.md` for detailed requirements.
 
 ## Agent-mandated rules (read first)
 

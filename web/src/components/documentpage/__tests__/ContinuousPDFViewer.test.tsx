@@ -61,6 +61,7 @@ class MockIntersectionObserver implements IntersectionObserver {
 let mockIntersectionObserver: typeof MockIntersectionObserver
 
 vi.mock('pdfjs-dist', () => ({
+  version: 'test-version',
   getDocument: vi.fn(() => ({
     promise: Promise.resolve({
       getPage: vi.fn(() =>

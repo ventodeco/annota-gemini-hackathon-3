@@ -15,7 +15,7 @@ export function ensurePdfjsWorker(): void {
 export function getPdfDocumentLoadOptions(url: string) {
   return {
     url,
-    cMapUrl: 'https://unpkg.com/pdfjs-dist@5.5.207/cmaps/',
+    cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
     cMapPacked: true as const,
   }
 }

@@ -17,9 +17,11 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 
 ## Prerequisites
 
-- **Go 1.25.x** or later ([download](https://go.dev/dl/))
-- **Nix** dev shell for local PostgreSQL/Redis services
-- **Bun** for frontend package management
+- **Go 1.27.3** or later ([download](https://go.dev/dl/))
+- **Node.js 24.22.0 LTS** for frontend tooling (see `.node-version`)
+- **Bun 1.4.3** for frontend package management (pinned in root `package.json`)
+- **PostgreSQL and Redis**, running locally or on configured service addresses. Nix is not required.
+- Docker Compose is optional for the container workflow in [README.docker.md](README.docker.md); this upgrade does not require updating the Compose CLI.
 - **OpenRouter API Key** for OCR
 - **MiniMax API Key** for annotation and text-to-speech
 
@@ -34,16 +36,13 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
    ```bash
    cp backend/.env.example backend/.env
    # Edit backend/.env and set OpenRouter, MiniMax, database, Redis, OAuth, and JWT values
-   direnv allow
-   direnv reload
    ```
 
 3. **Install dependencies**:
    ```bash
+   bun install --frozen-lockfile
    cd backend
-   go mod tidy
-   cd ../web
-   bun install
+   go mod download
    cd ..
    ```
 
@@ -54,9 +53,8 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
    cd ..
    ```
 
-5. **Start local services and run the backend server**:
+5. **Start PostgreSQL/Redis with your existing service setup, then run the backend**:
    ```bash
-   dev-services start
    cd backend
    go run cmd/server/main.go
    ```
@@ -68,7 +66,7 @@ A mobile-first Progressive Web App (PWA) for uploading book page images, extract
 
 Run backend and frontend separately for development:
 
-From the repository root, `bun run dev` starts local PostgreSQL/Redis, the Go backend, and the Vite frontend:
+Start PostgreSQL and Redis first using your existing local or container setup. From the repository root, `bun run dev` starts the Go backend and Vite frontend; it does not start or upgrade database services:
 
 ```bash
 bun run dev
