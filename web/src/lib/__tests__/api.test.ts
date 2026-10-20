@@ -143,12 +143,12 @@ describe('API Client', () => {
     })
 
     it('keeps the server request ID as the support reference', async () => {
-      ;(global.fetch as Mock).mockResolvedValueOnce({
-        ok: false,
-        headers: new Headers({ 'X-Request-ID': 'abc123' }),
-        status: 502,
-        text: async () => '{"error":"Bad Gateway","message":"Failed to process"}',
-      })
+      vi.mocked(global.fetch).mockResolvedValueOnce(
+        new Response('{"error":"Bad Gateway","message":"Failed to process"}', {
+          status: 502,
+          headers: { 'X-Request-ID': 'abc123' },
+        }),
+      )
 
       const error = await createScan(new File(['test'], 'test.jpg', { type: 'image/jpeg' })).catch((err: unknown) => err)
       expect(error).toBeInstanceOf(ApiError)

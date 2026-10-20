@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/gemini-hackathon/app/internal/logger"
@@ -49,6 +50,8 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		w.Header().Set(RequestIDHeader, requestID)
 		ctx := context.WithValue(r.Context(), RequestIDKey, requestID)
+		loggedUser := &requestUser{}
+		ctx = context.WithValue(ctx, requestUserKey, loggedUser)
 		r = r.WithContext(ctx)
 
 		ww := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
@@ -58,10 +61,8 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		reqLogger := logger.GetDefaultLogger().WithRequestID(requestID)
 
-		if userID := r.Context().Value(userIDKey); userID != nil {
-			if uid, ok := userID.(int64); ok {
-				reqLogger = reqLogger.WithUserID(uid)
-			}
+		if uid := loggedUser.id.Load(); uid != 0 {
+			reqLogger = reqLogger.WithUserID(uid)
 		}
 
 		reqLogger.RequestLog(r.Method, r.URL.Path, ww.statusCode, duration)
@@ -71,6 +72,24 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 				r.Method, r.URL.Path, ww.statusCode, duration, string(ww.body))
 		}
 	})
+}
+
+type requestUserKeyType struct{}
+
+var requestUserKey requestUserKeyType
+
+// requestUser carries the authenticated account back out to the request log:
+// auth runs inside LoggingMiddleware and passes a derived request onward, so
+// the outer request's context never sees the user ID it adds.
+type requestUser struct {
+	id atomic.Int64
+}
+
+// recordRequestUser reports the authenticated account to this request's log.
+func recordRequestUser(ctx context.Context, userID int64) {
+	if holder, ok := ctx.Value(requestUserKey).(*requestUser); ok {
+		holder.id.Store(userID)
+	}
 }
 
 func generateRequestID() string {

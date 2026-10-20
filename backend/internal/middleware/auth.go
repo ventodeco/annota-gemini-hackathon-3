@@ -79,6 +79,7 @@ func (m *AuthMiddleware) Handle(next http.Handler) http.Handler {
 		}
 
 		ctx = context.WithValue(ctx, userIDKey, resolution.UserID)
+		recordRequestUser(ctx, resolution.UserID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

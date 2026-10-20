@@ -68,16 +68,16 @@ Users see a **Reference** under a failed upload, scan check, explanation, save, 
 - Latency, outcome and cost per feature for the day, from the durable usage ledger (#42). It holds no content:
 
   ```sql
-  SELECT feature, status, count(*) AS operations,
+  SELECT feature, status, currency, count(*) AS operations,
          percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95_latency_ms,
          sum(provider_cost) FILTER (WHERE cost_status = 'reported') AS reported_cost,
          count(*) FILTER (WHERE cost_status = 'missing') AS cost_missing
   FROM usage_reservations
   WHERE usage_day = current_date
-  GROUP BY feature, status ORDER BY feature, status;
+  GROUP BY feature, status, currency ORDER BY feature, status, currency;
   ```
 
-  `cost_missing` means the provider sent no cost metadata. Treat it as unknown, not zero. Legacy `gemini`/`minimax` providers never report cost. Currency is per row, so do not add values across currencies.
+  `cost_missing` means the provider sent no cost metadata. Treat it as unknown, not zero. Legacy `gemini`/`minimax` providers never report cost. Rows are grouped by `currency`; never add costs across currencies.
 
 ## Activation funnel
 
