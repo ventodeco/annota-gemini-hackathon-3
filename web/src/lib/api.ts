@@ -62,10 +62,34 @@ function parseServerMessage(body: string): string | null {
   return null
 }
 
-/** Attaches the current Clerk session token; Clerk refreshes it as needed. */
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const token = await getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
+// Session token each response was requested with, so a late 401 can be tied
+// to the session that caused it rather than whoever is signed in now.
+const responseTokens = new WeakMap<Response, string>()
+
+interface SessionFetchOptions {
+  /** Send a JSON Content-Type header (omit for FormData and blob reads). */
+  json?: boolean
+  /** Use this session token instead of the current one. */
+  token?: string
+}
+
+/** Sends a request with a Clerk session token; Clerk refreshes it as needed. */
+async function fetchWithSession(
+  url: string,
+  init: RequestInit = {},
+  { json = true, token }: SessionFetchOptions = {},
+): Promise<Response> {
+  const sessionToken = token ?? (await getToken())
+  const headers: HeadersInit = {
+    ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+    ...init.headers,
+  }
+  const response = await fetch(url, { ...init, headers })
+  if (sessionToken) {
+    responseTokens.set(response, sessionToken)
+  }
+  return response
 }
 
 async function throwIfNotOk(
@@ -81,7 +105,7 @@ async function throwIfNotOk(
   const error = new ApiError(response.status, body)
   logger.apiCall(method, url, response.status, Date.now() - startTime, error)
   if (response.status === 401) {
-    notifyUnauthorized(error.serverMessage ?? body)
+    notifyUnauthorized({ message: error.serverMessage ?? body, token: responseTokens.get(response) ?? null })
   }
   throw error
 }
@@ -116,13 +140,8 @@ async function handleBlobResponse(
   return response.blob()
 }
 
-async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const headers: HeadersInit = {
-    ...(await getAuthHeaders()),
-    'Content-Type': 'application/json',
-    ...options.headers,
-  }
-  return fetch(url, { ...options, headers })
+function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  return fetchWithSession(url, options)
 }
 
 // ============================================================================
@@ -146,9 +165,13 @@ export async function updateUserPreferences(
   return handleResponse(response, 'PATCH', url)
 }
 
-export async function deleteAccount(): Promise<void> {
+/**
+ * Deletes the signed-in account. Pass `token` to finish a pending deletion for
+ * the specific session that reported it.
+ */
+export async function deleteAccount(options: { token?: string } = {}): Promise<void> {
   const url = `${API_BASE_URL}/v1/users/me`
-  const response = await fetchWithAuth(url, { method: 'DELETE' })
+  const response = await fetchWithSession(url, { method: 'DELETE' }, { token: options.token })
   await handleEmptyResponse(response, 'DELETE', url)
 }
 
@@ -179,11 +202,11 @@ export async function createScan(imageFile: File): Promise<CreateScanResponse> {
 
   const url = `${API_BASE_URL}/v1/scans`
   logger.debug(`Uploading image: ${imageFile.name}, size: ${imageFile.size} bytes`)
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: await getAuthHeaders(),
-    body: formData,
-  })
+  const response = await fetchWithSession(
+    url,
+    { method: 'POST', body: formData },
+    { json: false },
+  )
   return handleResponse(response, 'POST', url)
 }
 
@@ -289,11 +312,11 @@ export async function uploadDocument(pdfFile: File): Promise<UploadDocumentRespo
   formData.append('file', pdfFile)
 
   const url = `${API_BASE_URL}/v1/documents`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: await getAuthHeaders(),
-    body: formData,
-  })
+  const response = await fetchWithSession(
+    url,
+    { method: 'POST', body: formData },
+    { json: false },
+  )
   return handleResponse(response, 'POST', url)
 }
 
@@ -347,10 +370,11 @@ export async function createScanFromPage(
 
 export async function getDocumentFile(documentId: number): Promise<Blob> {
   const url = `${API_BASE_URL}/v1/documents/${documentId}/file`
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: await getAuthHeaders(),
-  })
+  const response = await fetchWithSession(
+    url,
+    { method: 'GET' },
+    { json: false },
+  )
   return handleBlobResponse(response, 'GET', url, 'Failed to fetch PDF file')
 }
 
@@ -368,10 +392,11 @@ export function getScanImageUrl(imageUrl: string | undefined): string {
 
 export async function getScanImageBlob(imageUrl: string): Promise<Blob> {
   const url = getScanImageUrl(imageUrl)
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: await getAuthHeaders(),
-  })
+  const response = await fetchWithSession(
+    url,
+    { method: 'GET' },
+    { json: false },
+  )
   return handleBlobResponse(response, 'GET', url, 'Failed to fetch scan image')
 }
 

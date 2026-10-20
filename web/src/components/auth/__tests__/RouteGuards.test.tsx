@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { ProtectedRoute, PublicRoute } from '../RouteGuards'
 import type { AuthContextType } from '@/contexts/AuthContext'
 import { ApiError } from '@/lib/api'
-import { safeRedirectPath } from '@/lib/authSession'
+import { safeRedirectPath, tokenSubject } from '@/lib/authSession'
 
 const authState = vi.hoisted((): { value: AuthContextType } => ({
   value: {
@@ -129,6 +129,20 @@ describe('route guards', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(refreshUser).toHaveBeenCalled()
+  })
+})
+
+describe('tokenSubject', () => {
+  it('reads the Clerk user id from a base64url payload', () => {
+    const payload = btoa(JSON.stringify({ sub: 'user_123', azp: 'http://localhost:5173' }))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+    expect(tokenSubject(`h.${payload}.s`)).toBe('user_123')
+  })
+
+  it.each(['', 'not-a-jwt', 'h.%%%.s', `h.${btoa('{"sub":42}')}.s`])('returns null for %s', (token) => {
+    expect(tokenSubject(token)).toBeNull()
   })
 })
 

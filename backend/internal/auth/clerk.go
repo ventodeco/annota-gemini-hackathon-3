@@ -82,17 +82,24 @@ type jwksFetcher interface {
 	Get(ctx context.Context, params *jwks.GetParams) (*clerk.JSONWebKeySet, error)
 }
 
-// jwksKeySource caches the instance JWKS. Unknown key IDs trigger a refetch at
-// most once per minRefresh so forged kids cannot hammer the Clerk API.
+// jwksKeySource caches the instance JWKS. One refresh runs at a time, outside
+// the lock and detached from any single request. Refresh attempts, successful
+// or not, are spaced at least minRefresh apart, so forged key IDs or a Clerk
+// outage cannot turn every request into a network call. Previously trusted
+// keys keep verifying while a refresh is pending or failing.
 type jwksKeySource struct {
-	client     jwksFetcher
-	ttl        time.Duration
-	minRefresh time.Duration
-	now        func() time.Time
+	client       jwksFetcher
+	ttl          time.Duration
+	minRefresh   time.Duration
+	fetchTimeout time.Duration
+	now          func() time.Time
 
-	mu        sync.Mutex
-	keys      map[string]*clerk.JSONWebKey
-	fetchedAt time.Time
+	mu          sync.Mutex
+	keys        map[string]*clerk.JSONWebKey
+	fetchedAt   time.Time
+	lastAttempt time.Time
+	lastFailed  bool
+	inflight    chan struct{}
 }
 
 // NewJWKSKeySource fetches signing keys from the Clerk Backend API.
@@ -101,33 +108,72 @@ func NewJWKSKeySource(client *jwks.Client) KeySource {
 }
 
 func newJWKSKeySource(client jwksFetcher, ttl, minRefresh time.Duration, now func() time.Time) *jwksKeySource {
-	return &jwksKeySource{client: client, ttl: ttl, minRefresh: minRefresh, now: now}
+	return &jwksKeySource{client: client, ttl: ttl, minRefresh: minRefresh, fetchTimeout: 10 * time.Second, now: now}
 }
 
 func (s *jwksKeySource) Key(ctx context.Context, kid string) (*clerk.JSONWebKey, error) {
 	if kid == "" {
 		return nil, ErrInvalidSession
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := s.now()
-	key, known := s.keys[kid]
-	fresh := !s.fetchedAt.IsZero() && now.Sub(s.fetchedAt) < s.ttl
-	if known && fresh {
-		return key, nil
-	}
-	if !known && fresh && now.Sub(s.fetchedAt) < s.minRefresh {
-		return nil, ErrInvalidSession
-	}
-
-	set, err := s.client.Get(ctx, &jwks.GetParams{})
-	if err != nil || set == nil {
-		if known {
-			// Keep serving a previously trusted key through a transient outage.
+	for {
+		s.mu.Lock()
+		now := s.now()
+		key, known := s.keys[kid]
+		if known && now.Sub(s.fetchedAt) < s.ttl {
+			s.mu.Unlock()
 			return key, nil
 		}
-		return nil, ErrVerifierUnavailable
+		if s.inflight != nil {
+			pending := s.inflight
+			s.mu.Unlock()
+			if known {
+				return key, nil
+			}
+			select {
+			case <-pending:
+				continue
+			case <-ctx.Done():
+				return nil, ErrVerifierUnavailable
+			}
+		}
+		if !s.lastAttempt.IsZero() && now.Sub(s.lastAttempt) < s.minRefresh {
+			unavailable := s.lastFailed || s.keys == nil
+			s.mu.Unlock()
+			switch {
+			case known:
+				return key, nil
+			case unavailable:
+				return nil, ErrVerifierUnavailable
+			default:
+				return nil, ErrInvalidSession
+			}
+		}
+		pending := make(chan struct{})
+		s.inflight = pending
+		s.lastAttempt = now
+		s.mu.Unlock()
+
+		s.refresh(ctx, now)
+
+		s.mu.Lock()
+		s.inflight = nil
+		close(pending)
+		s.mu.Unlock()
+		// Re-evaluate: the attempt is now throttled, so the next pass returns
+		// a fresh key, a trusted stale key, or the appropriate error.
+	}
+}
+
+func (s *jwksKeySource) refresh(ctx context.Context, attemptedAt time.Time) {
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.fetchTimeout)
+	defer cancel()
+	set, err := s.client.Get(fetchCtx, &jwks.GetParams{})
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil || set == nil {
+		s.lastFailed = true
+		return
 	}
 	keys := make(map[string]*clerk.JSONWebKey, len(set.Keys))
 	for _, k := range set.Keys {
@@ -136,11 +182,8 @@ func (s *jwksKeySource) Key(ctx context.Context, kid string) (*clerk.JSONWebKey,
 		}
 	}
 	s.keys = keys
-	s.fetchedAt = now
-	if key, ok := keys[kid]; ok {
-		return key, nil
-	}
-	return nil, ErrInvalidSession
+	s.fetchedAt = attemptedAt
+	s.lastFailed = false
 }
 
 type SessionVerifierConfig struct {

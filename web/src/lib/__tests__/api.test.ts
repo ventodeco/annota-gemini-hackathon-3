@@ -39,7 +39,8 @@ describe('API Client', () => {
       expect(init?.headers).not.toHaveProperty('Authorization')
     })
 
-    it('reports 401 responses to the unauthorized handler with the server message', async () => {
+    it('reports 401 responses with the server message and the token that was sent', async () => {
+      vi.mocked(getToken).mockResolvedValue('token-of-session-a')
       const handler = vi.fn()
       setUnauthorizedHandler(handler)
       vi.mocked(global.fetch).mockResolvedValueOnce(
@@ -47,7 +48,18 @@ describe('API Client', () => {
       )
 
       await expect(getUserProfile()).rejects.toBeInstanceOf(ApiError)
-      expect(handler).toHaveBeenCalledWith('Unauthorized: account deleted')
+      expect(handler).toHaveBeenCalledWith({ message: 'Unauthorized: account deleted', token: 'token-of-session-a' })
+    })
+
+    it('finishes a pending deletion with the given session token, not the current one', async () => {
+      vi.mocked(getToken).mockResolvedValue('token-of-session-b')
+      vi.mocked(global.fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+      await deleteAccount({ token: 'token-of-session-a' })
+
+      expect(getToken).not.toHaveBeenCalled()
+      const [, init] = vi.mocked(global.fetch).mock.calls[0]
+      expect(init?.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer token-of-session-a' }))
     })
 
     it('exposes status and parsed message on API errors without signing out', async () => {

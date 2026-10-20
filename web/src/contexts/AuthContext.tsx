@@ -6,6 +6,7 @@ import {
   ACCOUNT_DELETED_MESSAGE,
   clearUserScopedCaches,
   setUnauthorizedHandler,
+  tokenSubject,
 } from '@/lib/authSession'
 import type { PreferredLanguage } from '@/lib/types'
 
@@ -84,21 +85,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clerk, queryClient])
 
+  const isFinishingDeletion = useRef(false)
   useEffect(() => {
-    setUnauthorizedHandler((message) => {
-      if (isSigningOut.current) return
+    setUnauthorizedHandler(({ message, token }) => {
+      // Only react to failures from the session that is signed in right now;
+      // a late 401 from a previous account must not affect the next one.
+      const subject = token ? tokenSubject(token) : null
+      if (!token || subject === null || subject !== clerk.user?.id) return
+      if (isSigningOut.current || isFinishingDeletion.current) return
       if (message === ACCOUNT_DELETED_MESSAGE) {
         // A previous deletion may not have removed the Clerk user yet; the API
-        // still accepts this one call from a deleted account to finish it.
-        void deleteAccount()
+        // still accepts this one call from the deleted account to finish it.
+        // Use the token that reported it so no other session is affected.
+        isFinishingDeletion.current = true
+        void deleteAccount({ token })
           .catch(() => undefined)
-          .finally(() => void logout())
+          .finally(() => {
+            isFinishingDeletion.current = false
+            void logout()
+          })
         return
       }
       void logout()
     })
     return () => setUnauthorizedHandler(null)
-  }, [logout])
+  }, [clerk, logout])
 
   const { refetch } = profileQuery
   const refreshUser = useCallback(async () => {

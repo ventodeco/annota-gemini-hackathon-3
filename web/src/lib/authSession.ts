@@ -8,7 +8,14 @@ const LEGACY_TOKEN_KEY = 'auth_token'
 /** Server message for a session whose ANNOTA account was deleted. */
 export const ACCOUNT_DELETED_MESSAGE = 'Unauthorized: account deleted'
 
-type UnauthorizedHandler = (message: string) => void
+export interface UnauthorizedEvent {
+  /** Server error message (e.g. ACCOUNT_DELETED_MESSAGE). */
+  message: string
+  /** Session token the failed request was sent with, if any. */
+  token: string | null
+}
+
+type UnauthorizedHandler = (event: UnauthorizedEvent) => void
 
 let unauthorizedHandler: UnauthorizedHandler | null = null
 
@@ -17,8 +24,29 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
   unauthorizedHandler = handler
 }
 
-export function notifyUnauthorized(message: string): void {
-  unauthorizedHandler?.(message)
+export function notifyUnauthorized(event: UnauthorizedEvent): void {
+  unauthorizedHandler?.(event)
+}
+
+function hasStringSubject(value: unknown): value is { sub: string } {
+  return typeof value === 'object' && value !== null && 'sub' in value && typeof value.sub === 'string'
+}
+
+/**
+ * Reads the Clerk user ID (`sub`) from a session token without verifying it.
+ * Only used to match a response to the session that sent it; the API performs
+ * the actual verification.
+ */
+export function tokenSubject(token: string): string | null {
+  const payload = token.split('.')[1]
+  if (!payload) return null
+  try {
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const parsed: unknown = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')))
+    return hasStringSubject(parsed) ? parsed.sub : null
+  } catch {
+    return null
+  }
 }
 
 /**

@@ -26,7 +26,7 @@ const clerk = vi.hoisted((): FakeClerkState => ({
 vi.mock('@clerk/react', () => ({
   useAuth: () => clerk.auth,
   useUser: () => ({ isLoaded: true, user: clerk.user }),
-  useClerk: () => ({ signOut: clerk.signOut }),
+  useClerk: () => ({ signOut: clerk.signOut, user: clerk.auth.userId ? { id: clerk.auth.userId } : null }),
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -35,6 +35,11 @@ vi.mock('@/lib/api', () => ({
 }))
 
 const cachesDelete = vi.fn()
+
+/** Unsigned stand-in for a Clerk session JWT carrying only `sub`. */
+function sessionToken(sub: string): string {
+  return `header.${btoa(JSON.stringify({ sub }))}.signature`
+}
 
 function setClerkSession(userId: string | null, email = 'learner@example.com') {
   clerk.auth = { isLoaded: true, isSignedIn: userId !== null, userId }
@@ -125,10 +130,35 @@ describe('AuthProvider', () => {
     renderProvider(new QueryClient())
     await screen.findByText('learner@example.com JP')
 
-    act(() => notifyUnauthorized('Unauthorized: invalid token'))
+    act(() => notifyUnauthorized({ message: 'Unauthorized: invalid token', token: sessionToken('user_a') }))
 
     await waitFor(() => expect(clerk.signOut).toHaveBeenCalledWith({ redirectUrl: '/login' }))
     expect(deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('ignores a late 401 from a previous account after switching', async () => {
+    const queryClient = new QueryClient()
+    setClerkSession('user_a', 'a@example.com')
+    const view = renderProvider(queryClient)
+    await screen.findByText('a@example.com JP')
+
+    setClerkSession('user_b', 'b@example.com')
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      </QueryClientProvider>,
+    )
+    await screen.findByText('b@example.com JP')
+
+    act(() => notifyUnauthorized({ message: 'Unauthorized: account deleted', token: sessionToken('user_a') }))
+    act(() => notifyUnauthorized({ message: 'Unauthorized: invalid token', token: sessionToken('user_a') }))
+    act(() => notifyUnauthorized({ message: 'Unauthorized: missing token', token: null }))
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(deleteAccount).not.toHaveBeenCalled()
+    expect(clerk.signOut).not.toHaveBeenCalled()
   })
 
   it('finishes a pending account deletion before signing out a deleted account', async () => {
@@ -137,9 +167,14 @@ describe('AuthProvider', () => {
     renderProvider(new QueryClient())
     await screen.findByText('learner@example.com JP')
 
-    act(() => notifyUnauthorized('Unauthorized: account deleted'))
+    const token = sessionToken('user_a')
+    act(() => {
+      notifyUnauthorized({ message: 'Unauthorized: account deleted', token })
+      notifyUnauthorized({ message: 'Unauthorized: account deleted', token })
+    })
 
     await waitFor(() => expect(clerk.signOut).toHaveBeenCalled())
     expect(deleteAccount).toHaveBeenCalledTimes(1)
+    expect(deleteAccount).toHaveBeenCalledWith({ token })
   })
 })

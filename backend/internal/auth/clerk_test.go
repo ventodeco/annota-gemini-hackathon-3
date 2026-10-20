@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,14 +27,36 @@ type fixedClock struct{ now time.Time }
 func (c fixedClock) Now() time.Time { return c.now }
 
 type fakeJWKS struct {
+	mu    sync.Mutex
 	set   *clerk.JSONWebKeySet
 	err   error
 	calls int
+	// block, when set, holds Get until it is closed.
+	block chan struct{}
+	// started receives a value when Get begins (if non-nil).
+	started chan struct{}
 }
 
-func (f *fakeJWKS) Get(context.Context, *jwks.GetParams) (*clerk.JSONWebKeySet, error) {
+func (f *fakeJWKS) Get(ctx context.Context, _ *jwks.GetParams) (*clerk.JSONWebKeySet, error) {
+	f.mu.Lock()
 	f.calls++
+	block, started := f.block, f.started
+	f.mu.Unlock()
+	if started != nil {
+		started <- struct{}{}
+	}
+	if block != nil {
+		<-block
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.set, f.err
+}
+
+func (f *fakeJWKS) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 func newTestKey(t *testing.T) *rsa.PrivateKey {
@@ -196,16 +219,16 @@ func TestJWKSKeySourceCachesAndBoundsRefetch(t *testing.T) {
 	if _, err := source.Key(ctx, testKID); err != nil {
 		t.Fatalf("cached lookup: %v", err)
 	}
-	if fetcher.calls != 1 {
-		t.Fatalf("expected one JWKS fetch, got %d", fetcher.calls)
+	if fetcher.callCount() != 1 {
+		t.Fatalf("expected one JWKS fetch, got %d", fetcher.callCount())
 	}
 
 	// Unknown kids inside the refresh window are rejected without refetching.
 	if _, err := source.Key(ctx, "forged"); !errors.Is(err, ErrInvalidSession) {
 		t.Fatalf("expected ErrInvalidSession for unknown kid, got %v", err)
 	}
-	if fetcher.calls != 1 {
-		t.Fatalf("unknown kid refetched inside refresh window: %d calls", fetcher.calls)
+	if fetcher.callCount() != 1 {
+		t.Fatalf("unknown kid refetched inside refresh window: %d calls", fetcher.callCount())
 	}
 
 	// After the TTL a fetch failure keeps serving the trusted cached key.
@@ -217,6 +240,80 @@ func TestJWKSKeySourceCachesAndBoundsRefetch(t *testing.T) {
 	// An unknown kid during an outage cannot be checked either way.
 	if _, err := source.Key(ctx, "rotated"); !errors.Is(err, ErrVerifierUnavailable) {
 		t.Fatalf("expected ErrVerifierUnavailable, got %v", err)
+	}
+	// Failed attempts are throttled too: repeated requests during the outage
+	// do not each call Clerk.
+	callsAfterFailure := fetcher.callCount()
+	for range 5 {
+		if _, err := source.Key(ctx, testKID); err != nil {
+			t.Fatalf("expected stale key during throttled outage, got %v", err)
+		}
+	}
+	if got := fetcher.callCount(); got != callsAfterFailure {
+		t.Fatalf("failed refresh was retried inside backoff window: %d -> %d calls", callsAfterFailure, got)
+	}
+	// After the backoff window a recovered Clerk refreshes the keys again.
+	now = now.Add(2 * time.Minute)
+	fetcher.mu.Lock()
+	fetcher.err = nil
+	fetcher.mu.Unlock()
+	if _, err := source.Key(ctx, testKID); err != nil || fetcher.callCount() != callsAfterFailure+1 {
+		t.Fatalf("expected one recovery fetch, got err=%v calls=%d", err, fetcher.callCount())
+	}
+}
+
+func TestJWKSKeySourceDoesNotBlockTrustedKeysOnRefresh(t *testing.T) {
+	var mu sync.Mutex
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	key := newTestKey(t)
+	fetcher := &fakeJWKS{set: &clerk.JSONWebKeySet{Keys: []*clerk.JSONWebKey{publicJWK(key)}}}
+	source := newJWKSKeySource(fetcher, time.Hour, time.Minute, clock)
+	ctx := context.Background()
+	if _, err := source.Key(ctx, testKID); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Expire the cache and make the next refresh hang.
+	mu.Lock()
+	now = now.Add(2 * time.Hour)
+	mu.Unlock()
+	fetcher.mu.Lock()
+	fetcher.block = make(chan struct{})
+	fetcher.started = make(chan struct{}, 1)
+	release, started := fetcher.block, fetcher.started
+	fetcher.mu.Unlock()
+
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, err := source.Key(ctx, testKID)
+		refreshDone <- err
+	}()
+	<-started
+
+	// While the refresh is in flight, trusted keys return immediately and no
+	// second fetch starts; unknown keys give up when their request ends.
+	for range 3 {
+		if _, err := source.Key(ctx, testKID); err != nil {
+			t.Fatalf("trusted key blocked or failed during refresh: %v", err)
+		}
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := source.Key(cancelled, "unknown"); !errors.Is(err, ErrVerifierUnavailable) {
+		t.Fatalf("expected ErrVerifierUnavailable for cancelled wait, got %v", err)
+	}
+	if got := fetcher.callCount(); got != 2 {
+		t.Fatalf("expected exactly one in-flight refresh, got %d fetches", got)
+	}
+
+	close(release)
+	if err := <-refreshDone; err != nil {
+		t.Fatalf("refreshing caller: %v", err)
 	}
 }
 
