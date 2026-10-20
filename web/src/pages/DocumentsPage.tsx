@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { BookOpen, PackageOpen, Trash2 } from 'lucide-react'
+import { BookOpen, NotebookText, PackageOpen, Trash2 } from 'lucide-react'
 import Header from '@/components/layout/Header'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { Button } from '@/components/ui/button'
@@ -75,32 +75,43 @@ export default function DocumentsPage() {
         {!isLoading && !error && data?.data.length !== undefined && data.data.length > 0 && (
           <div className="space-y-4">
             {data.data.map((doc) => (
-              <div key={doc.id} className="flex items-center gap-3 rounded-lg bg-white p-4 shadow-sm">
-                <button
-                  onClick={() => handleOpen(doc)}
-                  className="flex min-w-0 flex-1 items-start gap-3 text-left"
-                  aria-label={`Open ${doc.filename}`}
-                >
-                  <BookOpen className="mt-1 h-5 w-5 shrink-0 text-slate-500" />
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium text-gray-900">{doc.filename}</span>
-                    <span className="mt-1 block text-sm text-gray-500">
-                      {doc.pageCount} pages, page {doc.lastPageNumber || 1}
+              <div key={doc.id} className="rounded-lg bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleOpen(doc)}
+                    className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                    aria-label={`Open ${doc.filename}`}
+                  >
+                    <BookOpen className="mt-1 h-5 w-5 shrink-0 text-slate-500" />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-gray-900">{doc.filename}</span>
+                      <span className="mt-1 block text-sm text-gray-500">
+                        {doc.pageCount} pages, page {doc.lastPageNumber || 1}
+                      </span>
+                      <span className="mt-2 block space-y-0.5 text-xs text-gray-400">
+                        {doc.lastOpenedAt && <span className="block">Last opened {formatDate(doc.lastOpenedAt)}</span>}
+                        <span className="block">Added {formatDate(doc.createdAt)}</span>
+                      </span>
                     </span>
-                    <span className="mt-2 block text-xs text-gray-400">
-                      {doc.lastOpenedAt ? `Last opened ${formatDate(doc.lastOpenedAt)}` : `Added ${formatDate(doc.createdAt)}`}
-                    </span>
-                  </span>
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setDocumentToDelete(doc)}
-                  aria-label="Delete document"
-                  className="shrink-0 text-gray-500 hover:text-red-600"
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setDocumentToDelete(doc)}
+                    aria-label="Delete document"
+                    className="shrink-0 text-gray-500 hover:text-red-600"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </Button>
+                </div>
+                <Link
+                  to={`/history?documentId=${doc.id}`}
+                  aria-label={`View annotations for ${doc.filename}`}
+                  className="mt-1 ml-6 inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
                 >
-                  <Trash2 className="h-5 w-5" />
-                </Button>
+                  <NotebookText className="h-4 w-4" aria-hidden="true" />
+                  Annotations
+                </Link>
               </div>
             ))}
           </div>
