@@ -486,6 +486,66 @@ func TestLiveOutputDirIgnoresPathReplacedDuringCall(t *testing.T) {
 	assertPrivate(t, f, stdout, stderr)
 }
 
+func TestCreateOutputDirRejectsReplacementBeforeOpen(t *testing.T) {
+	base := t.TempDir()
+	victim := filepath.Join(base, "victim")
+	if err := os.Mkdir(victim, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(victim, "existing.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(base, "shared")
+	if err := os.Mkdir(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	replace := func(with func(path string) error) func(string) {
+		return func(path string) {
+			if err := os.Rename(path, path+"-moved"); err != nil {
+				t.Error(err)
+			}
+			if err := with(path); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	tests := []struct {
+		name    string
+		path    string
+		replace func(string)
+	}{
+		{"existing directory renamed in", filepath.Join(base, "out1"), replace(func(path string) error { return os.Rename(victim, path) })},
+		{"symlink with trailing slash", filepath.Join(base, "out2") + "/", replace(func(path string) error { return os.Symlink(victim, path) })},
+		{"shared empty directory", filepath.Join(base, "out3"), replace(func(path string) error { return os.Rename(shared, path) })},
+		{"symlink to empty private directory", filepath.Join(base, "out4"), replace(func(path string) error {
+			empty := filepath.Join(base, "empty-private")
+			if err := os.Mkdir(empty, 0o700); err != nil {
+				return err
+			}
+			return os.Symlink(empty, path)
+		})},
+	}
+	defer func() { beforeOutputOpen = func(string) {} }()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			beforeOutputOpen = tt.replace
+			if root, err := createOutputDir(tt.path); err == nil {
+				root.Close()
+				t.Fatal("replaced output directory was accepted")
+			}
+		})
+	}
+	beforeOutputOpen = func(string) {}
+	root, err := createOutputDir(filepath.Join(base, "fresh") + "/")
+	if err != nil {
+		t.Fatalf("fresh directory with trailing slash rejected: %v", err)
+	}
+	root.Close()
+}
+
 func TestWriteOutputFailureIsFixedAndRecorded(t *testing.T) {
 	dirPath := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dirPath, "ocr.txt"), []byte("keep"), 0o600); err != nil {

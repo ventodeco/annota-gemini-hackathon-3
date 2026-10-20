@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -329,24 +330,50 @@ func qualify(ctx context.Context, client ai.Client, task string, in inputs, resu
 
 const exclusiveCreate = os.O_WRONLY | os.O_CREATE | os.O_EXCL
 
+// beforeOutputOpen lets tests replace the directory between Mkdir and open.
+var beforeOutputOpen = func(string) {}
+
 // createOutputDir makes a new private directory and keeps a handle to it.
-// Mkdir fails on any existing path, including a symlink, and later writes go
-// through the handle, so replacing the path mid-run cannot redirect output.
+// Mkdir fails on any existing path, including a symlink; Clean drops a trailing
+// slash that would otherwise resolve one. The path can still be swapped before
+// it is opened, so the opened directory must be empty and private: output never
+// merges into existing data or a shared directory. Later writes go through the
+// handle, so replacing the path mid-run cannot redirect them.
 func createOutputDir(path string) (*os.Root, error) {
+	path = filepath.Clean(path)
 	if err := os.Mkdir(path, 0o700); err != nil {
 		return nil, err
 	}
+	beforeOutputOpen(path)
 	root, err := os.OpenRoot(path)
 	if err != nil {
 		return nil, err
 	}
-	opened, err := root.Stat(".")
-	created, lerr := os.Lstat(path)
-	if err != nil || lerr != nil || !created.IsDir() || !os.SameFile(opened, created) {
+	if err := checkNewPrivateDir(root, path); err != nil {
 		root.Close()
-		return nil, errors.New("output directory changed during creation")
+		return nil, err
 	}
 	return root, nil
+}
+
+func checkNewPrivateDir(root *os.Root, path string) error {
+	info, err := root.Stat(".")
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return errors.New("output directory is not private")
+	}
+	// Defence in depth: the path itself must still be this directory, not a symlink.
+	if linked, err := os.Lstat(path); err != nil || !linked.IsDir() || !os.SameFile(info, linked) {
+		return errors.New("output directory changed during creation")
+	}
+	dir, err := root.Open(".")
+	if err != nil {
+		return errors.New("output directory is not readable")
+	}
+	defer dir.Close()
+	if entries, err := dir.ReadDir(1); len(entries) > 0 || (err != nil && !errors.Is(err, io.EOF)) {
+		return errors.New("output directory is not new")
+	}
+	return nil
 }
 
 // writeOutput stores model output in the private output directory, when set,
