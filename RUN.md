@@ -77,7 +77,7 @@ go run cmd/server/main.go
 
 ### Option 2: Development Mode (Separate servers)
 
-Set backend callback target for split dev OAuth flow:
+Set the frontend origin accepted in Clerk session tokens:
 ```bash
 # backend/.env
 APP_BASE_URL=http://localhost:8080
@@ -99,7 +99,7 @@ bun run dev
 Frontend dev server runs on: `http://localhost:5173` (Vite default)
 
 **Note:** In dev mode, frontend proxies API calls to backend at `http://localhost:8080`.
-With `FRONTEND_BASE_URL=http://localhost:5173`, OAuth callback redirects to Vite without requiring `bun run build`.
+Set `VITE_CLERK_PUBLISHABLE_KEY` in `web/.env`; Clerk sign-in then works against the Vite dev server without `bun run build`.
 
 ## Quick Commands Reference
 
@@ -171,9 +171,8 @@ dev-services logs
 Required:
 - `OPENROUTER_API_KEY` - API key for OpenRouter OCR
 - `MINIMAX_API_KEY` - API key for MiniMax annotation and speech
-- `JWT_SECRET` - At least 32 random characters
-- `GOOGLE_OAUTH_CLIENT_ID` - Google OAuth 2.0 client ID (from Google Cloud Console)
-- `GOOGLE_OAUTH_CLIENT_SECRET` - Google OAuth 2.0 client secret
+- `CLERK_SECRET_KEY` - Clerk secret key, backend only
+- `CLERK_PUBLISHABLE_KEY` - Public Clerk key of the same instance (the web build uses it as `VITE_CLERK_PUBLISHABLE_KEY`)
 
 PostgreSQL:
 - `POSTGRES_HOST` - Default: `localhost`
@@ -186,7 +185,9 @@ Optional:
 - `APP_ENV` - `development` or `production` (production rejects wildcard CORS origins)
 - `PORT` - Backend port (default: `8080`)
 - `APP_BASE_URL` - Base URL (default: `http://localhost:8080`)
-- `FRONTEND_BASE_URL` - Frontend callback URL for OAuth redirect (default: `APP_BASE_URL`)
+- `FRONTEND_BASE_URL` - Frontend origin and default Clerk authorized party (default: `APP_BASE_URL`)
+- `CLERK_AUTHORIZED_PARTIES` - Comma-separated frontend origins accepted in session tokens (default: `FRONTEND_BASE_URL`)
+- `CLERK_JWT_KEY` - Optional PEM public key for networkless token verification
 - `UPLOAD_DIR` - Upload directory (default: `data/uploads`)
 - `MAX_UPLOAD_SIZE` - Max upload size in bytes (default: `10485760` = 10MB)
 - `SESSION_COOKIE_NAME` - Session cookie name (default: `sid`)
@@ -223,7 +224,7 @@ Optional:
    # Make sure .env file exists in backend/ and has all required keys
    cat backend/.env
    ```
-   Required keys: `OPENROUTER_API_KEY`, `MINIMAX_API_KEY`, `JWT_SECRET` (32+ chars), `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`.
+   Required keys: the selected AI provider keys, `CLERK_SECRET_KEY`, and `CLERK_PUBLISHABLE_KEY` (see [docs/clerk-auth.md](docs/clerk-auth.md)).
 
 5. **Check Go dependencies:**
    ```bash
@@ -280,16 +281,13 @@ hackathon-gemini-3/
 ## Next Steps
 
 1. Start PostgreSQL and Redis: `dev-services start`
-2. Set up `backend/.env` from `backend/.env.example`, filling in all required keys including `OPENROUTER_API_KEY`, `MINIMAX_API_KEY`, `GOOGLE_OAUTH_CLIENT_ID`, and `GOOGLE_OAUTH_CLIENT_SECRET`
+2. Set up `backend/.env` from `backend/.env.example`, filling in all required keys including the AI provider keys, `CLERK_SECRET_KEY`, and `CLERK_PUBLISHABLE_KEY`; set `VITE_CLERK_PUBLISHABLE_KEY` in `web/.env`
 3. Build frontend: `cd web && bun run build`
 4. Run backend: `cd backend && go run cmd/server/main.go`
 5. Open browser: `http://localhost:8080`
 
-### Google OAuth Setup
+### Clerk Setup
 
-To enable Google login:
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Create an OAuth 2.0 Client ID (Web application type)
-3. Add authorized redirect URI: `http://localhost:8080/v1/auth/google/callback`
-4. Copy Client ID and Client Secret into `backend/.env`
+Sign-in uses Clerk (Google and email). Create a Clerk development instance, enable Google and the email
+method, add `http://localhost:5173` (and `http://localhost:8080` for the built app) as allowed origins,
+then copy the keys into `backend/.env` and `web/.env`. Full checklist: [docs/clerk-auth.md](docs/clerk-auth.md).

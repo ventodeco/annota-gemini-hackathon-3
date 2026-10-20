@@ -7,9 +7,12 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 
 ARG VITE_API_BASE_URL
 ARG VITE_APP_URL
+# Public Clerk key; without it the app shows a "sign-in not configured" screen.
+ARG VITE_CLERK_PUBLISHABLE_KEY
 
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_APP_URL=$VITE_APP_URL
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 
 WORKDIR /app
 

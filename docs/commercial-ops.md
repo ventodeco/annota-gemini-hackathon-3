@@ -133,8 +133,8 @@ recovery procedure, not just restarting an old binary.
 
 ## Secrets Rotation
 
-- Rotate `JWT_SECRET`, Google OAuth secret, AI provider keys (Gemini, OpenRouter, MiniMax, routed `api_key_env` values), Redis credentials, and database credentials on a scheduled cadence or immediately after exposure.
-- When rotating `JWT_SECRET`, expect existing sessions to be invalidated. The Clerk migration (#39) replaces `JWT_SECRET` and `GOOGLE_OAUTH_*`. Revoke the old Google OAuth client after cutover.
+- Rotate `CLERK_SECRET_KEY` (Clerk Dashboard > API keys), AI provider keys (Gemini, OpenRouter, MiniMax, routed `api_key_env` values), Redis credentials, and database credentials on a scheduled cadence or immediately after exposure.
+- Session tokens are signed by Clerk, not by ANNOTA; rotating the Clerk secret key does not end user sessions. Revoke sessions in the Clerk Dashboard when needed. The Clerk migration (#39) removed `JWT_SECRET` and `GOOGLE_OAUTH_*`; revoke the old Google OAuth client after cutover.
 - Production must use `APP_ENV=production`, explicit `ALLOWED_ORIGINS`, and secure HTTPS origins. In production the backend refuses to start when the database password is a known default (`password`, `postgres`, or the built-in `gemini_password` used when `POSTGRES_PASSWORD` is unset).
 - `docker-compose.yml` is for local development only and binds to loopback. Never reuse its credentials elsewhere.
 
@@ -148,15 +148,15 @@ Rotation steps for an exposed credential:
 
 1. Issue a replacement at the provider (or database/Redis), and revoke the old value there once the deploy uses the new one. Revoking first causes an outage, but if active abuse is suspected, revoke immediately.
 2. Update the production host configuration or GitHub secret, then restart or redeploy.
-3. Verify without printing values: `/readyz` returns 200 after database or Redis rotation, a small AI request succeeds after a provider key rotation, and login works after an auth secret rotation.
+3. Verify without printing values: `/readyz` returns 200 after database or Redis rotation, a small AI request succeeds after a provider key rotation, and Clerk sign-in plus an authenticated API call work after a Clerk key rotation.
 4. Record the date, credential name, provider, and who rotated it in the tracking issue. Never record the value.
 
 If a secret is ever committed, rotate it first. Rewriting git history does not un-expose a pushed value. A force-push rewrite needs owner approval and coordination with every clone and open PR. For the #12 assessment and its scope limits, see [the evidence](evidence/issue-12/secret-exposure-assessment.md).
 
 ## Support And Data Requests
 
-- User lookup key: email address from Google OAuth.
-- For deletion requests, ask the user to use the in-app Delete account action first. If manual deletion is needed, delete the user row so cascades remove scans, annotations, documents, and related rows, then remove files in `UPLOAD_DIR`.
+- User lookup key: `users.clerk_user_id` (Clerk user ID) or the Clerk-verified email address.
+- For deletion requests, ask the user to use the in-app Delete account action first. Manual deletion and Clerk reconciliation steps are in [`clerk-auth.md`](clerk-auth.md#deletion-and-reconciliation).
 - For abuse investigations, collect request IDs, user ID, target route, timestamp, and AI rate-limit status from structured logs.
 
 ## Billing And Entitlements

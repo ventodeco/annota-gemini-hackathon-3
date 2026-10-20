@@ -1,3 +1,5 @@
+> **Superseded (2026-10-20, #39):** the Google OAuth + locally minted JWT flow described here was replaced by Clerk. See [`docs/clerk-auth.md`](../../docs/clerk-auth.md). Kept for history only.
+
 # Frontend Auth Implementation Plan
 
 ## Overview

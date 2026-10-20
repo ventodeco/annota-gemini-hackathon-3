@@ -51,10 +51,9 @@ Required:
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` - Gemini API key when `AI_PROVIDER=gemini`
 - `AI_ROUTING_CONFIG` - Required only in routed mode: JSON path, absolute or relative to backend cwd. See `../docs/ai-routing.md` for schema, active-key validation, timeout/retry rules, and qualification gates. Routed mode ignores legacy AI keys unless an active profile explicitly references them.
 - `DB_CONNECTION_STRING` or the `POSTGRES_*` variables - PostgreSQL connection settings
-- `GOOGLE_OAUTH_CLIENT_ID` - Google OAuth client ID
-- `GOOGLE_OAUTH_CLIENT_SECRET` - Google OAuth client secret
-- `JWT_SECRET` - JWT signing secret, at least 32 characters
-- `FRONTEND_BASE_URL` - Frontend callback target for OAuth redirects
+- `CLERK_SECRET_KEY` - Clerk secret key (`sk_test_`/`sk_live_`), backend only
+- `CLERK_PUBLISHABLE_KEY` - Public Clerk key; the accepted session-token issuer is derived from it
+- `FRONTEND_BASE_URL` - Frontend origin, default Clerk authorized party
 
 Optional (with defaults):
 - `APP_ENV` - Application environment (default: `development`)
@@ -64,7 +63,9 @@ Optional (with defaults):
 - `MAX_UPLOAD_SIZE` - Max upload size in bytes (default: `10485760` = 10MB)
 - `SESSION_COOKIE_NAME` - Session cookie name (default: `sid`)
 - `SESSION_SECURE` - Cookie secure flag (default: `false`)
-- `REDIS_ADDR` - Redis address for OAuth state and caching (default: `localhost:6379`)
+- `CLERK_AUTHORIZED_PARTIES` - Comma-separated frontend origins accepted in the token `azp` claim (default: `FRONTEND_BASE_URL`)
+- `CLERK_JWT_KEY` - Optional PEM public key for networkless session verification
+- `REDIS_ADDR` - Redis address, required runtime dependency (default: `localhost:6379`)
 - `DEFAULT_PAGE_SIZE` - Default pagination size (default: `20`)
 - `OPENROUTER_OCR_MODEL` - OCR model (default: `baidu/qianfan-ocr-fast:free`)
 - `MINIMAX_TEXT_MODEL` - Annotation model (default: `MiniMax-M2.7`)
@@ -73,7 +74,7 @@ Optional (with defaults):
 - `AI_RATE_LIMIT` - AI-backed route limit, set `0` to disable locally (default: `60`)
 - `AI_RATE_LIMIT_WINDOW_SECONDS` - AI rate limit window (default: `3600`)
 
-The flake provides developer tooling, local PostgreSQL/Redis service commands, and convenience env values. The running backend still requires OAuth, JWT, and the selected AI provider configuration from `backend/.env`.
+The flake provides developer tooling, local PostgreSQL/Redis service commands, and convenience env values. The running backend still requires Clerk keys and the selected AI provider configuration from `backend/.env`. See `../docs/clerk-auth.md` for authentication setup, identity mapping, and deletion rules.
 
 ## Code Style Guidelines
 

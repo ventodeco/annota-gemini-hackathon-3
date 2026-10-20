@@ -15,37 +15,29 @@ This is a Bruno collection for testing the Gemini OCR+Annotation API.
 
 ## Authentication Flow
 
-1. **Get Google OAuth URL**
-   - Request: `GET /v1/auth/google/state`
-   - Response: `{"ssoRedirection": "https://accounts.google.com/..."}`
-   - Open the URL in browser to authenticate with Google
+The API accepts Clerk session tokens only (see `docs/clerk-auth.md`).
 
-2. **Exchange Code for Token**
-   - After Google redirects back, you'll receive `state` and `code` parameters
-   - Request: `POST /v1/auth/google/callback`
-   - Body: `{"code": "..."}`
-   - Response: `{"token": "...", "expirySeconds": 1800, "expiresAt": "..."}`
-   - Copy the token and set it in the environment variable `token`
+1. Sign in to the web app (for example `http://localhost:5173/login`) with the Clerk development instance.
+2. In the browser devtools console run `await window.Clerk.session.getToken()` and copy the result.
+3. Set it as the environment variable `token`. Requests send `Authorization: Bearer {{token}}`.
+   Clerk session tokens are short-lived (about 60 seconds by default), so fetch a fresh one when requests return 401.
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `baseUrl` | API base URL | `http://localhost:8080` |
-| `token` | JWT token for authenticated requests | `` |
+| `token` | Clerk session token for authenticated requests | `` |
 
 ## API Endpoints
 
-### Auth (No Auth Required)
+### Health (No Auth Required)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/healthz` | Health check |
-| GET | `/v1/auth/google/state` | Get Google OAuth redirect URL |
-| GET | `/v1/auth/google/callback` | Handle Google OAuth redirect |
-| POST | `/v1/auth/google/callback` | Exchange code for JWT token |
 
-### User (JWT Required)
+### User (Clerk session required)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -53,7 +45,7 @@ This is a Bruno collection for testing the Gemini OCR+Annotation API.
 | GET | `/v1/users/me/languages` | Get available languages |
 | PATCH | `/v1/users/me` | Update user preferences |
 
-### Scans (JWT Required)
+### Scans (Clerk session required)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -61,13 +53,13 @@ This is a Bruno collection for testing the Gemini OCR+Annotation API.
 | GET | `/v1/scans` | Get scan history (paginated) |
 | GET | `/v1/scans/{id}` | Get scan details |
 
-### AI (JWT Required)
+### AI (Clerk session required)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/v1/ai/analyze` | Analyze text with AI |
 
-### Annotations (JWT Required)
+### Annotations (Clerk session required)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -79,7 +71,7 @@ This is a Bruno collection for testing the Gemini OCR+Annotation API.
 1. **Token Expiry**: Tokens expire after 30 minutes (1800 seconds)
 2. **Pagination**: Default page size is 20, max is 100
 3. **Image Upload**: Use multipart/form-data with `image` field
-4. **Content-Type**: Set `x-token` header for authenticated requests
+4. **Authorization**: Send `Authorization: Bearer {{token}}` (Clerk session token) for authenticated requests
 
 ## Response Examples
 

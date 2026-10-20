@@ -148,8 +148,8 @@ if [[ "$mode" == all || "$mode" == backend ]]; then
     -e OPENROUTER_BASE_URL=http://127.0.0.1:9 \
     -e MINIMAX_ANTHROPIC_BASE_URL=http://127.0.0.1:9 \
     -e MINIMAX_TTS_BASE_URL=http://127.0.0.1:9 \
-    -e GOOGLE_OAUTH_CLIENT_ID=smoke-fixture -e GOOGLE_OAUTH_CLIENT_SECRET=smoke-fixture \
-    -e JWT_SECRET=smoke-fixture-only-at-least-32-characters \
+    -e CLERK_SECRET_KEY=sk_test_smoke-fixture \
+    -e CLERK_PUBLISHABLE_KEY=pk_test_c21va2UuY2xlcmsuYWNjb3VudHMuZGV2JA \
     -e FRONTEND_BASE_URL=http://localhost:5173 \
     "$backend_image"
   wait_for_http "http://$prefix-backend:8080/readyz"
