@@ -28,7 +28,7 @@ The issue says real keys were **committed** in `backend/.env`. The repository ev
 5. The templates use placeholders only.
 6. The main checkout has no `backend/.env` right now (existence check only; nothing was read).
 
-**Conclusion:** No secret is in git history, so no history rewrite is needed. The "council investigation" most likely read a developer's untracked local `backend/.env`. Whether those values left the machine (for example, through AI session transcripts) cannot be verified from the repository. That decision belongs to the owner, as an operator action.
+**Conclusion:** Within the scanned refs, path metadata, and provider-pattern coverage, there is no evidence of a committed `.env` or a committed provider key, so no history rewrite is indicated. The pattern scan covers only the listed formats and cannot prove that no secret was exposed. This assessment does not determine where the reported values were or whether they were exposed outside git. The rotation decision belongs to the owner, as an operator action.
 
 **Residuals in the repository, confirmed in the source:**
 
@@ -79,7 +79,7 @@ Change the ports to `127.0.0.1:5432:5432` and `127.0.0.1:6379:6379`, and add a c
 
 ## Operator Actions (not done here; need owner access)
 
-1. Decide on rotation of the values that were in the developer's untracked local `backend/.env` (Gemini/OpenRouter/MiniMax keys, Google OAuth client secret, `JWT_SECRET`). Rotate any that were shared or production values, or that may have left the machine through tool transcripts. Record the date and provider, never the values.
+1. Decide whether to rotate the credentials named in the issue (Gemini/OpenRouter/MiniMax keys, Google OAuth client secret, `JWT_SECRET`), wherever they were held. Record the date and provider, never the values.
 2. On the production VPS, confirm without printing values: `APP_ENV=production`, a non-default database password, PostgreSQL and Redis not published publicly, and a `JWT_SECRET` that is not a template value (until Clerk replaces it).
 3. GitHub `ENV_PRODUCTION` environment and credential-scope audit: already tracked as an administrator prerequisite in #43/#50. It is referenced here, not duplicated.
 

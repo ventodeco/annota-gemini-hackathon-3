@@ -7,9 +7,11 @@ historical blob content was printed or read into this record.
 ## Claim under review
 
 Issue #12 says real API keys, a JWT secret, and OAuth credentials were
-**committed** in `backend/.env`. The repository evidence does not support that.
-The values were most likely in a developer's untracked local `backend/.env`. Git
-cannot show whether they left that machine.
+**committed** in `backend/.env`. Within the scope below (the scanned refs, path
+metadata, and the listed provider patterns), the repository evidence does not
+support that. This assessment does not establish where the reported values were
+or whether they were exposed outside git. The pattern scan covers only the
+listed formats, so it cannot prove that no secret was ever exposed.
 
 ## Results
 
@@ -40,13 +42,16 @@ The scanner prints the rule, the path, and value lengths only.
 
 ## Consequences
 
-- **History rewrite:** Not needed, because no secret is in git history.
-  Rewriting history would not un-expose a credential that was pushed anyway.
-  Rotating it is the remedy.
+- **History rewrite:** Not indicated. No `.env` path exists in the scanned
+  refs and no listed provider pattern matched. Refs not fetched here (deleted
+  branches, forks, other clones) are outside this scope. Rewriting history
+  would not un-expose a credential that was pushed anyway. Rotating it is the
+  remedy.
 - **Repository fixes in this change:** Production now refuses known default
   database passwords. Local compose services bind to loopback. The secrets
   runbook in `docs/commercial-ops.md` documents rotation and verification.
-- **Still open (owner access required):** Decide whether to rotate the values
-  that were in the local `backend/.env`. Verify production configuration on
+- **Still open (owner access required):** Decide whether to rotate the
+  credentials named in the issue (AI provider keys, Google OAuth client
+  secret, `JWT_SECRET`). Verify production configuration on
   the host without printing values. GitHub environment and credential-scope
   administration is already tracked in #43/#50.

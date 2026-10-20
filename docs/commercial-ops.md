@@ -151,7 +151,7 @@ Rotation steps for an exposed credential:
 3. Verify without printing values: `/readyz` returns 200 after database or Redis rotation, a small AI request succeeds after a provider key rotation, and login works after an auth secret rotation.
 4. Record the date, credential name, provider, and who rotated it in the tracking issue. Never record the value.
 
-If a secret is ever committed, rotate it first. Rewriting git history does not un-expose a pushed value. A force-push rewrite needs owner approval and coordination with every clone and open PR. The assessment for #12 found no secret in git history: see [the evidence](evidence/issue-12/secret-exposure-assessment.md).
+If a secret is ever committed, rotate it first. Rewriting git history does not un-expose a pushed value. A force-push rewrite needs owner approval and coordination with every clone and open PR. For the #12 assessment and its scope limits, see [the evidence](evidence/issue-12/secret-exposure-assessment.md).
 
 ## Support And Data Requests
 
