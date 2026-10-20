@@ -88,8 +88,9 @@ export default function DocumentsPage() {
                       <span className="mt-1 block text-sm text-gray-500">
                         {doc.pageCount} pages, page {doc.lastPageNumber || 1}
                       </span>
-                      <span className="mt-2 block text-xs text-gray-400">
-                        {doc.lastOpenedAt ? `Last opened ${formatDate(doc.lastOpenedAt)}` : `Added ${formatDate(doc.createdAt)}`}
+                      <span className="mt-2 block space-y-0.5 text-xs text-gray-400">
+                        {doc.lastOpenedAt && <span className="block">Last opened {formatDate(doc.lastOpenedAt)}</span>}
+                        <span className="block">Added {formatDate(doc.createdAt)}</span>
                       </span>
                     </span>
                   </button>

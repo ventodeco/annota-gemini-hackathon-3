@@ -18,9 +18,9 @@ As a learner reading a Japanese PDF I want three things. First, to return to the
 | Slice item / PRD bullet | Evidence | Status |
 | --- | --- | --- |
 | Scan lifecycle `status` / `sourceType` / `failureReason` | Migration `backend/migrations/003_prd_reader_memory.sql` (columns, backfill, `idx_scans_user_status`). `handlers/scan.go` sets `processing` on create (L155) and `failed` plus a reason on OCR failure (L485). `statusOrDefault`/`sourceTypeOrDefault` apply in list and detail. The web polls on status. | Met. Stale-`processing` recovery is #40 (read-time `ocr_interrupted`). |
-| Document library list with metadata (filename, pages, last opened, created) | `GET /v1/documents` (`handlers/document.go` `listDocumentsHandler`); `web/src/pages/DocumentsPage.tsx`. Tests: `TestListDocumentsSuccess`, `DocumentsPage.test.tsx`. | Met |
+| Document library list with metadata (filename, pages, last opened, created) | `GET /v1/documents` (`handlers/document.go` `listDocumentsHandler`); `web/src/pages/DocumentsPage.tsx`. Tests: `TestListDocumentsSuccess`, `DocumentsPage.test.tsx`. | Met after this PR. Before it, the row showed last opened *or* created, never both (PR #74 review R1). |
 | Continue reading from the last page | `PATCH /v1/documents/{id}/progress` (`updateDocumentProgressHandler`, storage `UpdateDocumentProgress`). `DocumentsPage` opens `?page=lastPageNumber`; `DocumentPage` `initialPage` falls back to `lastPageNumber` and saves progress on page change. Test: `TestUpdateDocumentProgressSuccess`. | Met |
-| Last opened time | `last_opened_at` is written only by the progress PATCH, and `DocumentPage.scheduleProgressSave` skips an unchanged page. Opening a document without changing page therefore does not update it. | **Gap, owned by #40** (`DocumentPage`/`document.go`); handed off |
+| Last opened time | `last_opened_at` is written only by the progress PATCH, and `DocumentPage.scheduleProgressSave` skips an unchanged page. Opening a document without changing page therefore does not update it. | **Gap, owned by #23.** Minimal follow-up after #40 merges (#40 declined it). `DocumentPage`/`document.go` are not edited while #40 is active. |
 | Delete documents / annotations | `DELETE /v1/documents/{id}` (file first, then the doc and its page scans, atomically; annotations kept, per #41). `DELETE /v1/annotations/{id}`. UI in `DocumentsPage`, `HistoryPage` and `AnnotationDetailPage`. Tests: `TestDeleteDocumentSuccess`, `TestDocumentDeleteRemovesFileThenPageScansAndRetries`, `TestCrossAccountRequestsCannotReadOrChangeOwnerData`. | Met |
 | Page-aware source metadata (doc ID, page, selected text, context, created) | `CreateAnnotationAPI` derives `source_type`/`document_id`/`page_number`/`source_label` from the owned scan (`handlers/annotation.go` L138-176, `buildSourceLabel`). `annotations` columns come from migration 003. | Met server-side. Correctness depends on the client sending the scan of the selected page: `DocumentPage` reuses `bridgeScanId` across pages. **#40 dependency** (page identity) |
 | View annotations scoped to a document/page | `GET /v1/annotations?documentId=&pageNumber=` (`GetAnnotationsByUserIDAndDocumentPage`). `HistoryPage` reads `documentId`/`pageNumber` (test: "Annotations for document #9, page 3"). | **Gap (#23): no UI entry point.** Nothing links to `/history?documentId=`. |
@@ -35,7 +35,8 @@ As a learner reading a Japanese PDF I want three things. First, to return to the
    - Accessible name: "View annotations for {filename}".
    - Touch target of at least 44px, with a visible focus ring.
    - It is a separate control next to Open and Delete.
-2. **`web/src/pages/__tests__/DocumentsPage.test.tsx`:** assert the link's accessible name and its `href`.
+2. **`web/src/pages/__tests__/DocumentsPage.test.tsx`:** assert the link's accessible name and its `href`, and that the last-opened and created dates both render.
+   - The dates come from `DocumentsPage`, which now shows "Added" always and "Last opened" when set (review R1).
 3. **`backend/internal/handlers/analyze_context_test.go` (new, test only):** one focused test.
    - The question: when analyze gets a `scanId`, does the AI client receive the server-stored scan text, windowed to 12k runes and containing the selection, instead of the client `context`?
    - Why it matters: if it fails, the slice item is unmet and `ai.go` needs a fix.
@@ -59,10 +60,11 @@ Files are deliberately limited to these three. Not touched: `HistoryPage`, `Docu
 
 ## Dependencies and observations (not fixed here)
 
-- **#40 dependencies:**
+- **#40 dependencies (accepted by #40):**
   - `bridgeScanId` page identity, needed for page-aware source correctness.
   - Regenerate passing `scanId`.
-  - `last_opened_at` updating on open.
+- **#23 follow-up after #40 merges:** `last_opened_at` updating on open.
+- **Remaining #40-owned items:**
   - Stale `processing` recovery.
   - Duplicate page scans.
 - **Observation (nonblocking):** `POST /v1/ai/analyze` with a foreign `scanId` returns 403, while `GET /v1/scans/{id}` returns 404. This is recorded only; no #41 follow-up and no change to error semantics.

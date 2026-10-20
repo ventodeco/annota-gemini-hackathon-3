@@ -21,6 +21,7 @@ vi.mock('@/hooks/useDocument', () => ({
           filename: 'reader.pdf',
           pageCount: 8,
           lastPageNumber: 3,
+          lastOpenedAt: '2026-02-10T00:00:00Z',
           createdAt: '2026-02-09T00:00:00Z',
           updatedAt: '2026-02-09T00:00:00Z',
         },
@@ -44,6 +45,8 @@ describe('DocumentsPage', () => {
     expect(screen.getByText('Documents')).toBeInTheDocument()
     expect(screen.getByText('reader.pdf')).toBeInTheDocument()
     expect(screen.getByText('8 pages, page 3')).toBeInTheDocument()
+    expect(screen.getByText(/^Last opened /)).toBeInTheDocument()
+    expect(screen.getByText(/^Added /)).toBeInTheDocument()
   })
 
   it('links each document to its saved annotations', () => {
