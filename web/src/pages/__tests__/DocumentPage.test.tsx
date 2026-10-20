@@ -35,7 +35,6 @@ vi.mock('@/lib/api', () => ({
   analyzeText: vi.fn(),
   createAnnotation: vi.fn(),
   synthesizeSpeech: vi.fn(),
-  getAuthToken: () => 'mock-token',
 }))
 
 vi.mock('@/components/documentpage/ExtractedTextReader', () => ({

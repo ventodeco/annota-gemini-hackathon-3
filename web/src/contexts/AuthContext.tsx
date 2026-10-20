@@ -1,67 +1,127 @@
-import { createContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import type { User } from '@/lib/types'
-import { getUserProfile } from '@/lib/api'
-import { getAuthToken, clearAuthToken } from '@/lib/api'
+import { createContext, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useAuth as useClerkAuth, useClerk, useUser } from '@clerk/react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { deleteAccount, getUserProfile } from '@/lib/api'
+import {
+  ACCOUNT_DELETED_MESSAGE,
+  clearUserScopedCaches,
+  setUnauthorizedHandler,
+} from '@/lib/authSession'
+import type { PreferredLanguage } from '@/lib/types'
+
+/** Identity from Clerk combined with ANNOTA-owned preferences. */
+export interface AuthUser {
+  email: string
+  avatarUrl?: string
+  preferredLanguage: PreferredLanguage
+}
 
 export interface AuthContextType {
-  user: User | null
+  user: AuthUser | null
+  /** True until Clerk, the cache-owner check and the profile request settle. */
   isLoading: boolean
+  /** Clerk reports an active session. */
+  isSignedIn: boolean
+  /** Signed in and the ANNOTA profile loaded. */
   isAuthenticated: boolean
-  login: () => void
-  logout: () => void
+  /** Error from loading the ANNOTA profile (e.g. legacy link required). */
+  profileError: Error | null
+  logout: () => Promise<void>
   refreshUser: () => Promise<void>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-async function loadUserProfile(): Promise<User | null> {
-  if (!getAuthToken()) return null
-  try {
-    return await getUserProfile()
-  } catch {
-    clearAuthToken()
-    return null
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const { isLoaded, isSignedIn, userId } = useClerkAuth()
+  const { user: clerkUser } = useUser()
+  const clerk = useClerk()
+  const queryClient = useQueryClient()
 
-  const refreshUser = useCallback(async () => {
-    const userData = await loadUserProfile()
-    setUser(userData)
-    setIsLoading(false)
-  }, [])
+  // The account whose data the query/browser caches may hold. Queries keys are
+  // not user-scoped, so the app stays in a loading state until caches belong
+  // to the current Clerk user.
+  // null means the caches hold no account's data (initial load or cleared).
+  const [cacheOwner, setCacheOwner] = useState<string | null>(null)
+  const currentUserId = userId ?? null
+  if (isLoaded && cacheOwner === null && currentUserId !== null) {
+    // First signed-in user on empty caches: nothing to clear.
+    setCacheOwner(currentUserId)
+  }
+  const cacheReady = isLoaded && cacheOwner === currentUserId
 
   useEffect(() => {
+    if (!isLoaded || cacheOwner === null || cacheOwner === currentUserId) return
+    // Sign-out or account switch: drop the previous account's cached data
+    // before anything renders for the next state.
     let cancelled = false
-    void loadUserProfile().then((userData) => {
-      if (cancelled) return
-      setUser(userData)
-      setIsLoading(false)
+    void clearUserScopedCaches(queryClient).then(() => {
+      if (!cancelled) setCacheOwner(currentUserId)
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isLoaded, cacheOwner, currentUserId, queryClient])
 
-  const login = useCallback(() => {
-    // Login is handled by opening Google OAuth popup
-    // The popup will close and trigger a refresh
-  }, [])
+  const signedIn = isLoaded && Boolean(isSignedIn)
+  const profileQuery = useQuery({
+    queryKey: ['user', currentUserId],
+    queryFn: getUserProfile,
+    enabled: cacheReady && signedIn,
+    retry: false,
+  })
 
-  const logout = useCallback(() => {
-    clearAuthToken()
-    setUser(null)
-  }, [])
+  const isSigningOut = useRef(false)
+  const logout = useCallback(async () => {
+    if (isSigningOut.current) return
+    isSigningOut.current = true
+    try {
+      await clearUserScopedCaches(queryClient)
+      await clerk.signOut({ redirectUrl: '/login' })
+    } finally {
+      isSigningOut.current = false
+    }
+  }, [clerk, queryClient])
+
+  useEffect(() => {
+    setUnauthorizedHandler((message) => {
+      if (isSigningOut.current) return
+      if (message === ACCOUNT_DELETED_MESSAGE) {
+        // A previous deletion may not have removed the Clerk user yet; the API
+        // still accepts this one call from a deleted account to finish it.
+        void deleteAccount()
+          .catch(() => undefined)
+          .finally(() => void logout())
+        return
+      }
+      void logout()
+    })
+    return () => setUnauthorizedHandler(null)
+  }, [logout])
+
+  const { refetch } = profileQuery
+  const refreshUser = useCallback(async () => {
+    await refetch()
+  }, [refetch])
+
+  const user: AuthUser | null =
+    signedIn && clerkUser && profileQuery.data
+      ? {
+          email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
+          avatarUrl: clerkUser.imageUrl || undefined,
+          preferredLanguage: profileQuery.data.preferredLanguage,
+        }
+      : null
+
+  const isLoading = !cacheReady || (signedIn && profileQuery.isPending)
 
   const value: AuthContextType = {
     user,
     isLoading,
-    isAuthenticated: !!user,
-    login,
+    isSignedIn: signedIn,
+    isAuthenticated: user !== null,
+    profileError: profileQuery.error,
     logout,
     refreshUser,
   }

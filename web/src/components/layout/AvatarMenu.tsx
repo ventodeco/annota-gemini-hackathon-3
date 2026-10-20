@@ -22,8 +22,8 @@ export function AvatarMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger className="rounded-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
         <Avatar className="size-9">
-          {user?.avatar_url && (
-            <AvatarImage src={user.avatar_url} alt={user.email} />
+          {user?.avatarUrl && (
+            <AvatarImage src={user.avatarUrl} alt={user.email} />
           )}
           <AvatarFallback className="bg-gray-200 text-gray-600 text-sm font-medium">
             {initial}

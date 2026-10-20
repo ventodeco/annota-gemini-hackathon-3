@@ -24,11 +24,10 @@ import {
 import Header from '@/components/layout/Header'
 import BottomNavigation from '@/components/layout/BottomNavigation'
 import { useAuth } from '@/contexts/useAuth'
-import { useNavigate } from 'react-router-dom'
-import { deleteAccount, updateUserPreferences } from '@/lib/api'
-import type { User } from '@/lib/types'
+import { ApiError, deleteAccount, updateUserPreferences } from '@/lib/api'
+import type { PreferredLanguage } from '@/lib/types'
 
-type Language = User['preferred_language']
+type Language = PreferredLanguage
 
 const LANGUAGE_LABELS: Record<Language, string> = {
   ID: 'Bahasa Indonesia',
@@ -48,9 +47,8 @@ function isLanguage(value: string): value is Language {
 
 export default function ProfilePage() {
   const { user, logout, refreshUser } = useAuth()
-  const navigate = useNavigate()
 
-  const [lang, setLang] = useState<Language>(user?.preferred_language ?? 'EN')
+  const [lang, setLang] = useState<Language>(user?.preferredLanguage ?? 'EN')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -68,18 +66,17 @@ export default function ProfilePage() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteAccount,
-    onSuccess: () => {
-      logout()
-      navigate('/login')
-    },
+    // logout clears user-scoped caches before ending the Clerk session.
+    onSuccess: () => logout(),
     onError: (err: Error) => {
-      setDeleteError(err.message || 'Failed to delete account')
+      const message = err instanceof ApiError ? err.serverMessage : err.message
+      setDeleteError(message || 'Failed to delete account')
     },
   })
 
   const initial = user?.email?.[0]?.toUpperCase() ?? '?'
   const isSaveDisabled =
-    lang === user?.preferred_language || saveMutation.isPending
+    lang === user?.preferredLanguage || saveMutation.isPending
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
@@ -89,8 +86,8 @@ export default function ProfilePage() {
         {/* Identity */}
         <Card className="p-4 flex items-center gap-3">
           <Avatar className="size-12">
-            {user?.avatar_url && (
-              <AvatarImage src={user.avatar_url} alt={user.email} />
+            {user?.avatarUrl && (
+              <AvatarImage src={user.avatarUrl} alt={user.email} />
             )}
             <AvatarFallback className="bg-gray-200 text-gray-600 text-base font-medium">
               {initial}
@@ -98,9 +95,7 @@ export default function ProfilePage() {
           </Avatar>
           <div className="min-w-0">
             <p className="font-medium text-sm truncate">{user?.email}</p>
-            <p className="text-xs text-gray-500 capitalize">
-              Signed in via {user?.provider}
-            </p>
+            <p className="text-xs text-gray-500">Signed in with Clerk</p>
           </div>
         </Card>
 

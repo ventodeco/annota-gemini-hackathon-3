@@ -1,6 +1,5 @@
+import { getToken } from '@clerk/react'
 import type {
-  // Auth types
-  TokenResponse,
   // User types
   GetUserProfileResponse,
   UpdateUserPreferencesRequest,
@@ -26,33 +25,47 @@ import type {
   CreateScanFromPageResponse,
 } from './types'
 import { logger } from './logger'
+import { notifyUnauthorized } from './authSession'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const AUTH_TOKEN_KEY = 'auth_token'
 
 // ============================================================================
 // Auth Helpers
 // ============================================================================
 
-export function getAuthToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY)
+/**
+ * Error for a non-OK API response. `message` keeps the raw response body (the
+ * historical behaviour callers display); `serverMessage` is the parsed JSON
+ * `message` field when the API returned the standard error shape.
+ */
+export class ApiError extends Error {
+  readonly status: number
+  readonly serverMessage: string | null
+
+  constructor(status: number, body: string) {
+    super(body)
+    this.name = 'ApiError'
+    this.status = status
+    this.serverMessage = parseServerMessage(body)
+  }
 }
 
-export function setAuthToken(token: string): void {
-  localStorage.setItem(AUTH_TOKEN_KEY, token)
+function parseServerMessage(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (typeof parsed === 'object' && parsed !== null && 'message' in parsed && typeof parsed.message === 'string') {
+      return parsed.message
+    }
+  } catch {
+    // Not JSON; there is no structured message.
+  }
+  return null
 }
 
-export function clearAuthToken(): void {
-  localStorage.removeItem(AUTH_TOKEN_KEY)
-}
-
-function getAuthHeaders(): HeadersInit {
-  const token = getAuthToken()
-  return token ? { 'x-token': token } : {}
-}
-
-function isAuthError(status: number): boolean {
-  return status === 401
+/** Attaches the current Clerk session token; Clerk refreshes it as needed. */
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 async function throwIfNotOk(
@@ -64,13 +77,13 @@ async function throwIfNotOk(
 ): Promise<void> {
   if (response.ok) return
 
-  if (isAuthError(response.status)) {
-    clearAuthToken()
-    window.location.href = '/login'
+  const body = await response.text().catch(() => errorTextFallback)
+  const error = new ApiError(response.status, body)
+  logger.apiCall(method, url, response.status, Date.now() - startTime, error)
+  if (response.status === 401) {
+    notifyUnauthorized(error.serverMessage ?? body)
   }
-  const error = await response.text().catch(() => errorTextFallback)
-  logger.apiCall(method, url, response.status, Date.now() - startTime, new Error(error))
-  throw new Error(error)
+  throw error
 }
 
 async function handleResponse<T>(response: Response, method: string, url: string): Promise<T> {
@@ -103,40 +116,13 @@ async function handleBlobResponse(
   return response.blob()
 }
 
-function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const headers: HeadersInit = {
-    ...getAuthHeaders(),
+    ...(await getAuthHeaders()),
     'Content-Type': 'application/json',
     ...options.headers,
   }
   return fetch(url, { ...options, headers })
-}
-
-// ============================================================================
-// Auth API
-// ============================================================================
-
-export async function getGoogleAuthUrl(): Promise<{ ssoRedirection: string }> {
-  const url = `${API_BASE_URL}/v1/auth/google/state`
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
-  return handleResponse(response, 'GET', url)
-}
-
-export async function exchangeGoogleCode(code: string, state: string): Promise<TokenResponse> {
-  const url = `${API_BASE_URL}/v1/auth/google/callback`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ code, state }),
-  })
-  return handleResponse(response, 'POST', url)
 }
 
 // ============================================================================
@@ -195,7 +181,7 @@ export async function createScan(imageFile: File): Promise<CreateScanResponse> {
   logger.debug(`Uploading image: ${imageFile.name}, size: ${imageFile.size} bytes`)
   const response = await fetch(url, {
     method: 'POST',
-    headers: getAuthHeaders(),
+    headers: await getAuthHeaders(),
     body: formData,
   })
   return handleResponse(response, 'POST', url)
@@ -305,7 +291,7 @@ export async function uploadDocument(pdfFile: File): Promise<UploadDocumentRespo
   const url = `${API_BASE_URL}/v1/documents`
   const response = await fetch(url, {
     method: 'POST',
-    headers: getAuthHeaders(),
+    headers: await getAuthHeaders(),
     body: formData,
   })
   return handleResponse(response, 'POST', url)
@@ -363,7 +349,7 @@ export async function getDocumentFile(documentId: number): Promise<Blob> {
   const url = `${API_BASE_URL}/v1/documents/${documentId}/file`
   const response = await fetch(url, {
     method: 'GET',
-    headers: getAuthHeaders(),
+    headers: await getAuthHeaders(),
   })
   return handleBlobResponse(response, 'GET', url, 'Failed to fetch PDF file')
 }
@@ -384,7 +370,7 @@ export async function getScanImageBlob(imageUrl: string): Promise<Blob> {
   const url = getScanImageUrl(imageUrl)
   const response = await fetch(url, {
     method: 'GET',
-    headers: getAuthHeaders(),
+    headers: await getAuthHeaders(),
   })
   return handleBlobResponse(response, 'GET', url, 'Failed to fetch scan image')
 }
