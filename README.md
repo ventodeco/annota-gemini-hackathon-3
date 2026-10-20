@@ -98,12 +98,15 @@ In this split-dev mode, OAuth login does not require `bun run build`.
 
 See `backend/.env.example` for backend configuration options:
 
-- `OPENROUTER_API_KEY` (required): API key for OCR through OpenRouter
+- `AI_PROVIDER`: `minimax` (legacy default), `gemini`, or `routed`.
+- `AI_ROUTING_CONFIG`: required JSON routing-file path in routed mode; see [gateway routing](docs/ai-routing.md).
+- `OPENROUTER_API_KEY` (required in legacy `minimax` mode): API key for OCR through OpenRouter
 - `OPENROUTER_OCR_MODEL`: OCR model (default: `baidu/qianfan-ocr-fast:free`)
-- `MINIMAX_API_KEY` (required): API key for MiniMax annotation and speech
+- `MINIMAX_API_KEY` (required in legacy `minimax` mode): API key for MiniMax annotation and speech
 - `MINIMAX_TEXT_MODEL`: MiniMax Anthropic-compatible text model (default: `MiniMax-M2.7`)
 - `MINIMAX_TTS_MODEL`: MiniMax speech model (default: `speech-2.8-hd`)
 - `MINIMAX_TTS_VOICE_ID`: MiniMax voice ID (default: `Japanese_Whisper_Belle`)
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY`: required only in legacy `gemini` mode. Routed mode requires only the environment keys referenced by active profiles.
 - `DB_CONNECTION_STRING` or `POSTGRES_*` values (required): PostgreSQL connection settings
 - `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` (required): Google OAuth credentials
 - `JWT_SECRET` (required): JWT signing secret, at least 32 characters
@@ -243,7 +246,7 @@ Future phases:
 - Check `MAX_UPLOAD_SIZE` is sufficient for your images
 
 ### AI provider errors
-- Verify `OPENROUTER_API_KEY` and `MINIMAX_API_KEY` are set correctly in `backend/.env`
+- Verify the selected AI mode has its required credentials in `backend/.env`; for routed mode, check active profile references using [the routing guide](docs/ai-routing.md).
 - Check OpenRouter and MiniMax quota, balance, and rate limits
 
 ## License

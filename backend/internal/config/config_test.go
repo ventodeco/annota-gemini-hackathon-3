@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -396,5 +398,53 @@ func TestConfigValidateRejectsWildcardProductionOrigins(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatalf("expected wildcard ALLOWED_ORIGINS to fail in production")
+	}
+}
+
+func TestLoadRoutedConfigOnlyRequiresActiveKeys(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("AI_PROVIDER", "routed")
+	// Synthetic values never trigger provider calls.
+	data := []byte(`{"version":1,"profiles":{"gateway":{"kind":"openrouter","region":"global","base_url":"https://openrouter.test/api/v1","api_key_env":"ROUTED_TEST_KEY","models":{"vision":{"image_input":true,"text_input":true,"text_output":true,"json_mode":"prompt","ocr_output":"json","max_output_tokens":2048},"speech":{"text_input":true,"audio_output":true,"japanese_voices":["ja-test"],"audio_formats":["mp3"]}}}},"tasks":{"ocr":{"profile":"gateway","model":"vision"},"annotation":{"profile":"gateway","model":"vision"},"speech":{"profile":"gateway","model":"speech","voice":"ja-test","format":"mp3"}}}`)
+	filename := filepath.Join(t.TempDir(), "routing.json")
+	if err := os.WriteFile(filename, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AI_ROUTING_CONFIG", filename)
+	t.Setenv("ROUTED_TEST_KEY", "fixture-key")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("MINIMAX_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+	t.Setenv("DB_CONNECTION_STRING", "postgres://test")
+	t.Setenv("JWT_SECRET", "01234567890123456789012345678912")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AIRouting == nil || cfg.AIRouting.Profiles["gateway"].APIKey != "fixture-key" {
+		t.Fatal("routes not resolved")
+	}
+	t.Setenv("ROUTED_TEST_KEY", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("missing active credential accepted")
+	}
+	t.Setenv("AI_ROUTING_CONFIG", filepath.Join(t.TempDir(), "missing.json"))
+	if _, err := Load(); err == nil {
+		t.Fatal("missing routing file accepted")
+	}
+	t.Setenv("AI_ROUTING_CONFIG", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("missing path accepted")
+	}
+}
+
+func TestConfigRejectsRoutingFileInLegacyMode(t *testing.T) {
+	cfg := validConfig()
+	cfg.AIRoutingConfigPath = "routes.json"
+	if cfg.Validate() == nil {
+		t.Fatal("legacy mode silently ignored routing file")
 	}
 }
