@@ -11,6 +11,6 @@ type User struct {
 	PreferredLanguage string
 	// ClerkUserID maps the local profile to its Clerk subject once linked.
 	ClerkUserID *string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
