@@ -6,6 +6,8 @@ import path from 'node:path'
 import ContinuousPDFViewer from '../ContinuousPDFViewer'
 import * as pdfjsLib from 'pdfjs-dist'
 
+const pdfMock = vi.hoisted(() => ({ renderedPages: new Array<number>() }))
+
 const mockOnPageChange = vi.fn()
 const mockOnTextSelect = vi.fn()
 
@@ -64,12 +66,13 @@ vi.mock('pdfjs-dist', () => ({
   version: 'test-version',
   getDocument: vi.fn(() => ({
     promise: Promise.resolve({
-      getPage: vi.fn(() =>
+      getPage: vi.fn((pageNumber: number) =>
         Promise.resolve({
           getViewport: vi.fn(() => ({ width: 400, height: 600 })),
-          render: vi.fn(() => ({
-            promise: Promise.resolve(),
-          })),
+          render: vi.fn(() => {
+            pdfMock.renderedPages.push(pageNumber)
+            return { promise: Promise.resolve() }
+          }),
           getTextContent: vi.fn(() =>
             Promise.resolve({
               items: [],
@@ -92,6 +95,7 @@ vi.mock('pdfjs-dist', () => ({
 describe('ContinuousPDFViewer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    pdfMock.renderedPages.length = 0
     window.getSelection()?.removeAllRanges()
     MockIntersectionObserver.instances = []
     mockIntersectionObserver = MockIntersectionObserver
@@ -270,6 +274,77 @@ describe('ContinuousPDFViewer', () => {
       await waitFor(() => {
         expect(screen.getByText(/Page 1 of 0/)).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Long documents', () => {
+    it('renders only pages near the current page and releases far ones unless they hold the selection', async () => {
+      const renderedPages = pdfMock.renderedPages
+      const props = {
+        pdfUrl: 'long.pdf',
+        totalPages: 10,
+        onPageChange: mockOnPageChange,
+        onTextSelect: mockOnTextSelect,
+        isLoading: false,
+      }
+      const { rerender } = render(<ContinuousPDFViewer {...props} currentPage={1} />)
+
+      await waitFor(() => {
+        expect([...renderedPages].sort((a, b) => a - b)).toEqual([1, 2, 3])
+      })
+      const pageNode = (page: number): HTMLElement => {
+        const node = document.querySelector(`[data-page="${page}"] .pdf-page`)
+        if (!(node instanceof HTMLElement)) {
+          throw new Error(`Expected page ${page}`)
+        }
+        return node
+      }
+      const canvasFor = (page: number): HTMLCanvasElement => {
+        const canvas = pageNode(page).querySelector('canvas')
+        if (!(canvas instanceof HTMLCanvasElement)) {
+          throw new Error(`Expected canvas for page ${page}`)
+        }
+        return canvas
+      }
+      // Unrendered pages take page 1's proportions (600/400) instead of collapsing.
+      const placeholderWidth = Number.parseFloat(pageNode(9).style.width)
+      expect(Number.parseFloat(pageNode(9).style.height)).toBeCloseTo(placeholderWidth * 1.5)
+
+      // The reader selects text on page 2, then scrolls far away.
+      const pageTwoTextLayer = pageNode(2).querySelector('.textLayer')
+      if (!(pageTwoTextLayer instanceof HTMLElement)) {
+        throw new Error('Expected page 2 text layer')
+      }
+      const selectedSpan = document.createElement('span')
+      selectedSpan.textContent = '二ページ目の文章'
+      pageTwoTextLayer.appendChild(selectedSpan)
+      const selection = window.getSelection()
+      if (!selectedSpan.firstChild || !selection) {
+        throw new Error('Expected selection APIs to be available')
+      }
+      const range = document.createRange()
+      range.selectNodeContents(selectedSpan.firstChild)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      fireEvent.mouseUp(pageTwoTextLayer)
+      expect(mockOnTextSelect).toHaveBeenLastCalledWith('二ページ目の文章', 2)
+
+      rerender(<ContinuousPDFViewer {...props} currentPage={8} />)
+
+      await waitFor(() => {
+        expect([...renderedPages].sort((a, b) => a - b)).toEqual([1, 2, 3, 6, 7, 8, 9, 10])
+      })
+      await waitFor(() => {
+        expect(canvasFor(1).width).toBe(0)
+      })
+      // Released pages keep their measured size, so the scroll layout doesn't move.
+      expect(pageNode(1).style.height).toBe('600px')
+      expect(canvasFor(3).width).toBe(0)
+      // The page holding the selection stays rendered and the selection still reports page 2.
+      expect(canvasFor(2).width).toBe(400)
+      expect(pageTwoTextLayer).toContainElement(selectedSpan)
+      expect(mockOnTextSelect).not.toHaveBeenCalledWith('')
+      selection.removeAllRanges()
     })
   })
 

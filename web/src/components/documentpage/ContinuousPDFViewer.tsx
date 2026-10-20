@@ -24,12 +24,18 @@ interface PageContainerProps {
   onSelectionEnd: () => void
   onTextLayerChange: (pageNumber: number, textLayer: HTMLDivElement | null) => void
   onVisible: (pageNumber: number, intersectionRatio: number) => void
-  isVisible: boolean
+  shouldRender: boolean
+  /** Page 1's height/width ratio, used to size a page until it has been measured. */
+  fallbackAspectRatio: number
 }
 
 type PdfPageStyle = CSSProperties & Record<'--scale-factor' | '--total-scale-factor' | '--user-unit', string>
 const VISIBLE_PAGE_THRESHOLD = 0.3
 const SCROLL_PAGE_CHANGE_DELAY_MS = 150
+// Pages this far from the current page keep their canvas and text layer; farther pages are
+// released so a long PDF holds a bounded number of bitmaps.
+const RENDER_WINDOW_PAGES = 2
+const DEFAULT_ASPECT_RATIO = Math.SQRT2
 
 function isSelectionInsideTextLayer(selection: Selection, textLayer: HTMLDivElement): boolean {
   if (selection.rangeCount === 0) {
@@ -45,6 +51,17 @@ function isSelectionInsideTextLayer(selection: Selection, textLayer: HTMLDivElem
   return ancestor ? textLayer.contains(ancestor) : false
 }
 
+async function firstPageAspectRatio(pdf: pdfjsLib.PDFDocumentProxy): Promise<number> {
+  if (pdf.numPages < 1) return DEFAULT_ASPECT_RATIO
+  try {
+    const viewport = (await pdf.getPage(1)).getViewport({ scale: 1 })
+    return viewport.width > 0 && viewport.height > 0 ? viewport.height / viewport.width : DEFAULT_ASPECT_RATIO
+  } catch {
+    // A page that fails here reports its own render error; sizing falls back to A-series.
+    return DEFAULT_ASPECT_RATIO
+  }
+}
+
 function PageRenderer({
   pageNumber,
   pdfDoc,
@@ -52,7 +69,8 @@ function PageRenderer({
   onSelectionEnd,
   onTextLayerChange,
   onVisible,
-  isVisible,
+  shouldRender,
+  fallbackAspectRatio,
 }: PageContainerProps): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
@@ -116,11 +134,39 @@ function PageRenderer({
     }
   }, [pageNumber, onVisible])
 
-  useEffect(() => {
-    if (isVisible && !rendered && !rendering) {
-      renderPage()
+  const releasePage = useCallback((): void => {
+    const canvas = canvasRef.current
+    const textLayerDiv = textLayerRef.current
+    if (!canvas || !textLayerDiv) return
+
+    // Keep a page whose text holds the reader's active selection.
+    const selection = window.getSelection()
+    if (selection && selection.toString().trim() !== '' && isSelectionInsideTextLayer(selection, textLayerDiv)) {
+      return
     }
-  }, [isVisible, rendered, rendering, renderPage])
+
+    textLayerInstance.current?.cancel()
+    textLayerInstance.current = null
+    textLayerDiv.replaceChildren()
+    // Zero-sized canvases free their bitmap; pageStyle keeps the measured size for layout.
+    canvas.width = 0
+    canvas.height = 0
+    setRendered(false)
+  }, [])
+
+  useEffect(() => {
+    if (rendering) return
+    if (shouldRender && !rendered) {
+      renderPage()
+    } else if (!shouldRender && rendered) {
+      releasePage()
+    }
+  }, [shouldRender, rendered, rendering, renderPage, releasePage])
+
+  const placeholderStyle: CSSProperties = {
+    width: `${containerWidth}px`,
+    height: `${containerWidth * fallbackAspectRatio}px`,
+  }
 
   return (
     <div
@@ -128,7 +174,7 @@ function PageRenderer({
       className="flex justify-center p-2"
       data-page={pageNumber}
     >
-      <div className="pdf-page shadow-lg" style={pageStyle ?? undefined}>
+      <div className="pdf-page shadow-lg" style={pageStyle ?? placeholderStyle}>
         <canvas
           ref={canvasRef}
           className="block h-full w-full"
@@ -165,7 +211,8 @@ export default function ContinuousPDFViewer({
   const containerRef = useRef<HTMLDivElement>(null)
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [loadError, setLoadError] = useState<boolean>(false)
-  const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set([1]))
+  const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set())
+  const [fallbackAspectRatio, setFallbackAspectRatio] = useState<number>(DEFAULT_ASPECT_RATIO)
   const [containerWidth, setContainerWidth] = useState<number>(400)
   const visiblePageRatiosRef = useRef<Map<number, number>>(new Map())
   const scrollPageChangeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
@@ -183,7 +230,7 @@ export default function ContinuousPDFViewer({
     const loadPdf = async (): Promise<void> => {
       setLoadError(false)
       setPdfDoc(null)
-      setVisiblePages(new Set([1]))
+      setVisiblePages(new Set())
       visiblePageRatiosRef.current.clear()
       textLayersRef.current.clear()
       didInitialScrollRef.current = false
@@ -191,6 +238,7 @@ export default function ContinuousPDFViewer({
         ensurePdfjsWorker()
         const loadingTask = pdfjsLib.getDocument(getPdfDocumentLoadOptions(pdfUrl))
         const pdf = await loadingTask.promise
+        setFallbackAspectRatio(await firstPageAspectRatio(pdf))
         setPdfDoc(pdf)
       } catch (err) {
         console.error('Failed to load PDF:', err)
@@ -243,6 +291,14 @@ export default function ContinuousPDFViewer({
         })
       } else {
         visiblePageRatiosRef.current.delete(pageNumber)
+        setVisiblePages((prev) => {
+          if (!prev.has(pageNumber)) {
+            return prev
+          }
+          const next = new Set(prev)
+          next.delete(pageNumber)
+          return next
+        })
       }
 
       if (scrollPageChangeTimerRef.current !== null) {
@@ -364,7 +420,8 @@ export default function ContinuousPDFViewer({
               onSelectionEnd={handleSelectionEnd}
               onTextLayerChange={handleTextLayerChange}
               onVisible={handlePageVisible}
-              isVisible={visiblePages.has(pageNum)}
+              shouldRender={visiblePages.has(pageNum) || Math.abs(pageNum - currentPage) <= RENDER_WINDOW_PAGES}
+              fallbackAspectRatio={fallbackAspectRatio}
             />
           )
         })}

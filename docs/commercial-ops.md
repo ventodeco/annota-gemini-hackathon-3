@@ -92,8 +92,8 @@ holds a database-wide advisory lock. Consequences for operators and authors:
 
 ## Release And Rollback
 
-Release publication and deployment automation are not enabled by this CI-only
-change. Issue #43 tracks the remaining runtime checks, pinned release records,
+CI only verifies: it builds and checks the final images but never publishes or
+deploys them, and no release automation exists yet. Issue #43 tracks the remaining runtime checks, pinned release records,
 staging qualification, rollback, and matched backup/restore work in the
 [implementation plan](superpowers/plans/2026-10-20-issue-43-beta-release-readiness.md).
 Do not treat a passing CI run as authorization to deploy production.
@@ -249,17 +249,39 @@ comm -23 /tmp/doc-file-ids /tmp/doc-row-ids      # PDFs with no document row
 
 Older scans store `/uploads/...` in `scans.image_url`. Their file is still named `{scanID}.{ext}`, so the listing covers them.
 
-### Owner actions before public beta
+## Public Beta Launch Gates
 
-- Confirm that production `AI_PROVIDER` and routing profiles match the Privacy Policy. Review the selected
-  providers' data-use and retention terms.
-- Add operator contact details for data requests to the Privacy Policy. Choose the backup retention period.
-- Record the #12 credential revocation/rotation evidence.
-- Confirm the production HTTPS origins (`FRONTEND_BASE_URL`, `ALLOWED_ORIGINS`, `CLERK_AUTHORIZED_PARTIES`).
-- Run the live two-account Clerk sign-in, switch and delete check on desktop and mobile.
+The repository work for the beta baseline (#33) has merged into `dev`, and CI passes. Merged code is not live
+readiness. Do not invite beta users until every row below is done, and record each result in its issue
+without credential values. Production changes and deploys stay separate owner decisions.
+
+| Gate | In the repository (`dev`) | Still needed before beta | Issues |
+| --- | --- | --- | --- |
+| Release safety | CI verifies only; final images carry migrations and assets; PostgreSQL tests run in CI; atomic migrations; `/readyz` | Administrator `ENV_PRODUCTION` protection and default branch `dev` (see Repository Settings Checkpoint); read-only host inspection; a pinned release record with staging and rollback | #43, #50 |
+| Backup and restore | Policy outline only (Backup And Restore) | Real backup/restore scripts for the inspected host layout; approved off-host destination, schedule and alerts; an isolated restore; backup retention stated in the Privacy Policy | #43, #41 |
+| Host and origins | Production refuses a default database password; local Compose binds PostgreSQL/Redis to localhost | `APP_ENV=production`, a non-default database password, private PostgreSQL/Redis, uploads persisted across container replacement, HTTPS `FRONTEND_BASE_URL`/`ALLOWED_ORIGINS`/`CLERK_AUTHORIZED_PARTIES` | #12, #41, #43 |
+| Credentials | Exposure assessment and rotation runbook (Secrets Rotation) | Rotation decision and record; revoke the old Google OAuth client after the Clerk cutover | #12, #39 |
+| Sign-in | Clerk Bearer sessions with Google and email; legacy Google linking by verified subject; tombstoned deletion | Development and production Clerk instances (custom Google credentials in production, email code, origins), keys set privately; live desktop and mobile sign-in; legacy inventory SQL and cutover notice ([`clerk-auth.md`](clerk-auth.md)) | #39 |
+| Privacy and isolation | Two-account isolation tests, no-store caching, file-first deletion, accurate Privacy Policy | Live two-account sign-in, switch and delete, including Clerk-side removal; confirm production AI routes match the Privacy Policy and review the providers' terms; operator contact for data requests; run the orphaned upload sweep once after deploy | #41, #80 |
+| AI routes and models | Configurable routing, `qualify-routes`, provenance, evaluation set ([`ai-routing.md`](ai-routing.md)) | Gateway keys; one bounded live pass per candidate; defaults chosen from passing results. The current OCR default `baidu/qianfan-ocr-fast:free` is not served, so OCR needs a qualified route. Speech voice and listening check | #34, #35 |
+| Usage and cost | Owner-approved daily caps ([`usage-quotas.md`](usage-quotas.md)) | Reconcile provider-reported cost after live calls. The caps limit operations, not spend | #42 |
+| Reader journey | OCR always settles; PDF page identity; error states; intro, sample and first-use guide; lazy signed-in routes; bounded PDF page rendering | One fresh live user: upload, select, explain, listen, save, reopen, delete; real iOS Safari and Android Chrome | #40, #45 |
+| Support and alerts | Copyable request references, user-attributed logs, triage guide ([`beta-triage.md`](beta-triage.md)) | Choose the alert tool, owner and destination, then prove one controlled alert; the Contact Us page and report destination | #44, #80 |
+| Dependencies | Dependabot configuration; Go and Bun runtimes current | Dependabot stays inactive until the default branch is `dev`; confirm alerts and security updates are on. TypeScript 7 and ESLint 10 wait for their plugins; the `braces` advisory (via the shadcn CLI) has no patched release | #36, #50 |
+
+These are disclosed limitations, not launch gates:
+
+- explanations are English only;
+- image-only PDFs are not supported;
+- PDFs whose fonts were embedded as Type 3 may extract garbled text;
+- explanation and speech reservations stranded by a crash mid-request stay charged until the UTC reset.
+
+The Nix development shell is maintained by teammates and is not a launch gate.
 
 ## Billing And Entitlements
 
-- Current entitlement foundation exposes `/v1/entitlements/me` with the active plan and configured usage limits.
-- Until Stripe or another billing provider is added, all users are treated as `free` and constrained by `AI_RATE_LIMIT`, `AI_RATE_LIMIT_WINDOW_SECONDS`, and `MAX_UPLOAD_SIZE`.
+- `/v1/entitlements/me` returns the active plan and the reader's daily usage allowance.
+- There is no billing provider yet, so every user is `free`. The persistent per-feature daily quotas and the
+  global beta budget in [`usage-quotas.md`](usage-quotas.md) apply, together with the `AI_RATE_LIMIT` burst
+  throttle and `MAX_UPLOAD_SIZE`.
 - Paid plans should map provider subscription state to entitlements before raising limits.
