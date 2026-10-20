@@ -45,4 +45,17 @@ describe('DocumentsPage', () => {
     expect(screen.getByText('reader.pdf')).toBeInTheDocument()
     expect(screen.getByText('8 pages, page 3')).toBeInTheDocument()
   })
+
+  it('links each document to its saved annotations', () => {
+    render(
+      <MemoryRouter>
+        <DocumentsPage />
+      </MemoryRouter>
+    )
+
+    expect(screen.getByRole('link', { name: 'View annotations for reader.pdf' })).toHaveAttribute(
+      'href',
+      '/history?documentId=1'
+    )
+  })
 })
