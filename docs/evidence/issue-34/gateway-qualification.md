@@ -27,9 +27,9 @@ The JSON report contains:
 - the selected profile, gateway, region, model and voice/format
 - each attempt's provider request ID, reported model, HTTP status, latency, token/character usage and cost (`null` means the gateway did not report it)
 - a sanitized error kind
-- derived checks: OCR rune count, Japanese-script presence and structured-JSON validity; annotation required-field presence; speech byte count, MIME and MP3 header
+- derived checks: OCR rune count, Japanese-script presence, structured-JSON validity and whether the reported language is Japanese (the language value itself is not copied); annotation required-field presence; speech byte count, MIME and MP3 header
 
-It never contains the sample text, OCR or annotation output, audio, keys or the routing file. A provider ID containing a fragment of the sample or the output is replaced with `[redacted: echoes content]` and fails the run (`metadata_echoes_content`). That answers the request-ID privacy question from the #51 review for the routes actually used. The exit status is nonzero if any task fails.
+It never contains the sample text, OCR or annotation output, audio, keys or the routing file. A provider ID is replaced with `[redacted: echoes content]` and fails the run (`metadata_echoes_content`) if it contains any Japanese script, a fragment of the sample or output, or a complete short sample/output text. Invalid flag values are not echoed in error messages. That answers the request-ID privacy question from the #51 review for the routes actually used. The exit status is nonzero if any task fails.
 
 After a speech run, decode the audio (for example `afconvert /tmp/annota-qualification-speech.mp3 /tmp/annota-qualification-speech.wav -f WAVE -d LEI16` on macOS) and listen for Japanese pronunciation. Delete the sample audio afterwards. Do not commit samples, outputs or audio.
 

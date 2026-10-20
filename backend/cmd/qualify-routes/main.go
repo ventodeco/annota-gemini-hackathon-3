@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -35,8 +34,9 @@ const (
 )
 
 var (
-	allTasks     = []string{"ocr", "annotation", "speech"}
-	languageCode = regexp.MustCompile(`^[A-Za-z-]{1,16}$`)
+	allTasks = []string{"ocr", "annotation", "speech"}
+	// Model output is never copied into the report, including its language field.
+	japaneseLanguageCodes = []string{"ja", "jpn", "ja-jp", "japanese"}
 )
 
 type qualificationReport struct {
@@ -78,20 +78,29 @@ func main() {
 
 func run(ctx context.Context, args []string, lookupEnv func(string) string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("qualify-routes", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	configPath := flags.String("config", lookupEnv("AI_ROUTING_CONFIG"), "routing JSON path (default $AI_ROUTING_CONFIG)")
+	// Parser diagnostics quote invalid values, which may be sample text.
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "", "routing JSON path (default $AI_ROUTING_CONFIG)")
 	taskList := flags.String("tasks", strings.Join(allTasks, ","), "comma-separated tasks to qualify")
 	live := flags.Bool("live", false, "make one real, possibly billed, call per selected task")
 	imagePath := flags.String("image", "", "OCR sample page (PNG, JPEG, WebP or GIF)")
 	contextPath := flags.String("context-file", "", "UTF-8 Japanese passage used as annotation context")
 	selection := flags.String("selection", "", "text to annotate and speak; must appear in -context-file when given")
 	audioOut := flags.String("audio-out", "", "new file for synthesized audio, for decoding and listening")
-	if err := flags.Parse(args); err != nil {
-		return exitUsage
-	}
 	usage := func(format string, a ...any) int {
 		fmt.Fprintf(stderr, "qualify-routes: "+format+"\n", a...)
 		return exitUsage
+	}
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			flags.SetOutput(stderr)
+			flags.PrintDefaults()
+			return exitUsage
+		}
+		return usage("invalid flags; run with -h for usage")
+	}
+	if *configPath == "" {
+		*configPath = lookupEnv("AI_ROUTING_CONFIG")
 	}
 	if flags.NArg() > 0 {
 		return usage("unexpected arguments")
@@ -156,7 +165,7 @@ func parseTasks(raw string) ([]string, error) {
 	for _, task := range strings.Split(raw, ",") {
 		task = strings.TrimSpace(task)
 		if !slices.Contains(allTasks, task) {
-			return nil, fmt.Errorf("unknown task %q; use ocr, annotation or speech", task)
+			return nil, errors.New("unknown task; use ocr, annotation or speech")
 		}
 		if !slices.Contains(tasks, task) {
 			tasks = append(tasks, task)
@@ -250,9 +259,7 @@ func qualify(ctx context.Context, client ai.Client, task string, in inputs, resu
 			"text_runes":            len([]rune(resp.RawText)),
 			"contains_japanese":     containsJapanese(resp.RawText),
 			"structured_json_valid": resp.StructuredJSON == "" || json.Valid([]byte(resp.StructuredJSON)),
-		}
-		if languageCode.MatchString(resp.Language) {
-			result.Checks["language"] = resp.Language
+			"language_is_japanese":  slices.Contains(japaneseLanguageCodes, strings.ToLower(strings.TrimSpace(resp.Language))),
 		}
 		return []string{resp.RawText, resp.StructuredJSON}, nil
 	case "annotation":
@@ -343,19 +350,26 @@ func (o *observations) take(task string) []ai.CallMetadata {
 	return attempts
 }
 
-// redactEchoes replaces provider IDs that contain a fragment of the sample or
-// its output. Reported models are already validated against the configuration.
+// redactEchoes replaces provider IDs that may carry sample or output text: any
+// Japanese script (real IDs are not expected to contain it), a content
+// fragment, or a complete short text. Reported models are already validated
+// against the configuration.
 func redactEchoes(attempts []ai.CallMetadata, texts []string) bool {
 	fragments := contentFragments(texts)
+	for _, text := range texts {
+		if text = strings.ToLower(strings.TrimSpace(text)); len([]rune(text)) >= 4 {
+			fragments = append(fragments, text)
+		}
+	}
 	echoed := false
 	for i := range attempts {
 		id := strings.ToLower(attempts[i].RequestID)
-		for _, fragment := range fragments {
-			if id != "" && strings.Contains(id, fragment) {
-				attempts[i].RequestID = redactedID
-				echoed = true
-				break
-			}
+		if id == "" {
+			continue
+		}
+		if containsJapanese(id) || slices.ContainsFunc(fragments, func(fragment string) bool { return strings.Contains(id, fragment) }) {
+			attempts[i].RequestID = redactedID
+			echoed = true
 		}
 	}
 	return echoed

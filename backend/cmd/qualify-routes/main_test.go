@@ -30,6 +30,7 @@ type fixture struct {
 	annotationCalls         atomic.Int32
 	speechCalls             atomic.Int32
 	ocrID, ocrLanguage      string
+	ocrRaw                  string
 	annotationStatus        int
 	configPath, imagePath   string
 	contextPath, dir        string
@@ -38,7 +39,7 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	f := &fixture{ocrID: "gen-ocr-1", ocrLanguage: "ja", annotationStatus: http.StatusOK, dir: t.TempDir()}
+	f := &fixture{ocrID: "gen-ocr-1", ocrLanguage: "ja", ocrRaw: ocrText, annotationStatus: http.StatusOK, dir: t.TempDir()}
 	f.env = map[string]string{"QUALIFY_OCR_KEY": "ocr-secret-value", "QUALIFY_ANNOTATION_KEY": "annotation-secret-value", "QUALIFY_SPEECH_KEY": "speech-secret-value"}
 	chat := func(calls *atomic.Int32, key string, content func() (string, string, int)) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +57,7 @@ func newFixture(t *testing.T) *fixture {
 		}))
 	}
 	f.ocr = chat(&f.ocrCalls, f.env["QUALIFY_OCR_KEY"], func() (string, string, int) {
-		return `{"raw_text":"` + ocrText + `","language":"` + f.ocrLanguage + `"}`, f.ocrID, http.StatusOK
+		return `{"raw_text":"` + f.ocrRaw + `","language":"` + f.ocrLanguage + `"}`, f.ocrID, http.StatusOK
 	})
 	f.annotation = chat(&f.annotationCalls, f.env["QUALIFY_ANNOTATION_KEY"], func() (string, string, int) {
 		return annotationContent, "gen-annotation-1", f.annotationStatus
@@ -208,7 +209,7 @@ func TestLiveRunsOneBoundedCallPerTaskWithoutContent(t *testing.T) {
 	if ocr.Status != "passed" || len(ocr.Attempts) != 1 || ocr.Attempts[0].RequestID != "gen-ocr-1" || ocr.Attempts[0].InputTokens == nil {
 		t.Fatalf("unexpected OCR result: %+v", ocr)
 	}
-	if ocr.Checks["contains_japanese"] != true || ocr.Checks["text_runes"] != float64(len([]rune(ocrText))) || ocr.Checks["language"] != "ja" {
+	if ocr.Checks["contains_japanese"] != true || ocr.Checks["text_runes"] != float64(len([]rune(ocrText))) || ocr.Checks["language_is_japanese"] != true {
 		t.Fatalf("unexpected OCR checks: %+v", ocr.Checks)
 	}
 	annotation := taskResult(t, report, "annotation")
@@ -246,15 +247,64 @@ func TestLiveFlagsAndRedactsEchoedRequestID(t *testing.T) {
 	assertPrivate(t, f, stdout, stderr)
 }
 
-func TestLiveOmitsFreeFormOCRLanguage(t *testing.T) {
-	f := newFixture(t)
-	f.ocrLanguage = "Japanese: 本文です"
-	code, stdout, stderr := f.run(t, f.liveArgs("-tasks", "ocr")...)
-	if code != 0 {
-		t.Fatalf("exit %d: %s", code, stderr)
+func TestLiveNeverReportsOCRLanguageText(t *testing.T) {
+	for _, language := range []string{"Japanese: 本文です", "confidential", "ja"} {
+		t.Run(language, func(t *testing.T) {
+			f := newFixture(t)
+			f.ocrLanguage = language
+			code, stdout, stderr := f.run(t, f.liveArgs("-tasks", "ocr")...)
+			if code != 0 {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			checks := taskResult(t, decodeReport(t, stdout), "ocr").Checks
+			if _, ok := checks["language"]; ok || (language != "ja" && strings.Contains(stdout, language)) {
+				t.Fatal("model language text reported")
+			}
+			if checks["language_is_japanese"] != (language == "ja") {
+				t.Fatalf("unexpected language check: %v", checks["language_is_japanese"])
+			}
+		})
 	}
-	if _, ok := taskResult(t, decodeReport(t, stdout), "ocr").Checks["language"]; ok || strings.Contains(stdout, "本文です") {
-		t.Fatal("free-form language value reported")
+}
+
+func TestLiveFlagsShortJapaneseEchoes(t *testing.T) {
+	tests := []struct{ name, raw, id string }{
+		{"two-rune output", "秘密", "gen-秘密"},
+		{"one-rune selection", ocrText, "gen-検"},
+		{"unrelated Japanese", ocrText, "gen-猫"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.ocrRaw, f.ocrID = tt.raw, tt.id
+			code, stdout, _ := f.run(t, f.liveArgs("-tasks", "ocr")...)
+			ocr := taskResult(t, decodeReport(t, stdout), "ocr")
+			if code != 1 || !ocr.MetadataEchoesContent || ocr.Attempts[0].RequestID != redactedID || strings.Contains(stdout, tt.id) {
+				t.Fatalf("short echo not redacted: exit %d %+v", code, ocr)
+			}
+		})
+	}
+}
+
+func TestLiveFlagsCompleteShortASCIIOutput(t *testing.T) {
+	f := newFixture(t)
+	f.ocrRaw, f.ocrID = "Secret", "gen-secret-1"
+	code, stdout, _ := f.run(t, f.liveArgs("-tasks", "ocr")...)
+	if ocr := taskResult(t, decodeReport(t, stdout), "ocr"); code != 1 || !ocr.MetadataEchoesContent {
+		t.Fatalf("complete ASCII output echo not flagged: exit %d %+v", code, ocr)
+	}
+}
+
+func TestInvalidFlagValuesAreNotEchoed(t *testing.T) {
+	f := newFixture(t)
+	for _, args := range [][]string{{"-live=秘密の本文"}, {"-tasks", "ocr,秘密の本文"}, {"-秘密の本文"}} {
+		code, stdout, stderr := f.run(t, args...)
+		if code != 2 || stdout != "" || stderr == "" || strings.Contains(stderr, "秘密の本文") {
+			t.Fatalf("args %q: exit %d stderr %q", args, code, stderr)
+		}
+	}
+	if f.calls() != [3]int32{} {
+		t.Fatal("invalid flags made requests")
 	}
 }
 
