@@ -218,6 +218,11 @@ func admissibleMax(limit Limit) int64 {
 	return largest
 }
 
+// Age reports how long ago the reservation was admitted, on the meter's clock.
+func (m *Meter) Age(res *Reservation) time.Duration {
+	return m.now().Sub(res.startedAt)
+}
+
 // Release refunds a reservation whose provider call never started.
 func (m *Meter) Release(ctx context.Context, res *Reservation) {
 	m.settle(ctx, res, storage.UsageStatusReleased, storage.UsageCost{CostStatus: costStatusNone})

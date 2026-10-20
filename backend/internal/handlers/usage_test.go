@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,6 +46,7 @@ type countingAIClient struct {
 	mockSpeechAIClient
 	speechCalls atomic.Int32
 	annCalls    atomic.Int32
+	ocrCalls    atomic.Int32
 	ocrErr      error
 }
 
@@ -59,6 +61,7 @@ func (c *countingAIClient) AnnotateWithKnowledge(ctx context.Context, ocrText, s
 }
 
 func (c *countingAIClient) OCR(ctx context.Context, imageData []byte, mimeType string) (*ai.OCRResponse, error) {
+	c.ocrCalls.Add(1)
 	if c.ocrErr != nil {
 		return nil, c.ocrErr
 	}
@@ -318,5 +321,55 @@ func TestUsageStoreUnavailableFailsClosed(t *testing.T) {
 	entitlements.MeAPI(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("entitlements status = %d", rec.Code)
+	}
+}
+
+// slowSaveStorage advances the meter clock while saving, simulating slow
+// pre-dispatch work after the OCR page was admitted.
+type slowSaveStorage struct {
+	mockFileStorage
+	advance func()
+}
+
+func (s *slowSaveStorage) SaveImage(scanID string, data []byte, mimeType string) (string, *string, error) {
+	s.advance()
+	return s.mockFileStorage.SaveImage(scanID, data, mimeType)
+}
+
+func TestCreateScanAPIRefusesOCRDispatchPastWindow(t *testing.T) {
+	var mu sync.Mutex
+	now := time.Now()
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	store := testutil.NewMemoryUsageStore()
+	meter := usage.NewMeterWithClock(store, usage.Limits{usage.FeatureOCR: {User: 5, Global: 10}}, clock).
+		WithStaleReservationTimeout(usage.FeatureOCR, handlers.OCRReservationStaleAfter)
+	slowStorage := &slowSaveStorage{advance: func() { mu.Lock(); now = now.Add(10 * time.Minute); mu.Unlock() }}
+	client := &countingAIClient{}
+	db := testutil.NewMockDB()
+	h := handlers.NewScanHandlers(db, slowStorage, client, &config.Config{MaxUploadSize: 10 * 1024 * 1024}, meter)
+
+	req := buildUploadRequest(t, "/v1/scans")
+	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
+	rec := httptest.NewRecorder()
+	h.CreateScanAPI(rec, req)
+
+	var body handlers.CreateScanResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if rec.Code != http.StatusCreated || body.Status != "failed" || body.FailureReason == nil {
+		t.Fatalf("late dispatch response = %d %+v", rec.Code, body)
+	}
+	// Give a wrongly started goroutine time to call the provider.
+	time.Sleep(50 * time.Millisecond)
+	if calls := client.ocrCalls.Load(); calls != 0 {
+		t.Fatalf("OCR dispatched %d times past the window", calls)
+	}
+	if got := store.Reservations(); len(got) != 1 || got[0].Status != storage.UsageStatusReleased {
+		t.Fatalf("reservations = %+v, want one released", got)
+	}
+	scan, err := db.GetScanByID(context.Background(), body.ScanID)
+	if err != nil || scan == nil || scan.Status != "failed" {
+		t.Fatalf("scan = %+v, %v; want failed", scan, err)
 	}
 }

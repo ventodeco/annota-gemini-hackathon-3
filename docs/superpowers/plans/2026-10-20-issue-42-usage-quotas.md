@@ -227,3 +227,10 @@ So a live process settles well within 15m, and anything older is abandoned. The 
 2. Meter: does a user at the limit with only a stale reservation get admitted again, and does `Snapshot` show the refund?
 
 Required gates run once in CI.
+
+### PR #73 review round 1 (Sol, REQUEST_CHANGES on 70bf846), resolved
+
+- **P2: the cutoff could refund live work.** Admission happens before the account lock, `CreateScan` and the uncancellable `SaveImage`, so slow pre-dispatch work could start OCR after the reservation had already expired.
+  - **Fix:** `CreateScanAPI` dispatches OCR only while `meter.Age(reservation) <= ocrDispatchWindow` (15 − 5 − 1 = 9 minutes). That guarantees a dispatched job's deadline plus its settle completes before the 15-minute expiry. Past the window the scan is marked failed (`ocr_failed`) and the reservation is released, with no provider call.
+  - **Regression:** `TestCreateScanAPIRefusesOCRDispatchPastWindow` (slow `SaveImage` advances the meter clock 10 minutes). It fails without the guard.
+  - #40's 6-minute interruption boundary is unaffected: it measures from the scan, and dispatch follows scan creation immediately.
