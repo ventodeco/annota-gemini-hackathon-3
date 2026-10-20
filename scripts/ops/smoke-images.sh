@@ -18,9 +18,11 @@ backend_image="${BACKEND_IMAGE:-annota-be:issue-43}"
 frontend_image="${FRONTEND_IMAGE:-annota-fe:issue-43}"
 postgres_image="${SMOKE_POSTGRES_IMAGE:-postgres:14}"
 redis_image="${SMOKE_REDIS_IMAGE:-redis:7-alpine}"
+probe_image="${SMOKE_PROBE_IMAGE:-python:3.12-alpine}"
 prefix="annota-smoke-$$-${RANDOM}"
 network_created=false
 containers=()
+probe_count=0
 
 cleanup() {
   local status=$?
@@ -49,6 +51,15 @@ start_container() {
   docker start "$name" >/dev/null
 }
 
+run_python() {
+  probe_count=$((probe_count + 1))
+  local name="$prefix-probe-$probe_count"
+  docker create --interactive --name "$name" --network "$prefix" \
+    "$probe_image" python3 - "$@" >/dev/null
+  containers+=("$name")
+  docker start --attach --interactive "$name"
+}
+
 wait_for_command() {
   local attempt
   for ((attempt = 0; attempt < 45; attempt++)); do
@@ -62,7 +73,7 @@ wait_for_command() {
 }
 
 wait_for_http() {
-  python3 - "$1" <<'PY'
+  run_python "$1" <<'PY'
 import sys
 import time
 import urllib.error
@@ -98,11 +109,10 @@ if [[ "$mode" == all || "$mode" == backend ]]; then
     -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=smoke-only -e POSTGRES_DB=annota_smoke \
     "$postgres_image"
   start_container "$prefix-redis" "$redis_image"
-  wait_for_command docker exec "$prefix-pg" pg_isready -U postgres -d annota_smoke
+  wait_for_command docker exec "$prefix-pg" pg_isready -h 127.0.0.1 -U postgres -d annota_smoke
   wait_for_command docker exec "$prefix-redis" redis-cli ping
 
   start_container "$prefix-backend" \
-    -p 127.0.0.1::8080 \
     --tmpfs /app/data/uploads \
     -e "DB_CONNECTION_STRING=postgres://postgres:smoke-only@$prefix-pg:5432/annota_smoke?sslmode=disable" \
     -e "REDIS_ADDR=$prefix-redis:6379" \
@@ -115,8 +125,7 @@ if [[ "$mode" == all || "$mode" == backend ]]; then
     -e JWT_SECRET=smoke-fixture-only-at-least-32-characters \
     -e FRONTEND_BASE_URL=http://localhost:5173 \
     "$backend_image"
-  backend_address="$(docker port "$prefix-backend" 8080/tcp)"
-  wait_for_http "http://$backend_address/healthz"
+  wait_for_http "http://$prefix-backend:8080/healthz"
 
   expected_migrations="$(python3 - "$repo_root/backend/migrations" <<'PY'
 from pathlib import Path
@@ -135,14 +144,13 @@ fi
 
 if [[ "$mode" == all || "$mode" == frontend ]]; then
   docker image inspect --format 'Frontend image: {{.Id}}' "$frontend_image"
-  start_container "$prefix-frontend" -p 127.0.0.1::80 "$frontend_image"
-  frontend_address="$(docker port "$prefix-frontend" 80/tcp)"
-  frontend_url="http://$frontend_address"
+  start_container "$prefix-frontend" "$frontend_image"
+  frontend_url="http://$prefix-frontend:80"
   wait_for_http "$frontend_url/"
   worker_paths="$(docker exec "$prefix-frontend" find /usr/share/nginx/html/assets \
     -type f -name 'pdf.worker*.mjs')"
 
-  python3 - "$frontend_url" "$worker_paths" <<'PY'
+  run_python "$frontend_url" "$worker_paths" <<'PY'
 from html.parser import HTMLParser
 import json
 import sys

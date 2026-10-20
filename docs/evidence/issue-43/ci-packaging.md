@@ -30,6 +30,22 @@ in type 'UserConfigExport'.
 The missing lockfile did not itself stop that Bun install. This is dependency
 drift inside the container, not a reason to change the working Vite config.
 
+## First Packaging Fix Run
+
+Run: https://github.com/ventodeco/annota-gemini-hackathon-3/actions/runs/39361522532
+
+Source commit: `675b249`. Both final images built successfully, so the original
+packaging failures were resolved. Runtime acceptance remained blocked by a
+defect in the new smoke harness: Docker did not publish host ports for
+containers attached only to its internal network. The errors were
+`No public port '80/tcp' published` and `No public port '8080/tcp' published`.
+
+The correction runs the same Python HTTP assertions in disposable probe
+containers on that network, with no published ports. It preserves external
+network isolation and registers probes for cleanup before starting them.
+PostgreSQL readiness explicitly probes TCP to avoid accepting the temporary
+Unix-socket-only bootstrap server. Final runtime results remain pending.
+
 ## Local Verification
 
 These commands passed before submitting the packaging fixes:

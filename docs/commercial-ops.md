@@ -33,15 +33,16 @@ bash scripts/ops/smoke-images.sh
 
 Use `BACKEND_IMAGE` and `FRONTEND_IMAGE` to check different local image references.
 The optional `backend` or `frontend` argument runs only that component, as CI
-does. `SMOKE_POSTGRES_IMAGE` and `SMOKE_REDIS_IMAGE` select dependency images;
-defaults are `postgres:14` and `redis:7-alpine`.
+does. `SMOKE_POSTGRES_IMAGE`, `SMOKE_REDIS_IMAGE`, and `SMOKE_PROBE_IMAGE` select
+dependency/probe images; defaults are `postgres:14`, `redis:7-alpine`, and
+`python:3.12-alpine`.
 
 The script creates a unique internal Docker network and disposable containers.
-Only application HTTP ports are published, on loopback with dynamically
-allocated ports. It removes its containers, anonymous database volumes, and
-network on exit, including failures. It does not connect to production storage
-or services. Provider URLs point to a closed local port, with fixture values
-used only to satisfy startup validation.
+HTTP probes run inside that network; no service ports are published to the host.
+It removes its service/probe containers, anonymous database volumes, and network
+on exit, including failures. It does not connect to production storage or
+services. Provider URLs point to a closed local port, with fixture values used
+only to satisfy startup validation.
 
 Backend checks require migrations in the final image, successful startup, and
 an exact match between migration ledger entries and the source SQL inventory.
