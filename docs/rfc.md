@@ -3,6 +3,10 @@
 ### Status
 Active - React frontend with Go API backend
 
+Identity is now Clerk (Google and email sign-in, `Authorization: Bearer` sessions); see
+[`clerk-auth.md`](clerk-auth.md) and [`backend/docs/api.md`](../backend/docs/api.md). The anonymous session
+cookie and Google OAuth phases below are historical design and no longer describe the app.
+
 ### Summary
 Build a **mobile-first PWA** with two equal input paths:
 1. **Camera/Image**: upload/take a photo of a Japanese book page → **Gemini Flash OCR** to extract text

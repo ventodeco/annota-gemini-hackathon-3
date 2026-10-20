@@ -2,6 +2,7 @@ import { Component, useEffect, useRef, type ErrorInfo, type ReactNode } from 're
 import { Home, RotateCcw } from 'lucide-react'
 
 import { Button, buttonVariants } from '@/components/ui/button'
+import { ChunkLoadError, reloadPage } from '@/lib/lazyRoute'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -13,16 +14,19 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   hasError: boolean
+  // A failed route chunk stays rejected in React.lazy, so only a reload can recover it.
+  reloadOnRetry: boolean
 }
 
 // React has no hook equivalent for catching render errors, so this stays a class.
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = {
     hasError: false,
+    reloadOnRetry: false,
   }
 
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true }
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    return { hasError: true, reloadOnRetry: error instanceof ChunkLoadError }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -31,11 +35,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidUpdate(prevProps: ErrorBoundaryProps) {
     if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false })
+      this.setState({ hasError: false, reloadOnRetry: false })
     }
   }
 
   private handleRetry = () => {
+    if (this.state.reloadOnRetry) {
+      reloadPage()
+      return
+    }
     this.props.onReset?.()
     this.setState({ hasError: false })
   }

@@ -23,13 +23,19 @@ interface PageContainerProps {
   containerWidth: number
   onSelectionEnd: () => void
   onTextLayerChange: (pageNumber: number, textLayer: HTMLDivElement | null) => void
-  onVisible: (pageNumber: number, intersectionRatio: number) => void
-  isVisible: boolean
+  onVisible: (pageNumber: number, intersectionRatio: number, isIntersecting: boolean) => void
+  shouldRender: boolean
+  /** Page 1's height/width ratio, used to size a page until it has been measured. */
+  fallbackAspectRatio: number
 }
 
 type PdfPageStyle = CSSProperties & Record<'--scale-factor' | '--total-scale-factor' | '--user-unit', string>
 const VISIBLE_PAGE_THRESHOLD = 0.3
 const SCROLL_PAGE_CHANGE_DELAY_MS = 150
+// Pages on screen, within this distance of the current page, or holding the selection keep their
+// canvas and text layer; other pages are released so a long PDF holds a bounded number of bitmaps.
+const RENDER_WINDOW_PAGES = 2
+const DEFAULT_ASPECT_RATIO = Math.SQRT2
 
 function isSelectionInsideTextLayer(selection: Selection, textLayer: HTMLDivElement): boolean {
   if (selection.rangeCount === 0) {
@@ -45,6 +51,17 @@ function isSelectionInsideTextLayer(selection: Selection, textLayer: HTMLDivElem
   return ancestor ? textLayer.contains(ancestor) : false
 }
 
+async function firstPageAspectRatio(pdf: pdfjsLib.PDFDocumentProxy): Promise<number> {
+  if (pdf.numPages < 1) return DEFAULT_ASPECT_RATIO
+  try {
+    const viewport = (await pdf.getPage(1)).getViewport({ scale: 1 })
+    return viewport.width > 0 && viewport.height > 0 ? viewport.height / viewport.width : DEFAULT_ASPECT_RATIO
+  } catch {
+    // A page that fails here reports its own render error; sizing falls back to A-series.
+    return DEFAULT_ASPECT_RATIO
+  }
+}
+
 function PageRenderer({
   pageNumber,
   pdfDoc,
@@ -52,7 +69,8 @@ function PageRenderer({
   onSelectionEnd,
   onTextLayerChange,
   onVisible,
-  isVisible,
+  shouldRender,
+  fallbackAspectRatio,
 }: PageContainerProps): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
@@ -103,10 +121,12 @@ function PageRenderer({
     const observer = new IntersectionObserver(
       (entries): void => {
         entries.forEach((entry) => {
-          onVisible(pageNumber, entry.isIntersecting ? entry.intersectionRatio : 0)
+          onVisible(pageNumber, entry.isIntersecting ? entry.intersectionRatio : 0, entry.isIntersecting)
         })
       },
-      { threshold: VISIBLE_PAGE_THRESHOLD }
+      // 0 tracks any overlap for rendering, so a page taller than the viewport still renders;
+      // the visibility threshold drives the current-page report.
+      { threshold: [0, VISIBLE_PAGE_THRESHOLD] }
     )
 
     observer.observe(divRef.current)
@@ -116,11 +136,33 @@ function PageRenderer({
     }
   }, [pageNumber, onVisible])
 
+  const releasePage = useCallback((): void => {
+    const canvas = canvasRef.current
+    const textLayerDiv = textLayerRef.current
+    if (!canvas || !textLayerDiv) return
+
+    textLayerInstance.current?.cancel()
+    textLayerInstance.current = null
+    textLayerDiv.replaceChildren()
+    // Zero-sized canvases free their bitmap; pageStyle keeps the measured size for layout.
+    canvas.width = 0
+    canvas.height = 0
+    setRendered(false)
+  }, [])
+
   useEffect(() => {
-    if (isVisible && !rendered && !rendering) {
+    if (rendering) return
+    if (shouldRender && !rendered) {
       renderPage()
+    } else if (!shouldRender && rendered) {
+      releasePage()
     }
-  }, [isVisible, rendered, rendering, renderPage])
+  }, [shouldRender, rendered, rendering, renderPage, releasePage])
+
+  const placeholderStyle: CSSProperties = {
+    width: `${containerWidth}px`,
+    height: `${containerWidth * fallbackAspectRatio}px`,
+  }
 
   return (
     <div
@@ -128,7 +170,7 @@ function PageRenderer({
       className="flex justify-center p-2"
       data-page={pageNumber}
     >
-      <div className="pdf-page shadow-lg" style={pageStyle ?? undefined}>
+      <div className="pdf-page shadow-lg" style={pageStyle ?? placeholderStyle}>
         <canvas
           ref={canvasRef}
           className="block h-full w-full"
@@ -165,7 +207,9 @@ export default function ContinuousPDFViewer({
   const containerRef = useRef<HTMLDivElement>(null)
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null)
   const [loadError, setLoadError] = useState<boolean>(false)
-  const [visiblePages, setVisiblePages] = useState<Set<number>>(new Set([1]))
+  const [intersectingPages, setIntersectingPages] = useState<Set<number>>(new Set())
+  const [selectionPage, setSelectionPage] = useState<number | null>(null)
+  const [fallbackAspectRatio, setFallbackAspectRatio] = useState<number>(DEFAULT_ASPECT_RATIO)
   const [containerWidth, setContainerWidth] = useState<number>(400)
   const visiblePageRatiosRef = useRef<Map<number, number>>(new Map())
   const scrollPageChangeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
@@ -183,7 +227,8 @@ export default function ContinuousPDFViewer({
     const loadPdf = async (): Promise<void> => {
       setLoadError(false)
       setPdfDoc(null)
-      setVisiblePages(new Set([1]))
+      setIntersectingPages(new Set())
+      setSelectionPage(null)
       visiblePageRatiosRef.current.clear()
       textLayersRef.current.clear()
       didInitialScrollRef.current = false
@@ -191,6 +236,7 @@ export default function ContinuousPDFViewer({
         ensurePdfjsWorker()
         const loadingTask = pdfjsLib.getDocument(getPdfDocumentLoadOptions(pdfUrl))
         const pdf = await loadingTask.promise
+        setFallbackAspectRatio(await firstPageAspectRatio(pdf))
         setPdfDoc(pdf)
       } catch (err) {
         console.error('Failed to load PDF:', err)
@@ -230,17 +276,22 @@ export default function ContinuousPDFViewer({
   }, [currentPage, pdfDoc])
 
   const handlePageVisible = useCallback(
-    (pageNumber: number, intersectionRatio: number) => {
+    (pageNumber: number, intersectionRatio: number, isIntersecting: boolean) => {
+      setIntersectingPages((prev) => {
+        if (prev.has(pageNumber) === isIntersecting) {
+          return prev
+        }
+        const next = new Set(prev)
+        if (isIntersecting) {
+          next.add(pageNumber)
+        } else {
+          next.delete(pageNumber)
+        }
+        return next
+      })
+
       if (intersectionRatio > VISIBLE_PAGE_THRESHOLD) {
         visiblePageRatiosRef.current.set(pageNumber, intersectionRatio)
-        setVisiblePages((prev) => {
-          if (prev.has(pageNumber)) {
-            return prev
-          }
-          const next = new Set(prev)
-          next.add(pageNumber)
-          return next
-        })
       } else {
         visiblePageRatiosRef.current.delete(pageNumber)
       }
@@ -278,6 +329,7 @@ export default function ContinuousPDFViewer({
   const reportSelection = useCallback((clearWhenEmpty: boolean): void => {
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0 || selection.toString().trim() === '') {
+      setSelectionPage(null)
       if (clearWhenEmpty) {
         onTextSelect('')
       }
@@ -287,11 +339,13 @@ export default function ContinuousPDFViewer({
     const selectedText = selection.toString()
     for (const [pageNumber, textLayer] of textLayersRef.current) {
       if (isSelectionInsideTextLayer(selection, textLayer)) {
+        setSelectionPage(pageNumber)
         onTextSelect(selectedText, pageNumber)
         return
       }
     }
 
+    setSelectionPage(null)
     if (clearWhenEmpty) {
       onTextSelect('')
     }
@@ -364,7 +418,12 @@ export default function ContinuousPDFViewer({
               onSelectionEnd={handleSelectionEnd}
               onTextLayerChange={handleTextLayerChange}
               onVisible={handlePageVisible}
-              isVisible={visiblePages.has(pageNum)}
+              shouldRender={
+                intersectingPages.has(pageNum)
+                || pageNum === selectionPage
+                || Math.abs(pageNum - currentPage) <= RENDER_WINDOW_PAGES
+              }
+              fallbackAspectRatio={fallbackAspectRatio}
             />
           )
         })}

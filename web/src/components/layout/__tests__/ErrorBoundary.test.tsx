@@ -3,6 +3,16 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
+import { ChunkLoadError, reloadPage } from '@/lib/lazyRoute'
+
+vi.mock('@/lib/lazyRoute', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/lazyRoute')>()),
+  reloadPage: vi.fn(),
+}))
+
+function ChunkFailureChild(): never {
+  throw new ChunkLoadError(new TypeError('Failed to fetch dynamically imported module'))
+}
 
 function ThrowingChild() {
   throw new Error('render failed')
@@ -51,6 +61,22 @@ describe('ErrorBoundary', () => {
 
     expect(screen.getByRole('heading', { name: 'Something went wrong' })).toHaveFocus()
     expect(screen.getByRole('link', { name: /go to home/i })).toHaveAttribute('href', '/')
+  })
+
+  it('reloads the page when a route chunk failed to load', async () => {
+    const user = userEvent.setup()
+    const onReset = vi.fn()
+
+    render(
+      <ErrorBoundary onReset={onReset}>
+        <ChunkFailureChild />
+      </ErrorBoundary>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /try again/i }))
+
+    expect(reloadPage).toHaveBeenCalledTimes(1)
+    expect(onReset).not.toHaveBeenCalled()
   })
 
   it('runs the reset callback from the retry action', async () => {
