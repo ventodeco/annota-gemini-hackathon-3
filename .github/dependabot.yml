@@ -1,0 +1,63 @@
+version: 2
+
+# Weekly dependency PRs against dev (master is frozen). Minor and patch
+# updates are grouped per ecosystem; majors arrive as separate PRs.
+# Ignored majors are blocked upstream; see
+# docs/superpowers/plans/2026-10-20-dependency-runtime-upgrade.md (#36, #37).
+# PostgreSQL/Redis images in docker-compose.yml are excluded: major upgrades
+# need a data migration tracked in #43.
+updates:
+  - package-ecosystem: bun
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      bun-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # typescript-eslint supports TypeScript <6.1.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      # eslint-plugin-jsx-a11y supports ESLint <=9.
+      - dependency-name: eslint
+        update-types: [version-update:semver-major]
+      - dependency-name: "@eslint/js"
+        update-types: [version-update:semver-major]
+      # Typings must match the Node 24 LTS runtime.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: gomod
+    directory: /backend
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      gomod-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories: [/backend, /web]
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Stay on Node 24 LTS until the next LTS line is adopted.
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+      # 1.31 is nginx mainline; stay on the 1.30 stable line.
+      - dependency-name: nginx
+        versions: [">= 1.31.0, < 1.32.0"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
