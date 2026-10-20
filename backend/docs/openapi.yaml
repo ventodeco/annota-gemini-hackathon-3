@@ -850,6 +850,42 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/documents/{id}/open:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    post:
+      tags: [Documents]
+      summary: Record that a document was opened
+      description: |
+        Sets the document's last opened time (`lastOpenedAt`) to now. It
+        never changes `lastPageNumber`, so opening a document from a stale
+        page can't overwrite progress saved elsewhere. The web reader calls
+        this once each time a document is opened; failures are safe to ignore.
+      operationId: recordDocumentOpen
+      responses:
+        "200":
+          description: Open time recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+              example:
+                status: saved
+        "400":
+          description: "`Invalid document ID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/ai/analyze:
     post:
       tags: [AI]

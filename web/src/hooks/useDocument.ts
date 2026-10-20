@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { deleteDocument, getDocument, getDocumentPage, getDocuments, updateDocumentProgress } from '@/lib/api'
+import { deleteDocument, getDocument, getDocumentPage, getDocuments, recordDocumentOpen, updateDocumentProgress } from '@/lib/api'
 import type { Document, GetDocumentsResponse } from '@/lib/types'
 
 export function useDocument(documentId: number | undefined) {
@@ -50,6 +50,12 @@ export function useUpdateDocumentProgress(documentId: number | undefined) {
         }
       })
     },
+  })
+}
+
+export function useRecordDocumentOpen() {
+  return useMutation({
+    mutationFn: (documentId: number) => recordDocumentOpen(documentId),
   })
 }
 

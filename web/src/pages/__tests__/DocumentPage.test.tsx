@@ -11,6 +11,7 @@ const getDocumentMock = vi.fn()
 const getDocumentFileMock = vi.fn()
 const getDocumentPageMock = vi.fn()
 const updateDocumentProgressMock = vi.fn()
+const recordDocumentOpenMock = vi.fn()
 
 type PageChangeSource = 'scroll' | 'navigation'
 
@@ -43,6 +44,7 @@ vi.mock('@/lib/api', () => ({
   getDocument: (...args: unknown[]) => getDocumentMock(...args),
   getDocumentFile: (...args: unknown[]) => getDocumentFileMock(...args),
   updateDocumentProgress: (...args: unknown[]) => updateDocumentProgressMock(...args),
+  recordDocumentOpen: (...args: unknown[]) => recordDocumentOpenMock(...args),
   getDocumentPage: (...args: unknown[]) => getDocumentPageMock(...args),
   createScanFromPage: vi.fn(),
   analyzeText: vi.fn(),
@@ -113,6 +115,7 @@ describe('DocumentPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     updateDocumentProgressMock.mockResolvedValue({ status: 'saved' })
+    recordDocumentOpenMock.mockResolvedValue({ status: 'saved' })
     getDocumentPageMock.mockResolvedValue({ pageNumber: 1, text: '抽出された本文', totalPages: 3 })
   })
 
@@ -267,6 +270,23 @@ describe('DocumentPage', () => {
     })
 
     expect(screen.queryByLabelText('Annotation drawer')).not.toBeInTheDocument()
+  })
+
+  it('records the open once without saving reading progress', async () => {
+    getDocumentMock.mockResolvedValueOnce({
+      id: 1,
+      filename: 'test.pdf',
+      pageCount: 3,
+      lastPageNumber: 2,
+      createdAt: '2026-03-21',
+    })
+    getDocumentFileMock.mockResolvedValueOnce(new Blob(['fake pdf'], { type: 'application/pdf' }))
+    renderPage()
+
+    await screen.findByTestId('continuous-pdf-viewer')
+    await waitFor(() => expect(recordDocumentOpenMock).toHaveBeenCalledWith(1))
+    expect(recordDocumentOpenMock).toHaveBeenCalledTimes(1)
+    expect(updateDocumentProgressMock).not.toHaveBeenCalled()
   })
 
   it('cancels a pending progress save when scroll returns to the saved page', async () => {

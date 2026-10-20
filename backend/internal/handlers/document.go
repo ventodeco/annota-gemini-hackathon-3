@@ -275,6 +275,13 @@ func (h *DocumentHandlers) DocumentByIDAPI(w http.ResponseWriter, r *http.Reques
 		}
 		h.updateDocumentProgressHandler(w, r, doc)
 
+	case len(parts) == 2 && parts[1] == "open":
+		if r.Method != http.MethodPost {
+			httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+		h.recordDocumentOpenedHandler(w, r, doc)
+
 	default:
 		httputil.WriteJSONError(w, http.StatusNotFound, "Not found")
 	}
@@ -397,6 +404,17 @@ func (h *DocumentHandlers) updateDocumentProgressHandler(w http.ResponseWriter, 
 		return
 	}
 	if err := h.db.UpdateDocumentProgress(r.Context(), doc.ID, userID, req.LastPageNumber); err != nil {
+		httputil.WriteJSONError(w, http.StatusNotFound, "Document not found")
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+// recordDocumentOpenedHandler stamps the open time only. Progress is left to
+// PATCH /progress so an open from a stale page can't overwrite newer progress.
+func (h *DocumentHandlers) recordDocumentOpenedHandler(w http.ResponseWriter, r *http.Request, doc *models.Document) {
+	userID := middleware.GetUserID(r.Context())
+	if err := h.db.RecordDocumentOpened(r.Context(), doc.ID, userID); err != nil {
 		httputil.WriteJSONError(w, http.StatusNotFound, "Document not found")
 		return
 	}

@@ -91,3 +91,35 @@ Files are deliberately limited to these three. Not touched: `HistoryPage`, `Docu
   - The link measures 44px high and resolves to `/history?documentId=9`.
   - The first layout put the link inline, which truncated filenames to about 10 characters at 375px. The link now sits on its own line under the metadata.
 - **Backend:** this workstation has no Go toolchain or Docker. That is a local tooling gap, not an app defect. `TestAnalyzeLoadsServerScanContext` runs in the CI Go job.
+
+## Follow-up: record `last_opened_at` on open (after #40, base `e77cb9f`)
+
+**Gap.** Only `PATCH /v1/documents/{id}/progress` writes `last_opened_at`. `DocumentPage.scheduleProgressSave` skips a page equal to the saved one, so reopening a document on its saved page never updated "Last opened".
+
+**Design.** Add a timestamp-only server operation. Two earlier designs were rejected in PR #77 review:
+- **Re-saving the stored page through PATCH, at R1.** The open record could race a newer page save. The R1 fix serialized the two.
+- **The same approach even when serialized, at R2.** A cached `lastPageNumber` can be older than progress saved from another tab or device, so re-saving it rolls progress back.
+
+**Scope:**
+- **Backend:**
+  - `POST /v1/documents/{id}/open`. It goes through the existing owner-checked `DocumentByIDAPI`.
+  - It calls the new `DB.RecordDocumentOpened`: `UPDATE documents SET last_opened_at, updated_at WHERE id AND user_id`, with `sql.ErrNoRows` returned as 404. It never touches `last_page_number`.
+  - `MockDB` implements the same method.
+- **Frontend:**
+  - `recordDocumentOpen` API call and a `useRecordDocumentOpen` hook.
+  - `DocumentPage` records each route `documentId` once, guarded by a ref so StrictMode and refetches send it only once.
+  - Progress saving is unchanged.
+- **Tests (one focused regression per layer):**
+  - `TestRecordDocumentOpenedKeepsProgress`: the open is stamped and the saved page is kept.
+  - A `DocumentPage` test: the open is recorded once and no progress save is sent.
+
+**Edge cases:**
+- Reopening on the same page updates recency.
+- Another device's newer progress is never overwritten by an open.
+- A failed record is silent, because there is no global mutation error handler, and reading continues.
+- A wrong-owner or missing document gets the existing 403 or 404 from `DocumentByIDAPI`.
+
+**Verification:**
+- `bun run test -- DocumentPage`, lint and build.
+- Backend tests run in CI, because this workstation has no Go toolchain.
+- No screenshots: nothing in the UI changes, and the library already renders `lastOpenedAt` (#74).

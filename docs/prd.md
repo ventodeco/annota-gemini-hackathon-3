@@ -254,6 +254,7 @@ The current backend uses `/v1/...` routes. Product requirements should align to 
 | Document page text | `GET /v1/documents/{id}/pages/{pageNumber}` |
 | PDF page scan bridge | `POST /v1/documents/{id}/pages/{pageNumber}/scan` |
 | Update reading progress | `PATCH /v1/documents/{id}/progress` |
+| Record document opened (last opened time only) | `POST /v1/documents/{id}/open` |
 | Delete document | `DELETE /v1/documents/{id}` |
 | Annotation generation | `POST /v1/ai/analyze` |
 | Speech generation | `POST /v1/ai/speech` |
