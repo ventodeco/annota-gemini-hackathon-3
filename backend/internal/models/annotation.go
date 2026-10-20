@@ -13,6 +13,9 @@ type NuanceData struct {
 	Meaning               string            `json:"meaning"`
 	UsageTiming           string            `json:"usageTiming"`
 	AlternativeMeaning    string            `json:"alternativeMeaning"`
+	// Provenance is echoed by the client from the analyze response; it is only as
+	// trustworthy as the rest of the client-submitted nuance data.
+	Provenance *AIProvenance `json:"provenance,omitempty"`
 }
 
 type PronunciationData struct {

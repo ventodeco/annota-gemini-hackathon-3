@@ -456,7 +456,7 @@ func (h *ScanHandlers) processOCR(ctx context.Context, scanID int64, imageData [
 
 	_ = imageURL
 
-	if err := h.db.UpdateScanOCR(ctx, scanID, ocrResp.RawText, ocrResp.Language); err != nil {
+	if err := h.db.UpdateScanOCR(ctx, scanID, ocrResp.RawText, ocrResp.Language, provenanceFor(h.aiClient, "ocr")); err != nil {
 		log.ErrorWithErr(err, "Failed to update scan OCR in database")
 		return
 	}

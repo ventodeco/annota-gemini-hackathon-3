@@ -55,6 +55,7 @@ func setupTestDB(t *testing.T) DB {
 			user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
 			image_url TEXT,
 			full_ocr_text TEXT,
+			ocr_provenance TEXT,
 			detected_language VARCHAR(10),
 			document_id BIGINT REFERENCES documents(id) ON DELETE SET NULL,
 			page_number INTEGER,
@@ -411,7 +412,7 @@ func TestUpdateScanOCR(t *testing.T) {
 	user := createTestUser(t, store, "scan_ocr")
 	scan := createTestScan(t, store, user.ID, "/uploads/ocr.jpg")
 
-	err := store.UpdateScanOCR(ctx, scan.ID, "recognized text here", "ja")
+	err := store.UpdateScanOCR(ctx, scan.ID, "recognized text here", "ja", nil)
 	if err != nil {
 		t.Fatalf("UpdateScanOCR returned error: %v", err)
 	}

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -229,7 +230,7 @@ func TestDocumentPageScans_Postgres(t *testing.T) {
 		t.Fatalf("failed status not persisted: %+v, %v", got, err)
 	}
 
-	if err := store.UpdateScanOCR(ctx, scan.ID, "再処理された本文", "ja"); err != nil {
+	if err := store.UpdateScanOCR(ctx, scan.ID, "再処理された本文", "ja", nil); err != nil {
 		t.Fatalf("UpdateScanOCR failed: %v", err)
 	}
 	got, err = store.GetScanByID(ctx, scan.ID)
@@ -384,5 +385,60 @@ func TestGetAnnotationsByUserIDAndDocumentPage_Postgres(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestScanOCRProvenance_Postgres(t *testing.T) {
+	store, pool := newMigratedPostgresStore(t)
+	ctx := context.Background()
+	owner := createPGUser(t, store, "provenance")
+	historical := &models.Scan{UserID: owner.ID, ImageURL: "/uploads/old.png", SourceType: "image", Status: "processing", CreatedAt: pgBaseTime}
+	historicalID, err := store.CreateScan(ctx, historical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan := &models.Scan{UserID: owner.ID, ImageURL: "/uploads/new.png", SourceType: "image", Status: "processing", CreatedAt: pgBaseTime}
+	scanID, err := store.CreateScan(ctx, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readProvenance := func(id int64) *models.AIProvenance {
+		t.Helper()
+		var raw []byte
+		if err := pool.QueryRowContext(ctx, "SELECT ocr_provenance FROM scans WHERE id = $1", id).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		if raw == nil {
+			return nil
+		}
+		var p models.AIProvenance
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatalf("stored provenance is not JSON: %v", err)
+		}
+		return &p
+	}
+
+	want := models.AIProvenance{Version: 1, Provider: "routed", Gateway: "openrouter", Region: "global", Model: "google/gemini-3.5-flash-lite", PromptVersion: "ocr-routed-json/1"}
+	if err := store.UpdateScanOCR(ctx, scanID, "駅前の図書館", "ja", &want); err != nil {
+		t.Fatalf("UpdateScanOCR with provenance failed: %v", err)
+	}
+	if got := readProvenance(scanID); got == nil || *got != want {
+		t.Fatalf("stored provenance = %+v, want %+v", got, want)
+	}
+	if got := readProvenance(historicalID); got != nil {
+		t.Fatalf("untouched scan must stay unknown, got %+v", got)
+	}
+
+	// A later result from an unreported producer must not keep the old producer.
+	if err := store.UpdateScanOCR(ctx, scanID, "再処理", "ja", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := readProvenance(scanID); got != nil {
+		t.Fatalf("provenance after unreported OCR = %+v, want NULL", got)
+	}
+	got, err := store.GetScanByID(ctx, scanID)
+	if err != nil || got.FullOCRText == nil || *got.FullOCRText != "再処理" || got.Status != "ready" {
+		t.Fatalf("OCR text not saved alongside provenance: %+v, %v", got, err)
 	}
 }

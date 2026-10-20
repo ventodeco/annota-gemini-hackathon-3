@@ -114,6 +114,17 @@ Structured `AI gateway attempt` logs contain task, profile, gateway, region, sel
 
 Existing route rate limits remain in place. They are not persisted per-user spending budgets. Application reservations/global quotas are tracked separately in #42, and model selection/quality qualification in #35. Gateway key caps are supplementary controls.
 
+## Output provenance
+
+Saved output records which configured producer generated it, so later quality differences can be explained (#35).
+
+- **Fields:** each record holds identifiers only: version, provider mode, gateway, region, configured model and prompt version.
+- **Excluded:** keys, prompts, request IDs, text and usage are never stored. Cost and usage belong to the quota ledger (#42).
+- **OCR results:** stored in the nullable `scans.ocr_provenance` JSONB column (migration 007). A newer OCR result replaces the earlier provenance. A client that does not report a producer stores NULL.
+- **Annotations:** the analyze response includes a `provenance` object. The client echoes it inside `nuance_data` when it saves the annotation. The server keeps it only if it exactly matches the server's own current annotation producer, so a client cannot store arbitrary values such as keys, request IDs or text. A malformed or mismatched value is dropped without rejecting the save. So is a producer change between analyze and save. In those cases the annotation's provenance is unknown.
+- **Historical rows:** existing rows are not backfilled and stay unknown.
+- **`reportedModel`** (the model the gateway reports back) is recorded only when the gateway reports it. Routed calls will populate it from #42's request-scoped call capture once that lands.
+
 ## Migrate an existing install
 
 `AI_PROVIDER=minimax` remains the default and retains OpenRouter OCR plus direct MiniMax annotation/speech settings. `AI_PROVIDER=gemini` retains Gemini and the existing `GEMINI_API_KEY` before `GOOGLE_API_KEY` precedence. Neither legacy mode needs a routing file; supplying `AI_ROUTING_CONFIG` in either mode is an error so it cannot be silently ignored.

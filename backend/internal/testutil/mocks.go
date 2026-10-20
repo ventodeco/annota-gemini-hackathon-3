@@ -24,6 +24,7 @@ type MockDB struct {
 	nextAnnID      int64
 	nextDocID      int64
 	deletedClerk   map[string]bool
+	ocrProvenance  map[int64]*models.AIProvenance
 }
 
 func NewMockDB() *MockDB {
@@ -39,7 +40,16 @@ func NewMockDB() *MockDB {
 		nextAnnID:      1,
 		nextDocID:      1,
 		deletedClerk:   make(map[string]bool),
+		ocrProvenance:  make(map[int64]*models.AIProvenance),
 	}
+}
+
+// ScanOCRProvenance returns the provenance recorded by the last UpdateScanOCR for scanID.
+func (m *MockDB) ScanOCRProvenance(scanID int64) (*models.AIProvenance, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	provenance, ok := m.ocrProvenance[scanID]
+	return provenance, ok
 }
 
 func (m *MockDB) CreateUser(ctx context.Context, user *models.User) error {
@@ -205,10 +215,11 @@ func (m *MockDB) GetScansByUserID(ctx context.Context, userID int64, page, size 
 	return result, nil
 }
 
-func (m *MockDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language string) error {
+func (m *MockDB) UpdateScanOCR(ctx context.Context, scanID int64, text, language string, provenance *models.AIProvenance) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	m.ocrProvenance[scanID] = provenance
 	if scan, ok := m.scans[scanID]; ok {
 		scan.FullOCRText = &text
 		scan.DetectedLanguage = &language

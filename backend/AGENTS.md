@@ -159,7 +159,7 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 - Use `ai.Client` interface for testability
 - Pass `context.Context` for timeout/cancellation control
 - Parse JSON responses carefully; handle malformed responses gracefully
-- Store `model` and `prompt_version` with results for debugging
+- Saved OCR and annotation output carry `models.AIProvenance`: the configured provider, gateway, region, model and prompt version, taken from `ai.ProducerFor`. Bump the matching `PromptVersion*` constant in `internal/ai/provenance.go` whenever a prompt changes; `TestPromptVersionsArePinned` enforces this.
 
 ### Testing
 

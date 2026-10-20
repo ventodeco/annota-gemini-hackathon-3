@@ -47,6 +47,8 @@ type AnalyzeResponse struct {
 	Meaning               string                   `json:"meaning"`
 	UsageTiming           string                   `json:"usageTiming"`
 	AlternativeMeaning    string                   `json:"alternativeMeaning"`
+	// Provenance rides back in nuanceData when the client saves the annotation.
+	Provenance *models.AIProvenance `json:"provenance,omitempty"`
 }
 
 type NuanceSummary struct {
@@ -123,6 +125,7 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 		Meaning:            resp.Meaning,
 		UsageTiming:        resp.WhenToUse,
 		AlternativeMeaning: resp.AlternativeMeanings,
+		Provenance:         provenanceFor(h.aiClient, "annotation"),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -176,6 +179,7 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 		Meaning:            resp.Meaning,
 		UsageTiming:        resp.WhenToUse,
 		AlternativeMeaning: resp.AlternativeMeanings,
+		Provenance:         provenanceFor(h.aiClient, "annotation"),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
