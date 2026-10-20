@@ -157,3 +157,7 @@ Billing or paid plans, model selection (#35), a service layer (#14), auth change
 1. **Legacy clients.** They retry internally and report no attempts, so a final clean rejection could hide an earlier billed attempt. Without observed attempts, only a configuration error raised before any HTTP status is now `released`; everything else is `failed`. Tests added: transport failure then 429, legacy 429, and legacy config error before and after a response.
 2. **Hidden tab across the reset.** It could keep an exhausted allowance because the app disables focus refetching globally. Entitlements now opt in to `refetchOnWindowFocus`, and a regression test covers it (it fails without the fix).
 3. **The 413 `max` exposed the global cap.** It is now derived from the user and per-request limits only. A request larger than the global budget gets the existing `usage_budget_exhausted` error instead. Test added.
+
+## Review round 2 (Sol, REQUEST_CHANGES on ca07cae, one minor finding), resolved
+
+- **A page refunded by failed background OCR could stay hidden until focus or midnight.** An entitlements snapshot taken while OCR still held the page stayed in use after the refund. `useEntitlements` now refreshes at least every 60 s while visible (5 s floor, and still just after the reset). A regression test covers reservation in flight → OCR fails → allowance restored, and fails without the fix.

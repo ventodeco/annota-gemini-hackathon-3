@@ -47,4 +47,26 @@ describe('useEntitlements', () => {
     await waitFor(() => expect(result.current.data?.usage.features[0].remaining).toBe(20))
     expect(fetchEntitlements).toHaveBeenCalledTimes(2)
   })
+  it('shows a page refunded by failed background OCR within a minute', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-10-20T10:00:00Z'))
+    const reset = '2026-10-21T00:00:00Z'
+    const fetchEntitlements = vi
+      .spyOn(api, 'getEntitlements')
+      // Fetched while OCR still holds the last page in reserve.
+      .mockResolvedValueOnce(entitlements(0, reset))
+      // OCR failed and the reservation was refunded.
+      .mockResolvedValue(entitlements(1, reset))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    const { result } = renderHook(() => useEntitlements(), { wrapper })
+    await waitFor(() => expect(result.current.data?.usage.features[0].remaining).toBe(0))
+
+    await act(() => vi.advanceTimersByTimeAsync(61_000))
+
+    await waitFor(() => expect(result.current.data?.usage.features[0].remaining).toBe(1))
+    expect(fetchEntitlements).toHaveBeenCalledTimes(2)
+  })
 })
