@@ -269,6 +269,38 @@ func TestUpdateDocumentProgressSuccess(t *testing.T) {
 	}
 }
 
+func TestRecordDocumentOpenedKeepsProgress(t *testing.T) {
+	h, mockDB := newDocumentHandlers(t)
+	now := time.Now()
+	mockDB.CreateDocument(context.Background(), &models.Document{
+		UserID:         1,
+		FileURL:        "test.pdf",
+		Filename:       "test.pdf",
+		PageCount:      3,
+		FileSize:       100,
+		LastPageNumber: 3,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/documents/1/open", nil)
+	req = req.WithContext(middleware.WithUserID(req.Context(), 1))
+	rec := httptest.NewRecorder()
+
+	h.DocumentByIDAPI(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	doc, _ := mockDB.GetDocumentByID(context.Background(), 1)
+	if doc.LastOpenedAt == nil || doc.LastOpenedAt.Before(now) {
+		t.Fatalf("expected last opened to be recorded, got %v", doc.LastOpenedAt)
+	}
+	if doc.LastPageNumber != 3 {
+		t.Fatalf("expected saved page 3 to be kept, got %d", doc.LastPageNumber)
+	}
+}
+
 func TestDeleteDocumentSuccess(t *testing.T) {
 	h, mockDB := newDocumentHandlers(t)
 	now := time.Now()

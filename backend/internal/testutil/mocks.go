@@ -392,6 +392,19 @@ func (m *MockDB) UpdateDocumentProgress(ctx context.Context, docID, userID int64
 	return sql.ErrNoRows
 }
 
+func (m *MockDB) RecordDocumentOpened(ctx context.Context, docID, userID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if doc, ok := m.documents[docID]; ok && doc.UserID == userID {
+		now := time.Now()
+		doc.LastOpenedAt = &now
+		doc.UpdatedAt = now
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
 func (m *MockDB) DeleteScansByDocument(ctx context.Context, docID, userID int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { deleteDocument, getDocument, getDocumentPage, getDocuments, updateDocumentProgress } from '@/lib/api'
+import { deleteDocument, getDocument, getDocumentPage, getDocuments, recordDocumentOpen, updateDocumentProgress } from '@/lib/api'
 import type { Document, GetDocumentsResponse } from '@/lib/types'
 
 export function useDocument(documentId: number | undefined) {
@@ -30,9 +30,6 @@ export function useUpdateDocumentProgress(documentId: number | undefined) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    // One at a time per document, so an older save (such as the open record)
-    // can never land after a newer page and overwrite it.
-    scope: { id: `document-progress-${documentId}` },
     mutationFn: (lastPageNumber: number) => {
       if (!documentId) throw new Error('Document ID is required')
       return updateDocumentProgress(documentId, lastPageNumber)
@@ -53,6 +50,12 @@ export function useUpdateDocumentProgress(documentId: number | undefined) {
         }
       })
     },
+  })
+}
+
+export function useRecordDocumentOpen() {
+  return useMutation({
+    mutationFn: (documentId: number) => recordDocumentOpen(documentId),
   })
 }
 

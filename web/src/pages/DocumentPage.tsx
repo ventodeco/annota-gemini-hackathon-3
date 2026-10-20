@@ -8,7 +8,7 @@ import Header from '@/components/layout/Header'
 import { AnnotationDrawer } from '@/components/scanpage/AnnotationDrawer'
 import { DEFAULT_MAX_ANNOTATION_VERSIONS, useAnnotationDrawerFlow } from '@/hooks/useAnnotationDrawerFlow'
 import { useAnalyzeText, useCreateAnnotation, useSynthesizeSpeech } from '@/hooks/useAnnotations'
-import { useDocument, useDocumentPage, useUpdateDocumentProgress } from '@/hooks/useDocument'
+import { useDocument, useDocumentPage, useRecordDocumentOpen, useUpdateDocumentProgress } from '@/hooks/useDocument'
 import { useSpeechPlayback } from '@/hooks/useSpeechPlayback'
 import { useTextSelection } from '@/hooks/useTextSelection'
 import { createScanFromPage, getDocumentFile } from '@/lib/api'
@@ -149,15 +149,16 @@ export default function DocumentPage(): ReactElement {
     lastSavedProgressRef.current = document?.lastPageNumber ?? null
   }, [document?.id, document?.lastPageNumber])
 
-  // Opening a document is reading it: save the stored page once per document so
-  // the server records last_opened_at without moving the reading position.
+  // Record each opened document once so the library's "Last opened" updates
+  // even when the reader stays on the saved page. The server only stamps the
+  // time; reading progress is saved separately on page changes.
   const recordedOpenRef = useRef<number | null>(null)
-  const recordOpen = updateProgress.mutate
+  const { mutate: recordOpen } = useRecordDocumentOpen()
   useEffect(() => {
-    if (!document || recordedOpenRef.current === document.id) return
-    recordedOpenRef.current = document.id
-    recordOpen(document.lastPageNumber || 1)
-  }, [document, recordOpen])
+    if (!documentId || recordedOpenRef.current === documentId) return
+    recordedOpenRef.current = documentId
+    recordOpen(documentId)
+  }, [documentId, recordOpen])
 
   useEffect(() => {
     return () => {

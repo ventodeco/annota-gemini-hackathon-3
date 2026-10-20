@@ -42,6 +42,8 @@ type DB interface {
 	GetDocumentByID(ctx context.Context, docID int64) (*models.Document, error)
 	GetDocumentsByUserID(ctx context.Context, userID int64, page, size int) ([]*models.Document, error)
 	UpdateDocumentProgress(ctx context.Context, docID, userID int64, pageNumber int) error
+	// RecordDocumentOpened stamps last_opened_at without touching the saved page.
+	RecordDocumentOpened(ctx context.Context, docID, userID int64) error
 	DeleteDocument(ctx context.Context, docID, userID int64) error
 	DeleteScansByDocument(ctx context.Context, docID, userID int64) error
 	// DeleteDocumentAndPageScans removes a document and all of its page scans
@@ -502,6 +504,23 @@ func (s *postgresDB) UpdateDocumentProgress(ctx context.Context, docID, userID i
 		WHERE id = $3 AND user_id = $4
 	`
 	result, err := s.db.ExecContext(ctx, query, pageNumber, time.Now(), docID, userID)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *postgresDB) RecordDocumentOpened(ctx context.Context, docID, userID int64) error {
+	query := `
+		UPDATE documents
+		SET last_opened_at = $1, updated_at = $1
+		WHERE id = $2 AND user_id = $3
+	`
+	result, err := s.db.ExecContext(ctx, query, time.Now(), docID, userID)
 	if err != nil {
 		return err
 	}

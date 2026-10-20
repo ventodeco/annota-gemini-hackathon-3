@@ -94,23 +94,32 @@ Files are deliberately limited to these three. Not touched: `HistoryPage`, `Docu
 
 ## Follow-up: record `last_opened_at` on open (after #40, base `e77cb9f`)
 
-**Gap.** Only `PATCH /v1/documents/{id}/progress` writes `last_opened_at`. `DocumentPage.scheduleProgressSave` skips a page equal to the saved one, so opening a document and reading the page you left off on never updates "Last opened" in the library.
+**Gap.** Only `PATCH /v1/documents/{id}/progress` writes `last_opened_at`. `DocumentPage.scheduleProgressSave` skips a page equal to the saved one, so reopening a document on its saved page never updated "Last opened".
 
-**Scope (frontend only; no API or schema change):**
-- **`DocumentPage`:** once per loaded document id, send one progress save with the *stored* `lastPageNumber`.
-  - The server then sets `last_opened_at`, and the reading position stays unchanged.
-  - A deep link such as `?page=N` does not move saved progress; page changes still go through the existing debounced `scheduleProgressSave`.
-  - A ref guards against repeats, so React StrictMode and refetches of the same document send only one record.
-- **`DocumentPage.test.tsx`:**
-  - One test asserts that load sends exactly one save with the stored page.
-  - The existing "cancels a pending progress save" test clears that open record before scrolling, so it still asserts that no scroll-triggered save happens.
+**Design.** Add a timestamp-only server operation. Two earlier designs were rejected in PR #77 review:
+- **Re-saving the stored page through PATCH, at R1.** The open record could race a newer page save. The R1 fix serialized the two.
+- **The same approach even when serialized, at R2.** A cached `lastPageNumber` can be older than progress saved from another tab or device, so re-saving it rolls progress back.
+
+**Scope:**
+- **Backend:**
+  - `POST /v1/documents/{id}/open`. It goes through the existing owner-checked `DocumentByIDAPI`.
+  - It calls the new `DB.RecordDocumentOpened`: `UPDATE documents SET last_opened_at, updated_at WHERE id AND user_id`, with `sql.ErrNoRows` returned as 404. It never touches `last_page_number`.
+  - `MockDB` implements the same method.
+- **Frontend:**
+  - `recordDocumentOpen` API call and a `useRecordDocumentOpen` hook.
+  - `DocumentPage` records each route `documentId` once, guarded by a ref so StrictMode and refetches send it only once.
+  - Progress saving is unchanged.
+- **Tests (one focused regression per layer):**
+  - `TestRecordDocumentOpenedKeepsProgress`: the open is stamped and the saved page is kept.
+  - A `DocumentPage` test: the open is recorded once and no progress save is sent.
 
 **Edge cases:**
-- Navigating from one document to another in the same mounted reader records each one.
-- A failed open record is non-blocking: the mutation error is ignored, and reading continues.
-- A page change made quickly after opening sends its own later save, which carries the newer page.
-  - PR #77 review R1 found that the two saves could run concurrently. The older open record could land last and roll progress, the cache and the save refs back to the stored page.
-  - `useUpdateDocumentProgress` now sets a TanStack mutation `scope` per document. Progress saves therefore run one at a time, in call order, for both the server write and the cache update.
-  - Regression test "saves a newer page only after a pending open record finishes": it fails without `scope` (the second save starts while the open record is pending) and passes with it.
+- Reopening on the same page updates recency.
+- Another device's newer progress is never overwritten by an open.
+- A failed record is silent, because there is no global mutation error handler, and reading continues.
+- A wrong-owner or missing document gets the existing 403 or 404 from `DocumentByIDAPI`.
 
-**Verification:** `bun run test -- DocumentPage DocumentsPage`, then lint and build. CI is the full gate. No screenshots: nothing in the UI changes, and the library already renders `lastOpenedAt` (#74).
+**Verification:**
+- `bun run test -- DocumentPage`, lint and build.
+- Backend tests run in CI, because this workstation has no Go toolchain.
+- No screenshots: nothing in the UI changes, and the library already renders `lastOpenedAt` (#74).

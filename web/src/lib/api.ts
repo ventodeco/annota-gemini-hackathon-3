@@ -375,6 +375,12 @@ export async function updateDocumentProgress(
   return handleResponse(response, 'PATCH', url)
 }
 
+export async function recordDocumentOpen(documentId: number): Promise<{ status: 'saved' }> {
+  const url = `${API_BASE_URL}/v1/documents/${documentId}/open`
+  const response = await fetchWithAuth(url, { method: 'POST' })
+  return handleResponse(response, 'POST', url)
+}
+
 export async function deleteDocument(documentId: number): Promise<void> {
   const url = `${API_BASE_URL}/v1/documents/${documentId}`
   const response = await fetchWithAuth(url, { method: 'DELETE' })
