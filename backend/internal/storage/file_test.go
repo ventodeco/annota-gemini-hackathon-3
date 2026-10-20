@@ -173,3 +173,37 @@ func TestCalculateSHA256(t *testing.T) {
 		t.Fatalf("CalculateSHA256() = %q, want %q", hash, expected)
 	}
 }
+
+func TestPDFLifecycle(t *testing.T) {
+	fs, tmpDir := newTestFileStorage(t)
+	data := []byte("%PDF-1.7 test document")
+
+	path, err := fs.SavePDF("42", data)
+	if err != nil {
+		t.Fatalf("SavePDF returned error: %v", err)
+	}
+	if want := filepath.Join(tmpDir, "documents", "42.pdf"); path != want {
+		t.Fatalf("SavePDF path = %q, want %q", path, want)
+	}
+
+	got, err := fs.OpenPDF(path)
+	if err != nil {
+		t.Fatalf("OpenPDF returned error: %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("OpenPDF = %q, want %q", got, data)
+	}
+
+	if err := fs.DeletePDF(path); err != nil {
+		t.Fatalf("DeletePDF returned error: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected PDF to be deleted, stat error = %v", err)
+	}
+	if err := fs.DeletePDF(path); err != nil {
+		t.Fatalf("repeat DeletePDF should be idempotent, got: %v", err)
+	}
+	if _, err := fs.OpenPDF(path); err == nil {
+		t.Fatal("expected error opening deleted PDF")
+	}
+}
