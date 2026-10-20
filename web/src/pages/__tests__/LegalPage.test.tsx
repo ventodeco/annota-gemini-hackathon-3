@@ -11,6 +11,7 @@ describe('LegalPage', () => {
     const processing = screen.getByText(/UCloud AstraFlow \(ModelVerse\) or\s+OpenRouter/i)
     expect(processing).toHaveTextContent(/does not promise zero retention or a particular processing region/i)
     expect(screen.queryByText(/stores .*pronunciation requests/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/usage counts for AI features/i)).toHaveTextContent(/audio is generated\s+on request and not stored/i)
   })
 
   it('explains deletion, retained annotations and backups', () => {

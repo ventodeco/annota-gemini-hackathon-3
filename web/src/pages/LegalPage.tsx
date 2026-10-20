@@ -40,8 +40,8 @@ export default function LegalPage({ kind }: LegalPageProps) {
                 Your ANNOTA account number linked to your Clerk sign-in, your email address, profile
                 image link, and preferred explanation language. Your uploaded PDFs and page images, the
                 text extracted from them, the annotations you save (selected text, surrounding context
-                and the AI explanation), and your reading progress. Text-to-speech audio is generated
-                on request and not stored.
+                and the AI explanation), your reading progress, and usage counts for AI features.
+                Text-to-speech audio is generated on request and not stored.
               </p>
             </PolicySection>
             <PolicySection title="Who processes it">
