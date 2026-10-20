@@ -128,7 +128,8 @@ func main() {
 	authMux.HandleFunc("/v1/documents", documentHandlers.DocumentsAPI)
 	authMux.HandleFunc("/v1/documents/", documentHandlers.DocumentByIDAPI)
 
-	mux.Handle("/v1/", authMiddleware.Handle(authMux))
+	// Every API response is account data or an auth decision; never let browsers or proxies store it.
+	mux.Handle("/v1/", middleware.NoStore(authMiddleware.Handle(authMux)))
 
 	mux.Handle("/", handlers.NewFrontendHandler("web/dist"))
 

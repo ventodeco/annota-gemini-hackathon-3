@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,8 +46,9 @@ type LogEntry struct {
 }
 
 type Logger struct {
-	level     LogLevel
-	output    *os.File
+	level LogLevel
+	// output is shared by derived loggers so SetOutput reaches all of them.
+	output    *atomic.Pointer[os.File]
 	requestID string
 	userID    int64
 	fields    map[string]any
@@ -59,9 +61,11 @@ func init() {
 }
 
 func New(output *os.File, level LogLevel) *Logger {
+	shared := &atomic.Pointer[os.File]{}
+	shared.Store(output)
 	return &Logger{
 		level:  level,
-		output: output,
+		output: shared,
 		fields: make(map[string]any),
 	}
 }
@@ -125,7 +129,7 @@ func (l *Logger) log(level LogLevel, message string, errs ...error) {
 	}
 
 	jsonBytes, _ := json.Marshal(entry)
-	_, writeErr := l.output.Write(append(jsonBytes, '\n'))
+	_, writeErr := l.output.Load().Write(append(jsonBytes, '\n'))
 	if writeErr != nil {
 		log.Printf("Failed to write log: %v", writeErr)
 	}
@@ -202,7 +206,7 @@ func (l *Logger) RequestLog(method, path string, statusCode int, duration time.D
 	}
 
 	jsonBytes, _ := json.Marshal(entry)
-	l.output.Write(append(jsonBytes, '\n'))
+	l.output.Load().Write(append(jsonBytes, '\n'))
 }
 
 func getCaller() string {
@@ -230,6 +234,11 @@ func getStackTrace() string {
 
 func GetDefaultLogger() *Logger {
 	return defaultLogger
+}
+
+// SetOutput redirects the default logger, for example to capture log lines in tests.
+func SetOutput(output *os.File) {
+	defaultLogger.output.Store(output)
 }
 
 func SetLevel(level LogLevel) {

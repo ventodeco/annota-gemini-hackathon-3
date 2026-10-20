@@ -99,7 +99,10 @@ async function fetchWithSession(
     ...(json ? { 'Content-Type': 'application/json' } : {}),
     ...init.headers,
   }
-  const response = await fetch(url, { ...init, headers })
+  // Account data must come from the server every time: the browser HTTP cache
+  // is keyed by URL only, so a stored response (including ones kept from
+  // earlier builds) could be shown to another account or outlive deletion.
+  const response = await fetch(url, { ...init, headers, cache: 'no-store' })
   if (sessionToken) {
     responseTokens.set(response, sessionToken)
   }
@@ -164,7 +167,10 @@ function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response
 
 export async function getUserProfile(): Promise<GetUserProfileResponse> {
   const url = `${API_BASE_URL}/v1/users/me`
-  const response = await fetchWithAuth(url)
+  // This response carries Clear-Site-Data: "cache" (loaded once per sign-in or
+  // account switch). Browsers apply it to a cross-origin API only when the
+  // request is credentialed; the API allows credentials for its exact origins.
+  const response = await fetchWithAuth(url, { credentials: 'include' })
   return handleResponse(response, 'GET', url)
 }
 

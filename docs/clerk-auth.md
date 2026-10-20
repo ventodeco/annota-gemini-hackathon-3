@@ -100,7 +100,8 @@ This inventory has **not** been run against any production database as part of #
 
 `DELETE /v1/users/me` runs these steps in order:
 
-1. Delete uploaded files. If this fails, the request returns 500 and nothing else changes.
+1. Delete uploaded files, including the PDF of a document row whose `file_url` was never recorded (it is found
+   at `UPLOAD_DIR/documents/{id}.pdf`). If this fails, the request returns 500 and nothing else changes.
 2. In one transaction, delete the user row (cascading scans, documents and annotations) and insert the Clerk
    user ID into `deleted_clerk_users`.
 3. Delete the Clerk user through the Backend API. A Clerk 404 counts as success.
@@ -140,7 +141,9 @@ Operator reconciliation:
      ```
   4. Record the request.
 
-No Clerk webhooks are used. End-to-end deletion and isolation verification across accounts is tracked in #41.
+No Clerk webhooks are used. Cross-account isolation, file cleanup and the deletion lifecycle are covered by
+tests and documented in [`commercial-ops.md`](commercial-ops.md#privacy-and-data-lifecycle) (#41). Live
+two-account Clerk verification is still pending owner credentials.
 
 ## Verification status
 

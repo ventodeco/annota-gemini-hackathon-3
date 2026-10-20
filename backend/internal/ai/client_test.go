@@ -337,3 +337,95 @@ func TestGeminiSynthesizeSpeechSendsVerbatimTranscriptAndKeepsWAV(t *testing.T) 
 		t.Fatalf("response = %q (%d bytes), want unchanged WAV", resp.MIMEType, len(resp.Audio))
 	}
 }
+
+// Providers can echo request content or credential fragments in error
+// bodies. ProviderError text is logged, so it must carry only the
+// classification, never provider-supplied text.
+const (
+	errorBodySecretSentinel  = "sk-or-v1-SENTINEL-CREDENTIAL"
+	errorBodyContentSentinel = "SENTINEL-PRIVATE-PAGE-TEXT"
+)
+
+func assertNoProviderText(t *testing.T, err error) *ProviderError {
+	t.Helper()
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("error = %T (%v), want ProviderError", err, err)
+	}
+	for _, sentinel := range []string{errorBodySecretSentinel, errorBodyContentSentinel} {
+		if strings.Contains(err.Error(), sentinel) || strings.Contains(providerErr.Message, sentinel) {
+			t.Fatalf("provider text leaked into error %q", err.Error())
+		}
+	}
+	return providerErr
+}
+
+func TestLegacyHTTPErrorsDoNotKeepProviderBodies(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   int
+		body     string
+		wantKind ErrorKind
+	}{
+		{"auth", http.StatusUnauthorized, `{"error":{"message":"Invalid key ` + errorBodySecretSentinel + `"}}`, ErrorKindAuth},
+		{"quota still classified", http.StatusPaymentRequired, `{"error":"quota exceeded for ` + errorBodyContentSentinel + `"}`, ErrorKindQuota},
+		{"echoed request", http.StatusBadRequest, `{"error":{"message":"bad input: ` + errorBodyContentSentinel + `"}}`, ErrorKindUpstream},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			client := NewClient(ClientConfig{
+				AIProvider:        ProviderMiniMax,
+				OpenRouterAPIKey:  "openrouter-key",
+				OpenRouterBaseURL: server.URL,
+				HTTPClient:        server.Client(),
+			})
+			_, err := client.OCR(context.Background(), []byte("image"), "image/jpeg")
+
+			providerErr := assertNoProviderText(t, err)
+			if providerErr.Kind != tt.wantKind || providerErr.StatusCode != tt.status {
+				t.Fatalf("kind/status = %s/%d, want %s/%d", providerErr.Kind, providerErr.StatusCode, tt.wantKind, tt.status)
+			}
+		})
+	}
+}
+
+func TestMiniMaxStatusErrorsDoNotKeepProviderMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"base_resp":{"status_code":1004,"status_msg":"login fail ` + errorBodySecretSentinel + `"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(ClientConfig{
+		AIProvider:        ProviderMiniMax,
+		MiniMaxAPIKey:     "minimax-key",
+		MiniMaxTTSBaseURL: server.URL,
+		HTTPClient:        server.Client(),
+	})
+	_, err := client.SynthesizeSpeech(context.Background(), "おはよう", "")
+
+	if providerErr := assertNoProviderText(t, err); providerErr.Kind != ErrorKindAuth {
+		t.Fatalf("Kind = %s, want auth", providerErr.Kind)
+	}
+}
+
+func TestGeminiErrorsDoNotKeepProviderMessage(t *testing.T) {
+	sdkErr := genai.APIError{Code: http.StatusForbidden, Status: "403 Forbidden", Message: "permission denied for " + errorBodySecretSentinel + " " + errorBodyContentSentinel}
+
+	err := wrapGeminiError("failed to generate annotation", sdkErr)
+
+	providerErr := assertNoProviderText(t, err)
+	if providerErr.Kind != ErrorKindAuth || providerErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("kind/status = %s/%d, want auth/403", providerErr.Kind, providerErr.StatusCode)
+	}
+	var cause genai.APIError
+	if !errors.As(err, &cause) || cause.Code != http.StatusForbidden {
+		t.Fatal("SDK error should stay available as the unlogged cause")
+	}
+}
