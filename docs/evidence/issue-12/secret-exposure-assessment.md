@@ -20,8 +20,8 @@ listed formats, so it cannot prove that no secret was ever exposed.
 | Tracked env files (`git ls-files`) | No `.env`. Only `.envrc`, `backend/.env.example`, and `web/.env.example`. |
 | Refs scanned | All 22 remote branches plus all 26 `refs/pull/*/head` refs, fetched locally. |
 | Env-like paths ever recorded (`git rev-list --all --objects`) | `.env.example` (root, since removed), `backend/.env.example`, `web/.env.example`, and `.envrc`. No path named `.env`. |
-| Provider key patterns in 1,145 reachable blobs | None: Google API key, Google OAuth client secret, `sk-`/OpenRouter, Clerk secret, AWS access key, GitHub token, or private-key block. |
-| Non-placeholder `*SECRET*`/`*PASSWORD*`/`*TOKEN*` assignments | Only code identifiers and test fixtures in `backend/internal/config/config_test.go`. |
+| Provider key patterns in all 1,166 reachable blobs (no size cap; includes 10 committed `server` build binaries of 14–27 MB) | None of the listed patterns: Google API key, Google OAuth client secret, `sk-`/OpenRouter, Clerk secret, AWS access key, GitHub token, or private-key block. |
+| Non-placeholder `*SECRET*`/`*PASSWORD*`/`*TOKEN*` assignments | Only code identifiers and test fixtures in `backend/internal/config/config_test.go`. Arbitrary high-entropy values without a recognizable prefix (for example, a JWT signing secret or a non-Google OAuth secret) are not detectable by this method. |
 | Ignore rules (`git check-ignore -v`) | `.gitignore:24` ignores `.env` and `web/.env`. `backend/.gitignore:1` ignores `backend/.env`. Docker contexts exclude `**/.env` and `**/.env.*`. |
 | Templates | Placeholder values only. |
 | Default PostgreSQL password | `docker-compose.yml` and `backend/.env.example` use `password`. `config.Load` falls back to `gemini_password`. Production had no guard against either. |

@@ -16,6 +16,11 @@ func TestConfigValidateRejectsDefaultDBPasswordInProduction(t *testing.T) {
 		{"key value template default", "host=db port=5432 user=postgres password=password dbname=gemini_db sslmode=disable", true},
 		{"key value quoted image default", "host=db user=postgres password='postgres' dbname=gemini_db", true},
 		{"key value last password wins", "password=unique-fixture-value host=db password=postgres", true},
+		{"url query password", "postgres://annota@db/annota?password=password", true},
+		{"key value backslash escape", `host=db password=pass\word dbname=annota`, true},
+		{"quoted backslash escape", `host=db password='pass\word' dbname=annota`, true},
+		{"url query overrides userinfo", "postgres://annota:password@db/annota?password=unique-fixture-value", false},
+		{"default inside another quoted value", "host=db password=unique-fixture-value application_name='some password=postgres tag'", false},
 		{"url unique password", "postgres://annota:unique-fixture-value@db/annota", false},
 		{"key value unique password", "host=db user=annota password=unique-fixture-value dbname=annota", false},
 		{"quoted escaped password", `host=db password='pass\'word' dbname=annota`, false},
@@ -24,6 +29,7 @@ func TestConfigValidateRejectsDefaultDBPasswordInProduction(t *testing.T) {
 		{"no password key value", "host=db user=annota dbname=annota", false},
 	}
 
+	t.Setenv("PGPASSWORD", "")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := validConfig()
@@ -38,6 +44,17 @@ func TestConfigValidateRejectsDefaultDBPasswordInProduction(t *testing.T) {
 				t.Fatalf("error must not include the password: %v", err)
 			}
 		})
+	}
+}
+
+func TestConfigValidateRejectsDefaultPGPASSWORDInProduction(t *testing.T) {
+	t.Setenv("PGPASSWORD", "postgres")
+	cfg := validConfig()
+	cfg.AppEnv = "production"
+	cfg.DBConnectionString = "host=db user=annota dbname=annota"
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected default PGPASSWORD to fail in production")
 	}
 }
 

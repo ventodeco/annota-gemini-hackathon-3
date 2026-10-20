@@ -6,7 +6,7 @@
 
 **Architecture:** One production check in `backend/internal/config`, a local-only port binding change in `docker-compose.yml`, and documentation. Auth behavior, env templates, and Clerk-owned configuration do not change.
 
-**Tech Stack:** Go 1.27.3 (`net/url`, `regexp`), Docker Compose YAML, Markdown.
+**Tech Stack:** Go 1.27.3 (`github.com/lib/pq` `NewConfig`), Docker Compose YAML, Markdown.
 
 ## Global Constraints
 
@@ -23,7 +23,7 @@ The issue says real keys were **committed** in `backend/.env`. The repository ev
 
 1. `git ls-files` tracks no `.env` file. Tracked env-like files are `.envrc`, `backend/.env.example`, and `web/.env.example`, plus a plan document whose name contains "credentials".
 2. All 22 remote branches and all 26 `refs/pull/*/head` refs were fetched. `git rev-list --all --objects` finds no path named `.env` in any commit. The only env-like paths ever recorded are `.env.example` (root, since removed), `backend/.env.example`, `web/.env.example`, and `.envrc`.
-3. A redacted pattern scan of all 1,145 reachable blobs found no matches for Google API keys (`AIza…`), Google OAuth client secrets (`GOCSPX-…`), `sk-` style keys, Clerk secret keys, AWS access keys, GitHub tokens, or private-key blocks. Every non-placeholder-looking `*SECRET*/*PASSWORD*/*TOKEN*` assignment it flagged is a code identifier or a test fixture (`config_test.go`, values like `0123…` and `shor…`).
+3. A redacted pattern scan of all 1,166 reachable blobs (no size cap; includes 10 committed `server` binaries) found no matches for Google API keys (`AIza…`), Google OAuth client secrets (`GOCSPX-…`), `sk-` style keys, Clerk secret keys, AWS access keys, GitHub tokens, or private-key blocks. Every non-placeholder-looking `*SECRET*/*PASSWORD*/*TOKEN*` assignment it flagged is a code identifier or a test fixture (`config_test.go`, values like `0123…` and `shor…`).
 4. `.gitignore` (`.env`, `.env.local`, `.env.*.local`) and `backend/.gitignore` (`.env`) ignore `backend/.env`, `web/.env`, and `.env`. `.dockerignore` and `backend/.dockerignore` exclude `**/.env` and `**/.env.*`.
 5. The templates use placeholders only.
 6. The main checkout has no `backend/.env` right now (existence check only; nothing was read).
@@ -48,12 +48,11 @@ The issue says real keys were **committed** in `backend/.env`. The repository ev
 **Behavior:**
 
 - Only when `AppEnv == "production"`: extract the password from `DBConnectionString` and fail with an error if it exactly matches `gemini_password`, `password`, or `postgres`. The error message must not include the value.
-- URL DSNs (`postgres://`, `postgresql://`): password from `url.Parse(...).User.Password()`.
-- Key/value DSNs: last `password=` value, with an optional single-quoted value and lib/pq-style `\'` and `\\` escapes.
-- No password present: allowed (it may come from `PGPASSWORD` or `.pgpass`). A DSN that cannot be parsed is left to the driver.
+- Resolve the effective password with `pq.NewConfig(DBConnectionString)`, the same lib/pq v1.12.3 parser the server uses through `sql.Open("postgres", ...)`. This covers URL userinfo, `?password=` query precedence, key/value quoting and backslash escapes, and `PGPASSWORD` fallback. (Review round 1 found that a hand-written regex/URL parser diverged from the driver.)
+- No password resolved: allowed (it may come from `.pgpass`, which is out of scope). A DSN the driver cannot parse is left to the driver, which fails on connect.
 - Development or any other `APP_ENV`: unchanged, so local defaults and the smoke script (`APP_ENV=development`) keep working.
 
-**Edge cases tested:** URL and key/value forms, quoted key/value, an unset `POSTGRES_PASSWORD` in production through `Load` (built-in default), a strong password in production accepted, a default password in development accepted, and an error message that omits the password.
+**Edge cases tested:** URL and key/value forms, quoted key/value, URL query password and its precedence over userinfo, backslash escapes, `password=` text inside another quoted parameter, `PGPASSWORD`, an unset `POSTGRES_PASSWORD` in production through `Load` (built-in default), a strong password in production accepted, a default password in development accepted, and an error message that omits the password.
 
 ## Task 2: Bind local compose services to loopback
 

@@ -11,7 +11,7 @@ for line in objs:
     if len(parts) == 2:
         paths.setdefault(parts[0], set()).add(parts[1])
 batch = run("cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)", inp="\n".join(paths).encode()).decode().splitlines()
-blobs = [l.split()[0] for l in batch if l.split()[1] == "blob" and int(l.split()[2]) < 2_000_000]
+blobs = [l.split()[0] for l in batch if l.split()[1] == "blob"]
 RULES = {
   "google-api-key": re.compile(rb"AIza[0-9A-Za-z_\-]{35}"),
   "google-oauth-client-secret": re.compile(rb"GOCSPX-[0-9A-Za-z_\-]{20,}"),
