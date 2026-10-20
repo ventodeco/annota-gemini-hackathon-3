@@ -1,15 +1,15 @@
-package handlers
+package services
 
 import (
 	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/models"
 )
 
-// provenanceFor returns the configured producer of task output, or nil when the
+// ProvenanceFor returns the configured producer of task output, or nil when the
 // client does not report one so the output is stored as unknown. calls are the
 // request's recorded gateway attempts (usage.Calls); the provider-reported model
 // is added only from the final successful attempt for task, when approved.
-func provenanceFor(client ai.Client, task string, calls []ai.CallMetadata) *models.AIProvenance {
+func ProvenanceFor(client ai.Client, task string, calls []ai.CallMetadata) *models.AIProvenance {
 	if client == nil {
 		return nil
 	}

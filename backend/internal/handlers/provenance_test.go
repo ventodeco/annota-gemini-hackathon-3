@@ -75,7 +75,7 @@ func TestProcessOCRStoresProducerProvenance(t *testing.T) {
 				t.Fatal(err)
 			}
 			h := NewScanHandlers(db, nil, tt.client, &config.Config{}, provenanceTestMeter())
-			h.processOCR(context.Background(), nil, scanID, []byte("image"), "image/png", "scan.png")
+			h.scans.ProcessOCR(context.Background(), nil, scanID, []byte("image"), "image/png")
 
 			got, recorded := db.ScanOCRProvenance(scanID)
 			if !recorded {
@@ -256,7 +256,7 @@ func TestRoutedProvenanceRecordsReportedModel(t *testing.T) {
 			t.Fatal(err)
 		}
 		png := []byte("\x89PNG\r\n\x1a\n")
-		NewScanHandlers(db, nil, client, &config.Config{}, meter).processOCR(ctx, reservation, scanID, png, "image/png", "scan.png")
+		NewScanHandlers(db, nil, client, &config.Config{}, meter).scans.ProcessOCR(ctx, reservation, scanID, png, "image/png")
 		got, _ := db.ScanOCRProvenance(scanID)
 		want := configured
 		want.PromptVersion, want.ReportedModel = ai.PromptVersionOCRRoutedJSON, "test-vision-20261020"
@@ -272,7 +272,7 @@ func TestRoutedProvenanceRecordsReportedModel(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		NewScanHandlers(db, nil, client, &config.Config{}, provenanceTestMeter()).processOCR(context.Background(), nil, scanID, []byte("\x89PNG\r\n\x1a\n"), "image/png", "scan.png")
+		NewScanHandlers(db, nil, client, &config.Config{}, provenanceTestMeter()).scans.ProcessOCR(context.Background(), nil, scanID, []byte("\x89PNG\r\n\x1a\n"), "image/png")
 		got, _ := db.ScanOCRProvenance(scanID)
 		if got == nil || got.ReportedModel != "" || got.Model != "test-vision" {
 			t.Fatalf("provenance = %+v, want configured producer with unknown reported model", got)

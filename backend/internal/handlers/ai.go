@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/gemini-hackathon/app/internal/ai"
 	"github.com/gemini-hackathon/app/internal/httputil"
@@ -14,23 +12,22 @@ import (
 	"github.com/gemini-hackathon/app/internal/logger"
 	"github.com/gemini-hackathon/app/internal/middleware"
 	"github.com/gemini-hackathon/app/internal/models"
+	"github.com/gemini-hackathon/app/internal/services"
 	"github.com/gemini-hackathon/app/internal/storage"
 	"github.com/gemini-hackathon/app/internal/usage"
 )
 
 type AIHandlers struct {
-	db        storage.DB
+	ai        *services.AIService
 	aiClient  ai.Client
 	knowledge knowledge.Service
-	meter     *usage.Meter
 }
 
 func NewAIHandlers(db storage.DB, aiClient ai.Client, knowledgeSvc knowledge.Service, meter *usage.Meter) *AIHandlers {
 	return &AIHandlers{
-		db:        db,
+		ai:        services.NewAIService(db, aiClient, knowledgeSvc, meter),
 		aiClient:  aiClient,
 		knowledge: knowledgeSvc,
-		meter:     meter,
 	}
 }
 
@@ -88,41 +85,34 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.db.GetUserByID(r.Context(), userID)
-	if err != nil {
-		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to get user")
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Database error")
-		return
-	}
-
-	if user == nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
-		return
-	}
-
-	// Lookup knowledge context for the selected text
-	entries := h.knowledge.Lookup(req.TextToAnalyze)
-	contextText, ok := h.resolveAnalyzeContext(w, r, userID, req)
-	if !ok {
-		return
-	}
-
 	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
-	usageCtx, reservation, err := h.meter.Reserve(r.Context(), userID, usage.FeatureExplanation, 1)
+	analysis, err := h.ai.Analyze(r.Context(), userID, services.AnalyzeRequest{
+		Text:    req.TextToAnalyze,
+		Context: req.Context,
+		ScanID:  req.ScanID,
+	})
 	if err != nil {
-		writeUsageError(w, err, log)
+		var admission *services.AdmissionError
+		switch {
+		case errors.Is(err, services.ErrStorage):
+			log.ErrorWithErr(err, "Failed to get user")
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "Database error")
+		case errors.Is(err, services.ErrUserNotFound):
+			httputil.WriteJSONError(w, http.StatusNotFound, "User not found")
+		case errors.Is(err, services.ErrScanNotFound):
+			httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
+		case errors.Is(err, services.ErrScanForbidden):
+			httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
+		case errors.As(err, &admission):
+			writeUsageError(w, admission.Err, log)
+		default:
+			log.ErrorWithErr(err, "Failed to generate annotation")
+			writeAIProviderError(w, err, "Failed to analyze text")
+		}
 		return
 	}
 
-	// Call AI provider with knowledge context
-	resp, err := h.aiClient.AnnotateWithKnowledge(usageCtx, contextText, req.TextToAnalyze, entries)
-	h.meter.Finish(usageCtx, reservation, err)
-	if err != nil {
-		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to generate annotation")
-		writeAIProviderError(w, err, "Failed to analyze text")
-		return
-	}
-
+	resp := analysis.Annotation
 	response := AnalyzeResponse{
 		Translation:           resp.Translation,
 		ContextualExplanation: resp.ContextualExplanation,
@@ -137,7 +127,7 @@ func (h *AIHandlers) AnalyzeAPI(w http.ResponseWriter, r *http.Request) {
 		Meaning:            resp.Meaning,
 		UsageTiming:        resp.WhenToUse,
 		AlternativeMeaning: resp.AlternativeMeanings,
-		Provenance:         provenanceFor(h.aiClient, "annotation", usage.Calls(usageCtx)),
+		Provenance:         analysis.Provenance,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -191,7 +181,7 @@ func (h *AIHandlers) AnalyzeWithLanguageAPI(w http.ResponseWriter, r *http.Reque
 		Meaning:            resp.Meaning,
 		UsageTiming:        resp.WhenToUse,
 		AlternativeMeaning: resp.AlternativeMeanings,
-		Provenance:         provenanceFor(h.aiClient, "annotation", nil),
+		Provenance:         services.ProvenanceFor(h.aiClient, "annotation", nil),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -221,19 +211,15 @@ func (h *AIHandlers) SpeakAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Speech is charged per character of the spoken selection; context is not spoken.
-	log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
-	units := int64(utf8.RuneCountInString(req.HighlightedText))
-	usageCtx, reservation, err := h.meter.Reserve(r.Context(), userID, usage.FeatureSpeech, units)
+	resp, err := h.ai.Speak(r.Context(), userID, req.HighlightedText, req.ContextText)
 	if err != nil {
-		writeUsageError(w, err, log)
-		return
-	}
-
-	resp, err := h.aiClient.SynthesizeSpeech(usageCtx, req.HighlightedText, req.ContextText)
-	h.meter.Finish(usageCtx, reservation, err)
-	if err != nil {
-		logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).ErrorWithErr(err, "Failed to synthesize speech")
+		log := logger.GetDefaultLogger().WithRequestID(middleware.GetRequestID(r.Context())).WithUserID(userID)
+		var admission *services.AdmissionError
+		if errors.As(err, &admission) {
+			writeUsageError(w, admission.Err, log)
+			return
+		}
+		log.ErrorWithErr(err, "Failed to synthesize speech")
 		writeAIProviderError(w, err, "Failed to synthesize speech")
 		return
 	}
@@ -302,53 +288,6 @@ func summarizeNuance(nuance models.NuanceData) string {
 		return nuance.Meaning[:100] + "..."
 	}
 	return nuance.Meaning
-}
-
-func (h *AIHandlers) resolveAnalyzeContext(w http.ResponseWriter, r *http.Request, userID int64, req AnalyzeRequest) (string, bool) {
-	if req.ScanID == nil || *req.ScanID <= 0 {
-		return req.Context, true
-	}
-
-	scan, err := h.db.GetScanByID(r.Context(), *req.ScanID)
-	if err != nil || scan == nil {
-		httputil.WriteJSONError(w, http.StatusNotFound, "Scan not found")
-		return "", false
-	}
-	if scan.UserID != userID {
-		httputil.WriteJSONError(w, http.StatusForbidden, "Access denied")
-		return "", false
-	}
-	if scan.FullOCRText == nil || *scan.FullOCRText == "" {
-		return req.Context, true
-	}
-	return contextWindow(*scan.FullOCRText, req.TextToAnalyze, 12000), true
-}
-
-func contextWindow(fullText, selectedText string, maxRunes int) string {
-	full := []rune(fullText)
-	if len(full) <= maxRunes {
-		return fullText
-	}
-
-	selectedIndex := strings.Index(fullText, selectedText)
-	if selectedIndex < 0 {
-		return string(full[:maxRunes])
-	}
-
-	center := len([]rune(fullText[:selectedIndex]))
-	start := center - maxRunes/2
-	if start < 0 {
-		start = 0
-	}
-	end := start + maxRunes
-	if end > len(full) {
-		end = len(full)
-		start = end - maxRunes
-		if start < 0 {
-			start = 0
-		}
-	}
-	return string(full[start:end])
 }
 
 func (h *AIHandlers) createAnalyzePrompt(targetLanguage, textToAnalyze, context string) string {
